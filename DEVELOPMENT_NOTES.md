@@ -232,6 +232,26 @@ Stage plan: 1 = Atlas DB + Live Explorer (done, v2.3); 2 = Go to Room (done, v2.
 3 = arrow detection + coloured overlay + which exit was used; then
 exploration queue, connection graph.
 
+## SK Brain (stage B1 done, not released)
+
+`puzzle_assistant/brain/` - UI-free knowledge foundation (no Tkinter; the app
+runs it in its own threads). `knowledge.db` (in the data folder): contributors,
+sources (with content hash + private flag), sections (page context), claims
+(origin, status, scope, version), evidence (direct / confirmation / derived /
+assertion), claim_links (supports, contradicts, derived_from, supersedes,
+duplicate_of), claim_versions, claim_events, meta (schema_version, local_user).
+Rules in `store.py`: new claims are submitted + personal; only `review()` sets
+verified and only with direct/confirmation evidence (same material counts
+once, assertions never); corrections add versions; contradictions flag both;
+private evidence blocks sharing. Quiz memory and World Atlas are read through
+`adapters.py` (SQLite `mode=ro`, never created/modified), statuses mapped.
+`Brain` API: learn, add_source, add_section, add_evidence, link, review,
+correct, propose_share, claim, explain, search (B1: word overlap), ask (B1:
+reports hits, never answers). Not wired into the app yet.
+Next (each needs approval): B2 ranked retrieval (FTS5 - check availability on
+Windows), B3 reasoning, B4 corrections workflow, B5 importer, B6 test bench.
+Stage 1 (engine processing identity) is parked as an unreleased WIP commit.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the

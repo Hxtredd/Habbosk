@@ -1,0 +1,127 @@
+"""The SK Brain's public API - the one entry point for every module.
+
+    from puzzle_assistant.brain import Brain
+    brain = Brain()                       # %APPDATA%\\SK Assistant\\knowledge.db
+    hits = brain.search("¿Dónde está el Gran Casino?")
+    cid = brain.learn("El Gran Casino está junto al Spa.", origin="imported",
+                      subject="Gran Casino", category="lugares")
+    brain.add_evidence(cid, "direct", source_id=..., locator="...")
+    brain.review(cid, "verified", note="matches the map screenshot")
+
+All calls are synchronous and UI-free: the application decides whether to
+run them in a background thread. Nothing here imports Tkinter.
+
+Stage status: B1 = storage, provenance, statuses, versions, adapters and a
+basic word-overlap search. Ranked retrieval (B2), the reasoning that turns
+hits into an answer (B3), the page importer (B5) and the test bench (B6) are
+added behind these same methods.
+"""
+from __future__ import annotations
+
+import os
+from typing import Dict, List, Optional
+
+from .adapters import AtlasAdapter, QuizMemoryAdapter, overlap_score
+from .model import BrainAnswer, Hit
+from .store import BrainError, KnowledgeStore
+
+__all__ = ["Brain", "BrainError"]
+
+
+def _default_paths():
+    from ..config import DATA_DIR
+    return (os.path.join(DATA_DIR, "knowledge.db"), os.path.join(DATA_DIR, "habbosk.db"),
+            os.path.join(DATA_DIR, "atlas.db"))
+
+
+class Brain:
+    def __init__(self, knowledge_path: Optional[str] = None, quiz_path: Optional[str] = None,
+                 atlas_path: Optional[str] = None):
+        k, q, a = _default_paths() if knowledge_path is None else (knowledge_path, None, None)
+        self.store = KnowledgeStore(knowledge_path or k)
+        # other modules, read-only (never created, migrated or modified here)
+        self.sources = [QuizMemoryAdapter(quiz_path if quiz_path is not None else (q or "")),
+                        AtlasAdapter(atlas_path if atlas_path is not None else (a or ""))]
+
+    def close(self) -> None:
+        self.store.close()
+        for s in self.sources:
+            s.close()
+
+    # -- who --------------------------------------------------------------------
+    @property
+    def local_user(self) -> str:
+        return self.store.local_user
+
+    # -- adding knowledge -----------------------------------------------------------
+    def add_source(self, kind: str, **kw) -> int:
+        return self.store.add_source(kind, **kw)
+
+    def add_section(self, source_id: int, text: str, heading_path: str = "", position: int = 0) -> int:
+        return self.store.add_section(source_id, text, heading_path, position)
+
+    def learn(self, text: str, origin: str, subject: str = "", category: str = "",
+              section_id: Optional[int] = None, by: Optional[str] = None) -> int:
+        """Record a statement. It starts as 'submitted' (never verified)."""
+        return self.store.add_claim(text, origin, by, subject, category, section_id)
+
+    def add_evidence(self, claim_id: int, kind: str, source_id: Optional[int] = None,
+                     locator: str = "", by: Optional[str] = None) -> int:
+        return self.store.add_evidence(claim_id, kind, source_id, locator, by)
+
+    def link(self, from_claim: int, to_claim: int, kind: str, by: Optional[str] = None) -> None:
+        self.store.link(from_claim, to_claim, kind, by)
+
+    # -- reviewing / correcting -------------------------------------------------------
+    def review(self, claim_id: int, status: str, reviewer: Optional[str] = None,
+               note: str = "") -> None:
+        self.store.review(claim_id, status, reviewer, note)
+
+    def correct(self, claim_id: int, new_text: str, reason: str = "", by: Optional[str] = None) -> int:
+        return self.store.correct(claim_id, new_text, by, reason)
+
+    def propose_share(self, claim_id: int, by: Optional[str] = None) -> None:
+        self.store.propose_share(claim_id, by)
+
+    # -- reading -------------------------------------------------------------------------
+    def claim(self, claim_id: int) -> Optional[dict]:
+        return self.store.claim(claim_id)
+
+    def explain(self, claim_id: int) -> Dict[str, object]:
+        """Everything behind one claim: evidence, its summary, links, history."""
+        return {"claim": self.store.claim(claim_id),
+                "evidence": self.store.evidence(claim_id),
+                "support": self.store.evidence_summary(claim_id),
+                "links": self.store.links(claim_id),
+                **self.store.history(claim_id)}
+
+    def search(self, query: str, limit: int = 10, modules: Optional[List[str]] = None) -> List[Hit]:
+        """Relevant knowledge from the library and the other modules.
+        B1: basic word overlap (B2 replaces the ranking, same interface)."""
+        hits: List[Hit] = []
+        if modules is None or "library" in modules:
+            for c in self.store.claims(limit=5000):
+                score = overlap_score(query, f"{c['text']} {c['subject'] or ''} {c['category'] or ''}")
+                if score > 0 and c["status"] != "rejected":
+                    s = self.store.evidence_summary(c["id"])
+                    hits.append(Hit("library", str(c["id"]), c["text"], c["status"], c["origin"],
+                                    score, c["category"] or "",
+                                    [f"{s['direct']} direct, {s['confirmations']} confirmations, "
+                                     f"{s['assertions']} unsupported statements"],
+                                    {"version": c["version"], "scope": c["scope"]}))
+        for src in self.sources:
+            if modules is None or src.module in modules:
+                hits += src.search(query, limit)
+        hits.sort(key=lambda h: -h.score)
+        return hits[:limit]
+
+    def ask(self, question: str) -> BrainAnswer:
+        """Placeholder until the reasoning layer (B3): reports what was found
+        and never invents an answer."""
+        hits = self.search(question)
+        return BrainAnswer(question, answered=False, basis="insufficient", confidence="none",
+                           hits=hits, trace=[f"found {len(hits)} related records",
+                                             "reasoning layer not built yet (stage B3): no answer given"])
+
+    def stats(self) -> dict:
+        return self.store.stats()
