@@ -44,6 +44,9 @@ def _filler(b, n=10000):
 
 def scenarios(root):
     import test_brain_retrieval as T
+    from puzzle_assistant.brain import retrieve as R
+    R.VERIFY_FAST = False         # importing the test module turns checking on: time the real path
+    R.EXHAUSTIVE = False
     b = Brain(os.path.join(root, "speed.db"), "", "")
     _filler(b)
     T.load_original(b, True)
