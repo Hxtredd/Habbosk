@@ -354,6 +354,126 @@
    "note": "not on the map; info panel hidden - name from the name bar only; game says '¡No hay entrevista por ahora, vuelve luego!'"
   },
   {
+   "room_id": 50,
+   "name": "car",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "97327e99-image.png"
+   ],
+   "note": "owner HabboSK; looks like a casino (Bally's slot machines, VIP sign) - maybe the Gran Casino interior or an unfinished room; name is just 'car'"
+  },
+  {
+   "room_id": 65,
+   "name": "El Bingo",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "79df11a7-image.png"
+   ],
+   "note": "owner Keysha (player room); event/mini-game room"
+  },
+  {
+   "room_id": 70,
+   "name": "Carrera de la muerte",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "854e3e43-image.png"
+   ],
+   "note": "owner Keysha (player room); event/mini-game room"
+  },
+  {
+   "room_id": 72,
+   "name": "La ruleta",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "61c73d49-image.png"
+   ],
+   "note": "owner Keysha (player room); event/mini-game room"
+  },
+  {
+   "room_id": 73,
+   "name": "Huye de los zombies",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "b7304420-image.png"
+   ],
+   "note": "owner Keysha (player room); event/mini-game room"
+  },
+  {
+   "room_id": 76,
+   "name": "Duelo del Viejo Oeste",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "unknown",
+   "evidence": [
+    "b7c35138-image.png"
+   ],
+   "note": "owner Keysha (player room); event/mini-game room"
+  },
+  {
+   "room_id": 78,
+   "name": "Grítaselo al Orangután",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "f840a88d-image.png"
+   ],
+   "note": "owner Keysha (player room); event/mini-game room"
+  },
+  {
+   "room_id": 79,
+   "name": "Banzai Suertudo",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "5675a9ec-image.png"
+   ],
+   "note": "owner Keysha (player room); event/mini-game room"
+  },
+  {
+   "room_id": 81,
+   "name": "Modelo de Apartamento",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "unknown",
+   "evidence": [
+    "624ddf03-image.png"
+   ],
+   "note": "owner Keysha (player room)"
+  },
+  {
+   "room_id": 82,
+   "name": "Corre por tu fruta",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "d4c04490-image.png"
+   ],
+   "note": "owner Keysha (player room); event/mini-game room"
+  },
+  {
+   "room_id": 94,
+   "name": "Boxeo",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "b9ddb24d-image.png"
+   ],
+   "note": "owner Keysha (player room); event/mini-game room"
+  },
+  {
+   "room_id": 104,
+   "name": "JUEGO EL BANCO",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "unknown",
+   "evidence": [
+    "5f504a91-image.png"
+   ],
+   "note": "owner Keysha (player room); event/mini-game room"
+  },
+  {
    "room_id": 441,
    "name": "Interior, Departamento Atención Ciudadana",
    "verification": "screenshot: share-panel ID + name bar + info panel agree",
@@ -374,12 +494,40 @@
    "note": "owner Rofteck (player room, not HabboSK)"
   },
   {
+   "room_id": 12399,
+   "name": "Academia SK FC",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "739b1340-image.png"
+   ]
+  },
+  {
+   "room_id": 12401,
+   "name": "Cine de Ensenada",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "149d414d-image.png"
+   ],
+   "note": "a fire event was shown: 'Incendio · Cine de Ensenada, Bomberos en camino'"
+  },
+  {
    "room_id": 12407,
    "name": "Biblioteca de Ensenada",
    "verification": "share-panel ID + name bar (screenshot)",
    "arrived_by": "see observed.json",
    "evidence": [
     "73ac114c-image.png"
+   ]
+  },
+  {
+   "room_id": 12418,
+   "name": "Club Neón",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "ae4e7538-image.png"
    ]
   }
  ],

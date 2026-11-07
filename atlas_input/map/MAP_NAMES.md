@@ -4,15 +4,15 @@ Map names from hover screenshots. Room IDs from share-panel screenshots/recordin
 
 | Marker | Map name | Type | Room ID | Room name |
 |---|---|---|---|---|
-| P7 | Academia SK FC | place |  |  |
+| P7 | Academia SK FC | place | 12399 | Academia SK FC |
 | P1 | Aerotienda | place |  |  |
 | P26 | Apartamentos | place | 14 | Apartamentos Hialeah |
 | P24 | Ayuntamiento | place | 13 | Ayuntamiento de Ensenada |
 | P2 | Banco | place | 3 | Banco de Ensenada |
 | P28 | Biblioteca | place | 12407 | Biblioteca de Ensenada |
 | P16 | Cementerio | place |  |  |
-| P31 | Cine de Ensenada | place |  |  |
-| P11 | Club Neón | place |  |  |
+| P31 | Cine de Ensenada | place | 12401 | Cine de Ensenada |
+| P11 | Club Neón | place | 12418 | Club Neón |
 | P33 | Concesionario | place | 7 | Tienda de Autos |
 | P20 | Corte Suprema | place |  |  |
 | P18 | Gimnasio | place | 5 | Gimnasio Olimpo |

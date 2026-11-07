@@ -110,12 +110,14 @@
    "x": 868,
    "y": 128,
    "name": "Academia SK FC",
-   "room_id": null,
+   "room_id": 12399,
    "name_source": "map hover label",
    "evidence": [
     "9cba2c08-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Academia SK FC",
+   "room_link": "exact name match"
   },
   {
    "marker": "P8",
@@ -162,12 +164,14 @@
    "x": 995,
    "y": 179,
    "name": "Club Neón",
-   "room_id": null,
+   "room_id": 12418,
    "name_source": "map hover label",
    "evidence": [
     "23c50724-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Club Neón",
+   "room_link": "exact name match"
   },
   {
    "marker": "P12",
@@ -444,12 +448,14 @@
    "x": 125,
    "y": 385,
    "name": "Cine de Ensenada",
-   "room_id": null,
+   "room_id": 12401,
    "name_source": "map hover label",
    "evidence": [
     "876be5be-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Cine de Ensenada",
+   "room_link": "exact name match"
   },
   {
    "marker": "P32",
