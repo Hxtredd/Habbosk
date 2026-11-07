@@ -1,0 +1,4 @@
+*.bat text eol=crlf
+README.txt text eol=crlf
+*.traineddata binary
+*.zip binary
