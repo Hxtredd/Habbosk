@@ -337,6 +337,53 @@ contributors' data; `qa/memory.py` merge_from builds the same unescaped
 read-only URI (main app, untouched).
 Stage 1 (engine processing identity) is parked as an unreleased WIP commit.
 
+B2 validation, round 2 (not released). Fixed, each with a regression test
+shown to fail without it: a claim's personal-era history (old wordings,
+correction notes, evidence events) is no longer shown to others after it is
+shared - others see history from `share_proposed` on; `approve_share` needs a
+moderator's `verified` review AFTER the proposal (the owner's own
+verification no longer reaches the shared library); search (and conflict
+partners) shows only shared + own claims, also for moderators (proposals are
+reviewed through claim()/claims()/explain(), never found by search); evidence
+from a `user_statement` source counts as an assertion; FTS5 failure in word
+counts falls back; a knowledge.db from a NEWER version is refused unchanged.
+Retrieval: the sentence's first word alone is not a name ("Cuántas",
+"Room"); lowercase one-word subjects ("trading") are topics, not required
+subjects; a partial name of several known names ("the Faro") is ambiguous,
+offered both ways, never resolved, other places ranked below.
+Evaluation set 2: `python tests/brain_eval_city.py` (Ciudad Coral,
+SK-BRAIN-EVAL-002: 37 claims, 4 users, 47 questions, status audit and a
+privacy sweep of every read path).
+
+Multi-user readiness (assessment, nothing built). The data model already
+has: owner per claim, personal / shared_candidate / shared scopes, viewer
+filtering in every read (in SQL for lists and search), moderator-only review
+and approval of shared knowledge, evidence rules, append-only history.
+Must change before real multi-user use:
+1. Authentication: `viewer` / `by` are trusted arguments and default to the
+   local user. A server must take the identity from the session, make it
+   mandatory, and never accept it from the client.
+2. Contributors / roles: `add_contributor(kind="moderator")` lets the caller
+   create moderators. Roles need an admin-only path, an audit trail, and
+   revocation (a demoted moderator's past approvals stay recorded).
+3. One database per installation today. A server needs a real multi-writer
+   database (or one file per user + a shared library), backups that respect
+   per-user deletion, and retention rules.
+4. Opaque IDs: sequential claim/source IDs reveal how many exist; use random
+   public IDs (keep integers internally).
+5. Two-person rule (policy decision): a moderator can still propose, review
+   and approve their own claim; decide whether a second moderator is needed.
+6. Store helpers without a viewer (`source()`, `evidence()`,
+   `evidence_summary()`, `_claim()`): fine behind the current API, but a
+   server API must expose only the viewer-checked calls.
+7. Deletion / "forget me": nothing can be deleted yet (append-only); accounts
+   need deletion of personal data, including history and backups.
+8. Rate limits / spam for contributions and proposals; moderator queue.
+9. Contributor IDs appear in shared history (`by`); decide what others may
+   see of who contributed (pseudonymous IDs today, no names).
+10. Local adapters (quiz memory, World Atlas) are only for the local user;
+    a server would need per-user copies or treat them as shared sources.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the

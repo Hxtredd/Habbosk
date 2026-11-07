@@ -249,6 +249,7 @@ class PermissionTests(unittest.TestCase):
         self.b.add_evidence(c, "direct", s, by=self.mod)
         self.b.review(c, "verified", reviewer=self.mod)
         self.b.propose_share(c, by=self.mod)
+        self.b.review(c, "verified", reviewer=self.mod)  # moderator's own review
         self.b.approve_share(c, self.mod)
         return c
 
@@ -336,6 +337,116 @@ class PermissionTests(unittest.TestCase):
             for t in ("%", "_", "' OR 1=1 --"):
                 self.assertEqual(self.b.store.claims(text_like=t, viewer=self.luis), [])
         self.assertTrue(self.b.search("Secret Room room ID"))  # the owner finds it
+
+
+class SharingAuditTests(unittest.TestCase):
+    """Second audit round: sharing, history, moderators, evidence quality."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.b = Brain(os.path.join(self.dir, "k.db"), "", "")
+        st = self.b.store
+        self.ana = self.b.local_user
+        self.luis = st.add_contributor("Luis", "external_user")
+        self.mod = st.add_contributor("Mod", "moderator")
+
+    def tearDown(self):
+        self.b.close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _evidence(self, c, who, ref):
+        s = self.b.add_source("screenshot", title="shot", reference=ref, by=who)
+        self.b.add_evidence(c, "direct", s, by=who)
+
+    def test_personal_history_stays_with_its_owner_after_sharing(self):
+        c = self.b.learn("Meet me at my house, room 4471023, password tulip.", "user", "Spa")
+        self.b.correct(c, "The Spa is on Avenida Espumia.", reason="removed my house 4471023")
+        self._evidence(c, self.ana, "s://spa")
+        self.b.propose_share(c)
+        self.b.review(c, "verified", reviewer=self.mod)
+        self.b.approve_share(c, self.mod)
+        for who in (self.luis, self.mod):
+            e = self.b.explain(c, viewer=who)
+            self.assertEqual(e["versions"], [])
+            blob = repr(e)
+            for secret in ("4471023", "tulip", "house"):
+                self.assertNotIn(secret, blob)
+            self.assertEqual([x["event"] for x in e["events"]],
+                             ["share_proposed", "reviewed", "share_approved"])
+        own = self.b.explain(c)                              # the owner keeps everything
+        self.assertEqual(own["versions"][0]["text"],
+                         "Meet me at my house, room 4471023, password tulip.")
+        self.assertEqual(own["events"][0]["event"], "created")
+
+    def test_sharing_needs_a_moderator_review_of_the_proposal(self):
+        c = self.b.learn("The mine has 3 levels.", "user", "Mine", by=self.luis)
+        self._evidence(c, self.luis, "s://mine")
+        self.b.review(c, "verified", reviewer=self.luis)     # the owner's own verification
+        self.b.propose_share(c, by=self.luis)
+        with self.assertRaises(BrainError):
+            self.b.approve_share(c, self.mod)
+        self.assertEqual(self.b.claim(c, viewer=self.mod)["scope"], "shared_candidate")
+        self.b.review(c, "verified", reviewer=self.mod)
+        self.b.approve_share(c, self.mod)
+        self.assertEqual(self.b.claim(c, viewer=self.ana)["scope"], "shared")
+
+    def test_a_review_before_the_proposal_does_not_count(self):
+        c = self.b.learn("The bank opens at 9.", "user", "Bank", by=self.mod)
+        self._evidence(c, self.mod, "s://bank")
+        self.b.review(c, "verified", reviewer=self.mod)      # while personal
+        self.b.propose_share(c, by=self.mod)
+        with self.assertRaises(BrainError):
+            self.b.approve_share(c, self.mod)
+
+    def test_moderators_review_proposals_but_never_find_them_by_search(self):
+        p = self.b.learn("Leo's secret room is 5550001.", "user", "Leo", by=self.luis)
+        self.b.propose_share(p, by=self.luis)
+        self.assertIsNotNone(self.b.claim(p, viewer=self.mod))      # reviewable
+        self.assertEqual(self.b.search("Leo secret room 5550001", viewer=self.mod), [])
+        self.assertEqual(self.b.stats(viewer=self.mod)["claims"], 1)   # stats: review view
+        # nor through a contradiction with something the moderator can find
+        mine = self.b.learn("Leo's room is 5550002.", "user", "Leo", by=self.mod)
+        self.b.link(mine, p, "contradicts", by=self.mod)
+        found = [h.record_id for h in self.b.search("Leo room", viewer=self.mod)]
+        self.assertIn(str(mine), found)
+        self.assertNotIn(str(p), found)
+
+    def test_ones_own_statement_is_not_evidence(self):
+        c = self.b.learn("The bank opens at 9.", "user", "Bank")
+        said = self.b.add_source("user_statement", title="I said so", reference="me")
+        self.b.add_evidence(c, "direct", said)
+        self.b.add_evidence(c, "confirmation", said)
+        s = self.b.explain(c)["support"]
+        self.assertEqual((s["direct"], s["confirmations"], s["assertions"]), (0, 0, 2))
+        with self.assertRaises(BrainError):
+            self.b.review(c, "verified")
+        self._evidence(c, self.ana, "s://bank")              # a real screenshot does count
+        self.b.review(c, "verified")
+
+    def test_a_newer_database_is_refused_unchanged(self):
+        path = os.path.join(self.dir, "newer.db")
+        Brain(path, "", "").close()
+        con = sqlite3.connect(path)
+        con.execute("UPDATE meta SET value='9' WHERE key='schema_version'")
+        con.commit()
+        con.close()
+        with open(path, "rb") as fh:
+            before = fh.read()
+        with self.assertRaises(BrainError) as err:
+            Brain(path, "", "")
+        self.assertIn("newer", str(err.exception))
+        with open(path, "rb") as fh:
+            self.assertEqual(fh.read(), before)
+        os.remove(path)                                      # and the file was released
+
+    def test_fts_breaking_in_word_counts_falls_back(self):
+        self.b.learn("The Demo Garden has room ID 900001.", "user", "Demo Garden")
+        want = self.b.store.visible_term_counts(None, ["garden", "room"], use_fts=False)
+        self.b.store._db.execute("DROP TABLE claim_fts")
+        self.b.store._db.commit()
+        self.assertEqual(self.b.store.visible_term_counts(None, ["garden", "room"],
+                                                          use_fts=True), want)
+        self.assertFalse(self.b.store.fts)
 
 
 if __name__ == "__main__":

@@ -172,11 +172,13 @@ class KnowledgeStore:
                 self._db.execute("DELETE FROM meta WHERE key='fts_stale'")
             self._db.commit()
 
-    def _visible_sql(self, viewer: Optional[str], alias: str = "c"):
-        """WHERE-clause part that keeps only claims `viewer` may see."""
+    def _visible_sql(self, viewer: Optional[str], alias: str = "c", review: bool = True):
+        """WHERE-clause part that keeps only claims `viewer` may see. With
+        review=False (search), other people's proposals are left out even for
+        moderators: unreviewed proposals are for reviewing, not for answers."""
         viewer = viewer or self.local_user
         r = self._db.execute("SELECT kind FROM contributors WHERE id=?", (viewer,)).fetchone()
-        mod = bool(r) and r[0] in MODERATOR_KINDS
+        mod = review and bool(r) and r[0] in MODERATOR_KINDS
         clause = (f"({alias}.scope='shared' OR {alias}.owner_id=?"
                   + (f" OR {alias}.scope='shared_candidate'" if mod else "") + ")")
         return clause, [viewer]
@@ -188,7 +190,7 @@ class KnowledgeStore:
         the same test in Python - identical eligibility)."""
         use_fts = self.fts if use_fts is None else (use_fts and self.fts)
         with self._lock:
-            vis, args = self._visible_sql(viewer)
+            vis, args = self._visible_sql(viewer, review=False)
             q = ("SELECT c.id, c.text, c.subject, c.category, c.status, c.origin, c.scope, "
                  "c.owner_id, c.version, i.terms, i.subject_terms, i.norm, i.subject_norm, "
                  "i.positive "
@@ -214,7 +216,7 @@ class KnowledgeStore:
     def visible_subjects(self, viewer: Optional[str]) -> List[tuple]:
         """(subject, normalised subject) of the viewer's visible claims."""
         with self._lock:
-            vis, args = self._visible_sql(viewer)
+            vis, args = self._visible_sql(viewer, review=False)
             return [tuple(r) for r in self._db.execute(
                 f"SELECT DISTINCT c.subject, i.subject_norm FROM claims c JOIN claim_index i "
                 f"ON i.claim_id = c.id WHERE {vis} AND c.subject != ''", args)]
@@ -229,7 +231,7 @@ class KnowledgeStore:
 
     def visible_count(self, viewer: Optional[str]) -> int:
         with self._lock:
-            vis, args = self._visible_sql(viewer)
+            vis, args = self._visible_sql(viewer, review=False)
             return self._db.execute(f"SELECT COUNT(*) FROM claims c WHERE {vis}", args).fetchone()[0]
 
     def visible_term_counts(self, viewer: Optional[str], words: List[str],
@@ -239,14 +241,19 @@ class KnowledgeStore:
         use_fts = self.fts if use_fts is None else (use_fts and self.fts)
         out: Dict[str, int] = {}
         with self._lock:
-            vis, args = self._visible_sql(viewer)
+            vis, args = self._visible_sql(viewer, review=False)
             if use_fts:
-                for w in words:
-                    out[w] = self._db.execute(
-                        f"SELECT COUNT(*) FROM claims c WHERE {vis} AND c.id IN "
-                        "(SELECT rowid FROM claim_fts WHERE claim_fts MATCH ?)",
-                        args + ['"%s"' % w.replace('"', '')]).fetchone()[0]
-                return out
+                try:
+                    for w in words:
+                        out[w] = self._db.execute(
+                            f"SELECT COUNT(*) FROM claims c WHERE {vis} AND c.id IN "
+                            "(SELECT rowid FROM claim_fts WHERE claim_fts MATCH ?)",
+                            args + ['"%s"' % w.replace('"', '')]).fetchone()[0]
+                    return out
+                except sqlite3.Error:        # FTS5 broke while running: count in Python
+                    self._fts_off()
+                    self._db.commit()
+                    out = {}
             rows = self._db.execute(f"SELECT i.terms FROM claims c JOIN claim_index i "
                                     f"ON i.claim_id = c.id WHERE {vis}", args).fetchall()
         sets = [set(r[0].split()) for r in rows]
@@ -260,6 +267,10 @@ class KnowledgeStore:
         if cur is None:                      # brand-new file: created at the latest version
             self._set_meta("schema_version", str(SCHEMA_VERSION))
             return
+        if int(cur) > SCHEMA_VERSION:        # e.g. after rolling back to an older SK version
+            raise BrainError(f"this knowledge database was made by a newer SK Assistant (format "
+                             f"{cur}, this version knows {SCHEMA_VERSION}); it was not opened, "
+                             "so nothing in it was changed - please update SK Assistant")
         for v in range(int(cur) + 1, SCHEMA_VERSION + 1):
             for sql in MIGRATIONS.get(v, []):
                 try:
@@ -303,6 +314,10 @@ class KnowledgeStore:
         return r[0]
 
     # -- isolation -------------------------------------------------------------------
+    def searchable(self, c: Optional[dict], viewer: Optional[str]) -> bool:
+        """May `c` appear in viewer's search results: shared, or their own."""
+        return c is not None and (c["scope"] == "shared" or c["owner_id"] == (viewer or self.local_user))
+
     def can_see(self, c: dict, viewer: Optional[str]) -> bool:
         """Personal / candidate claims belong to their owner; shared ones to all.
         Moderators also see candidates (to review them)."""
@@ -456,12 +471,23 @@ class KnowledgeStore:
                          (claim_id, event, old, new, by, _now(), note, related))
 
     def history(self, claim_id: int, viewer: Optional[str] = None) -> Dict[str, list]:
+        """Events and earlier wordings. What happened while the claim was
+        personal (its old wordings, correction notes, evidence added) stays
+        with its owner: others only see history from the moment it was
+        proposed for sharing (claims are only corrected while personal)."""
         with self._lock:
-            if not self.can_see(self._claim(claim_id), viewer):
+            c = self._claim(claim_id)
+            if not self.can_see(c, viewer):
                 return {"events": [], "versions": []}
+            owner = c["owner_id"] == (viewer or self.local_user)
+            since = 0
+            if not owner:                    # non-owners only see claims that were proposed
+                r = self._db.execute("SELECT MIN(id) FROM claim_events WHERE claim_id=? AND "
+                                     "event='share_proposed'", (claim_id,)).fetchone()[0]
+                since = r if r is not None else 2 ** 62
             ev = []
-            for r in self._db.execute("SELECT * FROM claim_events WHERE claim_id=? ORDER BY id",
-                                      (claim_id,)).fetchall():
+            for r in self._db.execute("SELECT * FROM claim_events WHERE claim_id=? AND id>=? "
+                                      "ORDER BY id", (claim_id, since)).fetchall():
                 e = dict(r)
                 # events about another claim are shown only if that claim is
                 # visible too (never its id, wording, relation or author)
@@ -471,7 +497,8 @@ class KnowledgeStore:
                 if all(self.can_see(self._claim(x), viewer) for x in refs):
                     ev.append(e)
             ver = [dict(r) for r in self._db.execute(
-                "SELECT * FROM claim_versions WHERE claim_id=? ORDER BY version", (claim_id,))]
+                "SELECT * FROM claim_versions WHERE claim_id=? ORDER BY version", (claim_id,))] \
+                if owner else []
         return {"events": ev, "versions": ver}
 
     # -- evidence ------------------------------------------------------------------
@@ -521,16 +548,19 @@ class KnowledgeStore:
         counted separately and never count as support."""
         ev = self.evidence(claim_id)
         direct, confirm = set(), set()
+        statements = 0
         for e in ev:
             key = e["content_hash"] or f"source:{e['source_id']}"
-            if e["kind"] == "direct":
+            if e["kind"] in ("direct", "confirmation") and e["source_kind"] == "user_statement":
+                statements += 1                  # someone's own words: never support
+            elif e["kind"] == "direct":
                 direct.add(key)
             elif e["kind"] == "confirmation":
                 confirm.add(key)
         confirm -= direct
         return {"direct": len(direct), "confirmations": len(confirm),
                 "derived": sum(1 for e in ev if e["kind"] == "derived"),
-                "assertions": sum(1 for e in ev if e["kind"] == "assertion"),
+                "assertions": sum(1 for e in ev if e["kind"] == "assertion") + statements,
                 "contributors": len({e["added_by"] for e in ev}),
                 "private_sources": sum(1 for e in ev if e["private"])}
 
@@ -725,6 +755,16 @@ class KnowledgeStore:
                 raise BrainError("not a proposed claim")
             if c["status"] != "verified":
                 raise BrainError("only verified knowledge enters the shared library")
+            proposed = self._db.execute("SELECT MAX(id) FROM claim_events WHERE claim_id=? AND "
+                                        "event='share_proposed'", (claim_id,)).fetchone()[0]
+            mods = tuple(MODERATOR_KINDS)
+            if not self._db.execute(
+                    "SELECT 1 FROM claim_events e JOIN contributors k ON k.id = e.by "
+                    "WHERE e.claim_id=? AND e.id>? AND e.event='reviewed' AND "
+                    f"e.new_status='verified' AND k.kind IN ({','.join('?' * len(mods))})",
+                    (claim_id, proposed or 0) + mods).fetchone():
+                raise BrainError("a moderator must verify the proposal itself (the owner's "
+                                 "own verification is not enough for the shared library)")
             if self.evidence_summary(claim_id)["private_sources"]:
                 raise BrainError("has evidence from a private source")
             self._db.execute("UPDATE claims SET scope='shared', updated=? WHERE id=?",

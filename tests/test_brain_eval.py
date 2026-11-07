@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import brain_eval as E  # noqa: E402
+import brain_eval_city as C  # noqa: E402
+from puzzle_assistant.brain.query import analyze  # noqa: E402
 from puzzle_assistant.brain.text import stem, terms  # noqa: E402
 
 
@@ -87,7 +89,7 @@ class EvaluationGuarantees(unittest.TestCase):
     def test_accuracy_does_not_drop(self):
         self.assertGreaterEqual(self.main["summary"]["answer"][0], 21)
         self.assertGreaterEqual(self.main["summary"]["answer"][1], 23)
-        self.assertGreaterEqual(self.held["summary"]["answer"][0], 12)
+        self.assertGreaterEqual(self.held["summary"]["answer"][0], 13)
         self.assertGreaterEqual(self.held["summary"]["answer"][1], 14)
 
     def test_fts5_and_fallback_identical_on_the_dataset(self):
@@ -95,6 +97,66 @@ class EvaluationGuarantees(unittest.TestCase):
             fb = E.evaluate(use_fts=False, questions=qs)
             self.assertEqual([r["got"] for r in res["rows"]], [r["got"] for r in fb["rows"]])
             self.assertEqual([r["match"] for r in res["rows"]], [r["match"] for r in fb["rows"]])
+
+
+class CityFixTests(unittest.TestCase):
+    """Question reading fixes found with set 2 (Ciudad Coral)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp()
+        cls.b, cls.ids, cls.users = C.build(os.path.join(cls.dir, "city.db"))
+        cls.key = {str(v): k for k, v in cls.ids.items()}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.b.close()
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def hits(self, q):
+        return [(self.key[h.record_id], h.detail["why"]["matches_question"])
+                for h in self.b.search(q) if h.module == "library"]
+
+    def test_first_word_of_a_question_is_not_a_name(self):
+        self.assertEqual([e.name for e in analyze("Cuántas monedas da la misión?", []).entities], [])
+        self.assertEqual([e.name for e in analyze("Room ID of the Sala Azul", []).entities],
+                         ["Sala Azul"])
+        self.assertEqual(self.hits("¿Cuántas monedas da la misión del Faro del Norte?")[0],
+                         ("quest_norte", True))
+
+    def test_lowercase_topic_is_not_a_required_subject(self):
+        self.assertEqual(self.hits("Is trading allowed in the Mercado Nocturno after midnight?")[0],
+                         ("trade_noct", True))
+
+    def test_part_of_several_names_is_ambiguous(self):
+        h = self.hits("What is the room ID of the Faro?")
+        self.assertEqual({k for k, _ in h[:2]}, {"faro_norte_id", "faro_sur_id"})
+        self.assertFalse(any(m for _, m in h))               # never resolved by a guess
+        self.assertEqual(self.hits("Faro del Sur room ID")[0], ("faro_sur_id", True))
+
+
+class CityEvaluationGuarantees(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.res = C.evaluate()
+
+    def test_hard_guarantees(self):
+        for kind in ("privacy", "unknown", "conflict", "ambiguous", "compound"):
+            ok, n = self.res["summary"][kind]
+            self.assertEqual(ok, n, [r["q"] for r in self.res["rows"]
+                                     if r["kind"] == kind and not r["ok"]])
+        self.assertEqual(self.res["status_errors"], [])
+        self.assertEqual(self.res["sweep_errors"], [])
+        multi = [r for r in self.res["rows"] if r["kind"] == "multi"]
+        self.assertFalse(any(r["match"] for r in multi))     # no unsupported conclusion
+
+    def test_accuracy_does_not_drop(self):
+        self.assertGreaterEqual(self.res["summary"]["answer"][0], 22)
+
+    def test_fts5_and_fallback_identical(self):
+        fb = C.evaluate(use_fts=False)
+        self.assertEqual([(r["got"], r["match"]) for r in self.res["rows"]],
+                         [(r["got"], r["match"]) for r in fb["rows"]])
 
 
 if __name__ == "__main__":

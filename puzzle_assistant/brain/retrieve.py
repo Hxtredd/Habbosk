@@ -204,6 +204,10 @@ def search(store, sources, question: str, viewer: Optional[str] = None, limit: i
                 else:
                     factor *= 0.6
                     notes.append("the subject you asked about is not mentioned")
+        if q.ambiguous and not q.entities and \
+                not any(_mentions(d, e, known) for e in q.ambiguous):
+            factor *= 0.45                       # about none of the places the name could mean
+            notes.append(f"different subject: {d.subject or 'something else'}")
         intent_ok = True
         if q.intents:
             # every requirement of the question must be met (conservative)
@@ -342,14 +346,14 @@ def _conflict_partners(store, claim_id: int, viewer: str) -> List[int]:
         if link["kind"] != "contradicts":
             continue
         other = link["to_claim"] if link["from_claim"] == claim_id else link["from_claim"]
-        if store.claim(other, viewer) is not None:          # only sides the viewer may see
+        if store.searchable(store.claim(other, viewer), viewer):   # shared or the viewer's own
             out.append(other)
     return out
 
 
 def _partner_hit(store, claim_id: int, viewer: str) -> Optional[Hit]:
     c = store.claim(claim_id, viewer)
-    if c is None or c["status"] == "rejected":
+    if not store.searchable(c, viewer) or c["status"] == "rejected":
         return None
     d = Doc(module="library", record_id=str(c["id"]), text=c["text"], subject=c["subject"] or "",
             status=c["status"], origin=c["origin"], category=c["category"] or "",

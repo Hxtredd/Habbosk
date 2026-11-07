@@ -101,6 +101,11 @@ def named_phrases(question: str) -> List[str]:
         else:
             flush()
     flush()
+    # the first word is capitalised because it starts the sentence: alone
+    # ("Cuántas ...", "Room ID of ...") it is not a name; known names are
+    # recognised separately, so only unknown one-word names there are skipped
+    if out and raw and out[0] == raw[0]:
+        out = out[1:]
     return [p for p in out if len(normalize(p)) >= 3]
 
 
@@ -113,15 +118,26 @@ def analyze(question: str, entities: List[Entity]) -> Query:
     for e in entities:                     # longest names first
         if len(e.words) < 2 and len(e.key) < 5:
             continue                       # too short to recognise safely
+        if len(e.words) < 2 and e.name[:1].islower():
+            continue                       # a topic ("trading"), not a name
         if f" {e.key} " in padded and not any(e.key in u for u in used):
             q.entities.append(e)
             used.add(e.key)
     # capitalised names in the question that SK doesn't know yet: still required
     for phrase in named_phrases(question):
         key = normalize(phrase)
-        if not any(key in e.key or e.key in key for e in q.entities):
+        if any(key in e.key or e.key in key for e in q.entities):
+            continue
+        # part of known names ("the Faro" -> Faro del Norte / Faro del Sur)
+        part_of = [e for e in entities if len(e.words) > len(key.split())
+                   and f" {key} " in f" {e.key} "]
+        if len(part_of) >= 2:
+            q.ambiguous += [e for e in part_of if e not in q.ambiguous]
+        elif len(part_of) == 1:
+            q.entities.append(part_of[0])
+        else:
             q.entities.append(Entity(phrase, key, tuple(key.split()), "question"))
-    if not q.entities:
+    if not q.entities and not q.ambiguous:
         # a distinctive word of several known names -> ambiguous, never resolved
         content = set(terms(question))
         for e in entities:

@@ -341,6 +341,7 @@ class PrivacyTests(Base):
         self.b.add_evidence(pub, "direct", src, by=ana)
         self.b.review(pub, "verified", reviewer=ana)
         self.b.propose_share(pub, by=ana)
+        self.b.review(pub, "verified", reviewer=mod)  # moderator's own review
         self.b.approve_share(pub, mod)
         e = self.b.explain(pub, viewer=bob)
         self.assertEqual(e["claim"]["text"], "The Welcome Hall has a red carpet.")
@@ -365,6 +366,7 @@ class PrivacyTests(Base):
         self.b.add_evidence(pub, "direct", src, by=ana)
         self.b.review(pub, "verified", reviewer=ana)
         self.b.propose_share(pub, by=ana)
+        self.b.review(pub, "verified", reviewer=mod)  # moderator's own review
         self.b.approve_share(pub, mod)
         priv = self.b.learn("The Welcome Hall closes at night.", "user", "Welcome Hall", by=ana)
         self.b.link(priv, pub, "contradicts", by=ana)

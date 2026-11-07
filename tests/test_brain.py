@@ -186,11 +186,13 @@ class IsolationTests(unittest.TestCase):
         hit = self.b.search("Spa Gran Casino", modules=["library"], viewer=self.ana)[0]
         self.assertTrue(hit.established)
         ev = self.b.explain(c, viewer=self.ana)["events"]
+        # others see the claim's history from its proposal on (its personal
+        # days - "created" here - stay with the owner)
         self.assertEqual([e["event"] for e in ev],
-                         ["created", "share_proposed", "evidence_added", "reviewed",
-                          "share_approved"])
-        self.assertEqual(ev[3]["by"], self.mod)                  # who reviewed is recorded
-        self.assertEqual(ev[4]["by"], self.mod)
+                         ["share_proposed", "evidence_added", "reviewed", "share_approved"])
+        self.assertEqual(ev[2]["by"], self.mod)                  # who reviewed is recorded
+        self.assertEqual(ev[3]["by"], self.mod)
+        self.assertEqual([e["event"] for e in self.b.explain(c)["events"]][0], "created")
 
     def test_shared_claims_cannot_get_private_evidence_or_be_edited_in_place(self):
         c = self.b.learn("La mina tiene 3 niveles.", "imported", "Mina")
@@ -329,6 +331,7 @@ class ReviewVisibilityTests(unittest.TestCase):
         self._evidence(c, self.ana, h)
         self.b.review(c, "verified", reviewer=self.ana)
         self.b.propose_share(c, by=self.ana)
+        self.b.review(c, "verified", reviewer=self.mod)  # moderator's own review
         self.b.approve_share(c, self.mod)
         return c
 
@@ -422,6 +425,7 @@ class ReviewVisibilityTests(unittest.TestCase):
             b.add_evidence(c, "direct", src, by=ana)
             b.review(c, "verified", reviewer=ana)
             b.propose_share(c, by=ana)
+            b.review(c, "verified", reviewer=mod)  # moderator's own review
             b.approve_share(c, mod)
             if with_hidden:
                 p = b.learn("My private note: the hall closes.", "user", "Welcome Hall", by=ana)
