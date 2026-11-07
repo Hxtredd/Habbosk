@@ -47,6 +47,7 @@ class Solution:
     remaining: List[str] = field(default_factory=list)  # still to mount, in order
     excluded: List[str] = field(default_factory=list)   # wrong caliber: do not click
     doubtful: List[str] = field(default_factory=list)   # cards whose reading is unsure
+    numbering: Dict[str, int] = field(default_factory=dict)  # step number per piece (fixed)
     levels: List[List[str]] = field(default_factory=list)
     problems: List[str] = field(default_factory=list)   # blocking errors
     warnings: List[str] = field(default_factory=list)   # non-blocking doubts

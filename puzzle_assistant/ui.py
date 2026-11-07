@@ -13,6 +13,7 @@ from typing import Optional
 from .analyzer import Analysis
 from .config import Config
 from .engine import Engine
+from .overlay import Overlay, overlay_items
 
 BG = "#15171c"
 PANEL = "#1e2129"
@@ -153,13 +154,17 @@ class App:
 
         bar = tk.Frame(r, bg=BG)
         bar.grid(row=5, column=0, sticky="we", padx=6, pady=(2, 6))
+        buttons = {}
         for i, (txt, cmd) in enumerate((("Rescan (F5)", self.engine.rescan),
+                                        ("Numbers", self.toggle_overlay),
                                         ("Region", self.pick_region),
                                         ("Auto", self.clear_region),
                                         ("Snapshot", self.engine.snapshot))):
-            tk.Button(bar, text=txt, command=cmd, bg="#2a2e38", fg=FG, bd=0, padx=6, pady=1,
-                      activebackground="#3a3f4c", activeforeground=FG,
-                      font=(FONT, 8)).grid(row=0, column=i, padx=2)
+            buttons[txt] = tk.Button(bar, text=txt, command=cmd, bg="#2a2e38", fg=FG, bd=0,
+                                     padx=6, pady=1, activebackground="#3a3f4c",
+                                     activeforeground=FG, font=(FONT, 8))
+            buttons[txt].grid(row=0, column=i, padx=2)
+        self.b_overlay = buttons["Numbers"]
         self.l_mode = tk.Label(bar, text="Status: Read-only mode", bg=BG, fg=DIM, font=(FONT, 8))
         self.l_mode.grid(row=0, column=10, padx=(8, 0))
         bar.columnconfigure(9, weight=1)
@@ -170,11 +175,36 @@ class App:
         r.protocol("WM_DELETE_WINDOW", self.close)
         r.after(50, lambda: _win32_tweaks(r))
         self._last_w = 0
+        self._last_analysis: Optional[Analysis] = None
+        self._last_place: Optional[dict] = None
+        # Step numbers drawn on the cards (click-through, hidden from capture)
+        self.overlay = Overlay(r)
+        self.engine.overlay_in_capture = self.overlay.available and not self.overlay.hidden_from_capture
+        if not self.overlay.available:
+            self.b_overlay.grid_remove()       # needs Windows
+        self._update_overlay_button()
         self._update_region_label()
 
     # -- actions -------------------------------------------------------------
+    def toggle_overlay(self) -> None:
+        self.cfg.overlay = not self.cfg.overlay
+        self.cfg.save()
+        self._update_overlay_button()
+        self._draw_overlay()
+
+    def _update_overlay_button(self) -> None:
+        self.b_overlay.config(text="Numbers: on" if self.cfg.overlay else "Numbers: off")
+
+    def _draw_overlay(self) -> None:
+        p, a = self._last_place, self._last_analysis
+        if not self.cfg.overlay or p is None or a is None:
+            self.overlay.clear()
+            return
+        self.overlay.show(overlay_items(a, p["cards"]), p["bounds"])
+
     def pick_region(self) -> None:
         self.engine.set_paused(True)
+        self.overlay.clear()
         self.root.withdraw()
 
         def done(region):
@@ -222,6 +252,10 @@ class App:
                 if latest.get("state") == "info":
                     self.l_status.config(text=latest.get("msg", ""), fg=ACCENT)
                     latest = None
+                elif latest.get("state") == "overlay_clear":
+                    self._last_place = None
+                    self.overlay.clear()
+                    latest = None
         except queue.Empty:
             pass
         if latest:
@@ -231,6 +265,8 @@ class App:
     def _show(self, m: dict) -> None:
         st = m.get("state")
         if st in ("waiting", "searching", "analyzing"):
+            self._last_place = self._last_analysis = None
+            self.overlay.clear()
             self.l_status.config(text="Status: " + m.get("msg", ""), fg=FG if st != "waiting" else DIM)
             if st == "waiting":
                 self._clear()
@@ -242,6 +278,8 @@ class App:
         if a is None:
             return
         self._render(a)
+        self._last_analysis, self._last_place = a, m.get("place")
+        self._draw_overlay()
 
     def _clear(self) -> None:
         self.l_target.config(text="")

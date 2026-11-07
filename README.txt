@@ -1,4 +1,4 @@
-PUZZLE ANSWER ASSISTANT  (v1.3, Windows prototype)
+PUZZLE ANSWER ASSISTANT  (v1.4, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -49,6 +49,22 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
         Don't click (other caliber): F(9)
         Then press PROBAR
 
+  * Numbers on the puzzle (Windows): the step numbers are drawn directly on
+    the puzzle cards, wherever the puzzle is on screen - no need to move any
+    window. Click the cards in number order:
+        (1) green, with a ring = the piece to click next
+        (2) (3) ... blue       = the following steps (any piece whose
+                                 prerequisites are mounted may go next;
+                                 the numbers are one valid order)
+        ✓                      = already mounted
+        ✕ red                  = other caliber: don't click
+        ? orange               = card not read clearly: NO numbers are shown
+        PROBAR (yellow)        = all mounted, press Probar
+    The numbers are click-through: your clicks go to the game underneath.
+    The program itself still never clicks. The numbers stay fixed while you
+    mount pieces and disappear the moment the puzzle closes or changes.
+    "Numbers: on/off" button switches them. They need Windows 10 (2004) or
+    newer, so the numbers are invisible to the program's own screen reading.
   * Progress: as you mount pieces (they turn green with a ✓ in the game) the
     window shows "Done ✓ C B" and "NEXT → A → D → E → G", and finally
     "PROBAR ✓". The answer is locked once verified: green cards never change
@@ -69,6 +85,7 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
 
   Buttons (the window must have focus for F5/F8):
     Rescan (F5)  force a fresh scan of the screen right now
+    Numbers      show / hide the step numbers drawn on the puzzle cards
     Region       drag a box around the puzzle window once. Makes detection
                  faster and more reliable (recommended). Saved in config.json.
     Auto         forget the region and search the whole monitor again
@@ -150,6 +167,7 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   puzzle_assistant\analyzer.py  ties OCR, parser and solver together
   puzzle_assistant\engine.py    background monitoring loop
   puzzle_assistant\ui.py        floating window
+  puzzle_assistant\overlay.py   click-through step numbers drawn on the cards
   tests\                     unit tests (incl. two real puzzle panels in tests\fixtures)
   tools\build_glyph_templates.py  regenerates glyph_templates.npz
   tessdata\spa.traineddata   Spanish OCR model (Apache-2.0, tesseract-ocr/tessdata_fast)

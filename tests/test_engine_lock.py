@@ -9,10 +9,10 @@ import cv2
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from puzzle_assistant.analyzer import card_hashes  # noqa: E402
+
 from puzzle_assistant.cardreader import is_mounted  # noqa: E402
 from puzzle_assistant.config import Config  # noqa: E402
-from puzzle_assistant.engine import header_band, same_puzzle  # noqa: E402
+from puzzle_assistant.engine import fingerprints, header_band, same_puzzle  # noqa: E402
 from puzzle_assistant.locate import Locator, search  # noqa: E402
 from puzzle_assistant.vision import to_gray  # noqa: E402
 
@@ -23,7 +23,7 @@ def state(img, locator=None):
     (x, y, w, h), cards = locator.find(img, to_gray(img))
     panel = img[y:y + h, x:x + w]
     mounted = [is_mounted(panel[cy:cy + ch, cx:cx + cw]) for cx, cy, cw, ch in cards]
-    return panel, cards, card_hashes(panel, cards), header_band(panel, cards), mounted
+    return panel, cards, fingerprints(panel, cards), header_band(panel, cards), mounted
 
 
 def mount(img, panel_cards, idx):

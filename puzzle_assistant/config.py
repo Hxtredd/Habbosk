@@ -44,6 +44,7 @@ class Config:
     # --- UI --------------------------------------------------------------
     window_geometry: str = "380x300+40+40"
     opacity: float = 0.95
+    overlay: bool = True                # draw step numbers on the puzzle cards
     debug_save: bool = False            # save every analysed frame to ./debug
     config_version: int = 2
 

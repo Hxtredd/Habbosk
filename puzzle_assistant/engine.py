@@ -17,7 +17,8 @@ from typing import List, Optional
 
 import cv2
 
-from .analyzer import Analysis, Analyzer, card_hashes, describe
+from .analyzer import Analysis, Analyzer, describe
+from .overlay import badge_mask_rect
 from .capture import ScreenGrabber
 from .config import DEBUG_DIR, Config
 from .ocr import OcrError, Tesseract
@@ -60,7 +61,25 @@ def with_progress(locked: Analysis, mounted: List[bool], cfg: Config) -> Analysi
     for letter, m in zip(sorted(puzzle.pieces), mounted):
         puzzle.pieces[letter].mounted = m
     solution = solve(puzzle, puzzle.expected or len(puzzle.pieces), cfg.min_confidence)
+    # Keep the locked order and its step numbers: what is left of a valid
+    # order is still valid, and the numbers on screen must not jump around.
+    base = locked.solution
+    solution.order = list(base.order)
+    solution.numbering = dict(base.numbering) or {l: i + 1 for i, l in enumerate(base.order)}
+    solution.remaining = [l for l in base.order if not puzzle.pieces[l].mounted]
     return Analysis(puzzle, solution, locked.cards, locked.mode, 0.0, "", locked.card_hashes)
+
+
+def fingerprints(panel, cards) -> List[int]:
+    """Card fingerprints that ignore the area where the overlay draws its step
+    badge, so the badges can never be mistaken for a changed puzzle."""
+    out = []
+    for x, y, w, h in cards:
+        card = panel[y:y + h, x:x + w].copy()
+        mx, my, mw, mh = badge_mask_rect(w, h)
+        card[my:my + mh, mx:mx + mw] = 0
+        out.append(dhash(card))
+    return out
 
 
 class Engine(threading.Thread):
@@ -73,6 +92,9 @@ class Engine(threading.Thread):
         self._snapshot = threading.Event()
         self._paused = threading.Event()
         self.region_changed = threading.Event()
+        # True when the overlay can be seen by screen capture (old Windows):
+        # then the engine waits for the overlay to clear before reading.
+        self.overlay_in_capture = False
 
     # -- commands from the UI (thread-safe) ---------------------------------
     def stop(self) -> None:
@@ -112,6 +134,8 @@ class Engine(threading.Thread):
         locked_band: Optional[int] = None
         locked_mounted: List[bool] = []
         tried: Optional[tuple] = None
+        placed: Optional[dict] = None          # card positions last sent to the overlay
+        settle_until = 0.0
         last_analysis: Optional[Analysis] = None
 
         while not self._stop.is_set():
@@ -129,7 +153,7 @@ class Engine(threading.Thread):
                     locator.reset()
                     locked = None
 
-                frame, _ = grabber.grab(self.cfg.region)
+                frame, bounds = grabber.grab(self.cfg.region)
                 gray = to_gray(frame)
                 hit = locator.find(frame, gray)
 
@@ -139,7 +163,7 @@ class Engine(threading.Thread):
 
                 if hit is None:
                     if active and tick - last_seen > self.cfg.disappear_after_ms / 1000.0:
-                        active, locked, tried = False, None, None
+                        active, locked, tried, placed = False, None, None, None
                         self._emit(state="waiting", msg="Waiting for puzzle…")
                     elif force:
                         self._emit(state="waiting", msg="No puzzle found on screen")
@@ -149,20 +173,35 @@ class Engine(threading.Thread):
                 last_seen = tick
                 (x, y, w, h), cards = hit
                 panel = frame[y:y + h, x:x + w]
-                hashes = card_hashes(panel, cards)
+                hashes = fingerprints(panel, cards)
+                screen = (bounds["left"], bounds["top"], bounds["width"], bounds["height"])
+                place = {"bounds": screen,
+                         "cards": [(bounds["left"] + x + cx, bounds["top"] + y + cy, cw, ch)
+                                   for cx, cy, cw, ch in cards]}
                 mounted = [is_mounted(panel[cy:cy + ch, cx:cx + cw]) for cx, cy, cw, ch in cards]
                 band = header_band(panel, cards)
 
                 if locked is not None:
                     if same_puzzle(locked_hashes, locked_band, hashes, band, mounted):
-                        if mounted != locked_mounted:
-                            locked_mounted = mounted
+                        if mounted != locked_mounted or place != placed:
+                            locked_mounted, placed = mounted, place
                             a = with_progress(locked, mounted, self.cfg)
                             last_analysis = a
-                            self._emit(state="detected", analysis=a, msg="Puzzle detected")
+                            self._emit(state="detected", analysis=a, place=place,
+                                       msg="Puzzle detected")
                         self._sleep(tick)
                         continue
-                    locked, tried = None, None  # a different puzzle
+                    locked, tried, placed = None, None, None  # a different puzzle
+                    # remove the old numbers at once: they must never sit on
+                    # the new puzzle's cards, not even for a moment
+                    self._emit(state="overlay_clear")
+                    if self.overlay_in_capture:
+                        # the overlay is visible to screen capture here: give the
+                        # UI time to remove it before reading the new cards
+                        settle_until = tick + 0.25
+                if tick < settle_until:
+                    self._sleep(tick)
+                    continue
 
                 key = (tuple(hashes), tuple(mounted))
                 if not force and key == tried:  # unchanged image, already read
@@ -176,8 +215,10 @@ class Engine(threading.Thread):
                 last_analysis = a
                 tried = key
                 if a.solution and a.solution.certain:
+                    a.solution.numbering = {l: i + 1 for i, l in enumerate(a.solution.order)}
                     locked, locked_hashes, locked_band, locked_mounted = a, hashes, band, mounted
-                self._emit(state="detected", analysis=a, msg="Puzzle detected")
+                placed = place
+                self._emit(state="detected", analysis=a, place=place, msg="Puzzle detected")
             except Exception as exc:
                 self._emit(state="error", msg=f"{type(exc).__name__}: {exc}")
                 traceback.print_exc()
