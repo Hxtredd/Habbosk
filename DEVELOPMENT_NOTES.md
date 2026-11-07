@@ -103,6 +103,11 @@ difficulties: keep the interface simple, plain-worded and calm.
 - v2.6: `Atlas.facts_for(text)` gives the AI map/room facts (nearest map
   places, walking routes) for questions naming places.
 - v2.6: `scrollframe.ScrollFrame` makes Assistant and Explorer scroll.
+- v2.8: both parts can be closed / reopened (`show_assistant`,
+  `show_explorer`; one stays open); `App._layout()` rebuilds for what is
+  open + `explorer_dock`; the window takes the size the content needs and
+  returns to the assistant's own size (`_base_geom`, saved only while the
+  assistant alone was shown).
 
 ## Architecture (puzzle_assistant/)
 

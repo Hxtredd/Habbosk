@@ -309,89 +309,104 @@ class App:
         else:
             self._waiting("Waiting for puzzle…")
 
-    # -- Explorer: a tab, a docked pane, or a separate window -------------------
-    DOCKS = [("tab", "As a tab"), ("right", "Docked right"), ("left", "Docked left"),
-             ("top", "Docked on top"), ("bottom", "Docked below"), ("window", "Separate window")]
+    # -- Assistant / Explorer: open or closed; tabs, docked, or separate --------
+    DOCKS = [("tab", "One at a time (tabs)"), ("right", "Side by side: Explorer right"),
+             ("left", "Side by side: Explorer left"), ("top", "Explorer on top"),
+             ("bottom", "Explorer below"), ("window", "Explorer in a separate window")]
 
     def _build_tabbar(self) -> None:
         bar = self.tabbar = tk.Frame(self.root, bg=BG)
         bar.grid(row=0, column=0, sticky="we", padx=10, pady=(6, 0))
         self._tab = "assistant"
-        self.t_assist = self._tab_label(bar, "Assistant", lambda: self.show_tab("assistant"))
-        self.t_explore = self._tab_label(bar, "Explorer", self.open_explorer)
-        self.t_assist.pack(side="left")
-        self.t_explore.pack(side="left", padx=(2, 0))
+        self._tabs = {}
+        for key, text in (("assistant", "Assistant"), ("explorer", "Explorer")):
+            f = tk.Frame(bar, bg=BG)
+            f.pack(side="left", padx=(0, 2))
+            lbl = tk.Label(f, text=text, bg=BG, fg=DIM, font=self._font(FONT_SEMI, 9), padx=8,
+                           pady=3, cursor="hand2")
+            lbl.pack(side="left")
+            x = tk.Label(f, text="×", bg=BG, fg=DIM, font=self._font(FONT, 10), padx=4,
+                         cursor="hand2")
+            x.pack(side="left")
+            for w in (f, lbl):
+                w.bind("<Button-1>", lambda e, k=key: self.tab_clicked(k))
+            x.bind("<Button-1>", lambda e, k=key: self.close_part(k))
+            self._tabs[key] = (f, lbl, x)
+        self.t_assist, self.t_explore = self._tabs["assistant"][1], self._tabs["explorer"][1]
         self.t_dock = tk.Menubutton(bar, text="⧉", bg=BG, fg=DIM, activebackground=HOVER,
                                     activeforeground=FG, relief="flat", font=self._font(FONT, 10),
                                     cursor="hand2")
         menu = tk.Menu(self.t_dock, tearoff=False, bg=PANEL, fg=FG, activebackground=HOVER)
         for key, label in self.DOCKS:
-            menu.add_command(label=f"Explorer: {label}", command=lambda k=key: self.set_dock(k))
+            menu.add_command(label=label, command=lambda k=key: self.set_dock(k))
         self.t_dock.config(menu=menu)
         self.t_dock.pack(side="right")
         self._ex_panel = self._ex_top = self._ex_paned = None
-        self._geom_before_dock = None
+        self._base_geom = self.cfg.window_geometry       # size of the assistant alone
 
-    def _tab_label(self, parent, text, cmd) -> tk.Label:
-        b = tk.Label(parent, text=text, bg=BG, fg=DIM, font=self._font(FONT_SEMI, 9), padx=10,
-                     pady=3, cursor="hand2")
-        b.bind("<Button-1>", lambda e: cmd())
-        return b
+    # what is open
+    def _open(self, key: str) -> bool:
+        if key == "explorer" and self.atlas is None:
+            return False
+        return bool(self.cfg.show_assistant if key == "assistant" else self.cfg.show_explorer)
 
-    def _style_tabs(self) -> None:
-        tabbed = self.cfg.explorer_dock == "tab"
-        for lbl, key in ((self.t_assist, "assistant"), (self.t_explore, "explorer")):
-            on = (key == self._tab) if tabbed else (key == "assistant" or self._ex_panel is not None)
-            lbl.config(bg=PANEL if on else BG, fg=FG if on else DIM)
+    def tab_clicked(self, key: str) -> None:
+        """Click on a tab: open it if closed; in tab mode, show it."""
+        if not self._open(key):
+            self._set_open(key, True)
+        self._tab = key
+        self._layout()
 
-    def show_tab(self, tab: str) -> None:
-        """Tab mode: show the assistant or the Explorer in the same window
-        (the window grows for the Explorer and returns to its size after)."""
-        if self.cfg.explorer_dock == "tab" and tab != self._tab:
-            if tab == "explorer":
-                self.root.update_idletasks()
-                self._geom_assistant = self.root.geometry()
-                self._ensure_size(580, 640)
-            elif getattr(self, "_geom_assistant", None):
-                self.root.geometry(self._geom_assistant.split("+")[0])
-                self._geom_assistant = None
-        self._tab = tab
-        if self.cfg.explorer_dock == "tab":
-            self._place_explorer()
-        self._style_tabs()
+    def close_part(self, key: str) -> None:
+        other = "explorer" if key == "assistant" else "assistant"
+        if not self._open(other):
+            return                                   # one part always stays open
+        self._set_open(key, False)
+        self._tab = other
+        self._layout()
 
-    def _ensure_size(self, min_w: int, min_h: int) -> None:
-        g = self.root.geometry().split("+")[0]
-        w, h = (int(v) for v in g.split("x"))
-        if w < min_w or h < min_h:
-            self.root.geometry(f"{max(w, min_w)}x{max(h, min_h)}")
+    def _set_open(self, key: str, on: bool) -> None:
+        if key == "assistant":
+            self.cfg.show_assistant = on
+        else:
+            self.cfg.show_explorer = on
+        self.cfg.save()
 
     def open_explorer(self) -> None:
-        if self.atlas is None:
-            return
-        mode = self.cfg.explorer_dock
-        if mode == "tab":
-            self.show_tab("explorer")
-        elif mode == "window" and self._ex_top is not None:
-            self._ex_top.deiconify()
-            self._ex_top.lift()
-        elif self._ex_panel is None:
-            self._place_explorer(force=True)
-        self._style_tabs()
+        self.tab_clicked("explorer")
+
+    def show_tab(self, tab: str) -> None:
+        self.tab_clicked(tab)
 
     def set_dock(self, mode: str) -> None:
         self._save_explorer_geometry()
-        if getattr(self, "_geom_assistant", None):       # leave the enlarged Explorer tab
-            self.root.geometry(self._geom_assistant.split("+")[0])
-            self._geom_assistant = None
-            self.root.update_idletasks()
         self.cfg.explorer_dock = mode
+        if mode != "tab":                            # side by side etc.: show both
+            self.cfg.show_assistant = self.cfg.show_explorer = True
         self.cfg.save()
-        self._tab = "assistant"
-        self._place_explorer(force=True)
-        if mode == "tab":
-            self.show_tab("explorer")
-        self._style_tabs()
+        self._layout()
+
+    def _style_tabs(self) -> None:
+        both = self._open("assistant") and self._open("explorer")
+        tabbed = self.cfg.explorer_dock == "tab"
+        for key, (f, lbl, x) in self._tabs.items():
+            is_open = self._open(key)
+            shown = is_open and (not (both and tabbed) or key == self._tab)
+            bg = PANEL if shown else BG
+            for w in (f, lbl, x):
+                w.config(bg=bg)
+            name = "Assistant" if key == "assistant" else "Explorer"
+            if key == "explorer" and self.atlas is not None and is_open:
+                n = self.atlas.stats()["pending"]
+                name += f" ● {n}" if n else ""
+            lbl.config(text=name if is_open else f"+ {name}",
+                       fg=(WARN if key == "explorer" and "●" in name else FG if shown else DIM))
+            # the × only where closing leaves something open
+            other = "explorer" if key == "assistant" else "assistant"
+            if is_open and self._open(other):
+                x.pack(side="left")
+            else:
+                x.pack_forget()
 
     def _save_explorer_geometry(self) -> None:
         try:
@@ -403,24 +418,32 @@ class App:
                 size = w.winfo_width() if side in ("left", "right") else w.winfo_height()
                 if size > 50:
                     self.cfg.explorer_size = int(size)
+            # the assistant alone was on screen: its size is the one to remember
+            if (getattr(self, "_laid_out", False) and self.root.winfo_ismapped()
+                    and getattr(self, "_last_vis", None) == ("assistant",)):
+                g = self.root.geometry()
+                if int(g.split("x")[0]) > 100:       # a real size, not "1x1" before drawing
+                    self._base_geom = g
         except tk.TclError:
             pass
 
-    def _place_explorer(self, force: bool = False) -> None:
-        """(Re)build the Explorer where the chosen mode puts it."""
-        from .world_atlas.window import ExplorerPanel, hide_from_capture
+    def _visible(self) -> tuple:
+        """Which parts are shown inside the main window right now."""
+        a, e = self._open("assistant"), self._open("explorer")
         mode = self.cfg.explorer_dock
-        want_panel = self.atlas is not None and (mode != "tab" or self._tab == "explorer")
-        if mode == "tab" and not force and self._ex_paned is None and self._ex_top is None:
-            # cheap switch between the two tabs
-            if self._ex_panel is None and want_panel:
-                self._ex_panel = ExplorerPanel(self.body, self.atlas, self.explorer, self._ui_font)
-            self.main_box.grid_remove()
-            if self._ex_panel is not None:
-                self._ex_panel.win.grid_remove()
-            (self._ex_panel.win if want_panel else self.main_box).grid(row=0, column=0, sticky="nswe")
-            return
-        # tear down the previous arrangement
+        if a and e:
+            if mode == "tab":
+                return (self._tab,)
+            if mode == "window":
+                return ("assistant",)
+            return ("assistant", "explorer")
+        return ("assistant",) if a else ("explorer",)
+
+    def _layout(self) -> None:
+        """(Re)build the window for what is open and the chosen arrangement."""
+        from .world_atlas.window import ExplorerPanel, hide_from_capture
+        before = getattr(self, "_last_vis", None)
+        self._save_explorer_geometry()
         if self._ex_panel is not None:
             self._ex_panel.win.destroy()
             self._ex_panel = None
@@ -431,50 +454,48 @@ class App:
             self._ex_paned.forget(self.main_box)
             self._ex_paned.destroy()
             self._ex_paned = None
-            if self._geom_before_dock:
-                self.root.geometry(self._geom_before_dock.split("+")[0])
-                self._geom_before_dock = None
-                self.root.update_idletasks()
         self.main_box.grid_remove()
-        if mode == "tab":
-            if want_panel:
-                self._ex_panel = ExplorerPanel(self.body, self.atlas, self.explorer, self._ui_font)
-                self._ex_panel.win.grid(row=0, column=0, sticky="nswe")
-            else:
-                self.main_box.grid(row=0, column=0, sticky="nswe")
-        elif mode == "window":
+        vis = self._visible()
+        mode = self.cfg.explorer_dock
+        bw, bh = (int(v) for v in self._base_geom.split("+")[0].split("x"))
+        if vis == ("assistant",):
             self.main_box.grid(row=0, column=0, sticky="nswe")
+            size = (bw, bh)
+        elif vis == ("explorer",):
+            self._ex_panel = ExplorerPanel(self.body, self.atlas, self.explorer, self._ui_font)
+            self._ex_panel.win.grid(row=0, column=0, sticky="nswe")
+            size = (max(bw, 580), max(bh, 640))
+        else:
+            horizontal = mode in ("left", "right")
+            ex = max(260, int(self.cfg.explorer_size))
+            pw = self._ex_paned = tk.PanedWindow(
+                self.body, orient="horizontal" if horizontal else "vertical",
+                bg=R.hexc(R.BORDER), sashwidth=6, bd=0, sashrelief="flat")
+            pw.grid(row=0, column=0, sticky="nswe")
+            self._ex_panel = ExplorerPanel(pw, self.atlas, self.explorer, self._ui_font)
+            panes = [self._ex_panel.win, self.main_box] if mode in ("left", "top") else \
+                [self.main_box, self._ex_panel.win]
+            for p_ in panes:
+                pw.add(p_, stretch="always", minsize=160)
+            self.main_box.lift()
+            pw.paneconfigure(self._ex_panel.win, **{"width" if horizontal else "height": ex})
+            size = (bw + ex, max(bh, 640)) if horizontal else (max(bw, 480), bh + ex)
+        if self._open("explorer") and self._open("assistant") and mode == "window":
             top = self._ex_top = tk.Toplevel(self.root)
             top.title("SK Assistant – Explorer")
             top.configure(bg=BG)
             top.geometry(self.cfg.explorer_geometry)
             top.minsize(360, 360)
             top.attributes("-topmost", bool(self.cfg.always_on_top))
-            top.protocol("WM_DELETE_WINDOW", lambda: self.set_dock("tab"))
+            top.protocol("WM_DELETE_WINDOW", lambda: self.close_part("explorer"))
             top.after(200, lambda: hide_from_capture(top))
             self._ex_panel = ExplorerPanel(top, self.atlas, self.explorer, self._ui_font)
             self._ex_panel.win.pack(fill="both", expand=True)
-        else:
-            horizontal = mode in ("left", "right")
-            size = max(260, int(self.cfg.explorer_size))
-            self.root.update_idletasks()
-            g = self.root.geometry()
-            self._geom_before_dock = g
-            w, h = (int(v) for v in g.split("+")[0].split("x"))
-            self.root.geometry(f"{w + size}x{max(h, 640)}" if horizontal else f"{w}x{h + size}")
-            pw = self._ex_paned = tk.PanedWindow(
-                self.body, orient="horizontal" if horizontal else "vertical",
-                bg=R.hexc(R.BORDER), sashwidth=6, bd=0, sashrelief="flat")
-            pw.grid(row=0, column=0, sticky="nswe")
-            self._ex_panel = ExplorerPanel(pw, self.atlas, self.explorer, self._ui_font)
-            first_is_explorer = mode in ("left", "top")
-            panes = [self._ex_panel.win, self.main_box] if first_is_explorer else \
-                [self.main_box, self._ex_panel.win]
-            for p_ in panes:
-                pw.add(p_, stretch="always", minsize=160)
-            self.main_box.lift()
-            dim = "width" if horizontal else "height"
-            pw.paneconfigure(self._ex_panel.win, **{dim: size})
+        if vis != before or (mode, len(vis)) != getattr(self, "_last_mode", None):
+            self.root.geometry(f"{size[0]}x{size[1]}")   # resize only when the content changed
+        self._last_vis, self._last_mode = vis, (mode, len(vis))
+        self._laid_out = True
+        self._style_tabs()
 
     def _ui_font(self, size: int, bold: bool = False):
         return self._font(FONT_SEMI if bold else FONT, size)
@@ -486,13 +507,7 @@ class App:
                 self.atlas_q.get_nowait()
         except (queue.Empty, AttributeError):
             pass
-        if self.atlas is not None:
-            n = self.atlas.stats()["pending"]
-            self.t_explore.config(text=f"Explorer ● {n}" if n else "Explorer")
-            if n:
-                self.t_explore.config(fg=WARN)
-            else:
-                self._style_tabs()
+        self._style_tabs()
         self.root.after(1500, self._atlas_poll)
 
     def restart_for_update(self) -> None:
@@ -909,8 +924,7 @@ class App:
     # -- lifecycle -------------------------------------------------------------
     def run(self) -> None:
         self.engine.start()
-        self._place_explorer(force=True)
-        self._style_tabs()
+        self._layout()
         if self.explorer is not None:
             self.explorer.start()
             self.root.after(1500, self._atlas_poll)
@@ -921,8 +935,7 @@ class App:
     def close(self) -> None:
         try:
             self._save_explorer_geometry()
-            self.cfg.window_geometry = (self._geom_before_dock or getattr(self, "_geom_assistant", None)
-                                        or self.root.geometry())
+            self.cfg.window_geometry = self._base_geom
             self.cfg.save()
         finally:
             self.engine.stop()

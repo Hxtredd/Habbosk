@@ -1,7 +1,7 @@
 {
- "version": "2.7.0",
- "zip": "dist/SK_Assistant_v2.7.zip",
- "sha256": "54688d4e4a8585950dd456129f0c68a2eb0978f742c174c7912d07bbe6d92606",
- "size": 11646660,
- "notes": "Updates with one click from now on (Settings > Updates)."
+ "version": "2.8.0",
+ "zip": "dist/SK_Assistant_v2.8.zip",
+ "sha256": "177a53378a9bdb849628cee2e75686b58855af3af3f1c072e26b4a60e96dc36b",
+ "size": 11647274,
+ "notes": "Close / reopen the Assistant and Explorer tabs; show one or both."
 }

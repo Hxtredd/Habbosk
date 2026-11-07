@@ -1,4 +1,4 @@
-SK ASSISTANT  (v2.7 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v2.8 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -247,11 +247,14 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
     * A room SK has never seen waits for you in the Explorer window:
       Accept, Edit (fix ID / name; the original reading is kept) or
       "Not this". The "Explorer" button shows a dot when one is waiting.
-    * Where the Explorer is shown: the "Explorer" tab at the top of the SK
-      window (next to "Assistant"), or - with the ⧉ button at the top right
-      - docked right / left / on top / below the assistant (drag the bar
-      between them to resize), or as a separate, resizable window (closing
-      it puts it back as a tab). The choice and sizes are remembered.
+    * Tabs at the top: "Assistant" and "Explorer". Click a tab to show it;
+      "×" closes it, "+ Explorer" / "+ Assistant" opens it again (one of the
+      two always stays open). With both open, the ⧉ button chooses: one at
+      a time (tabs), side by side (Explorer right / left), Explorer on top /
+      below (drag the bar between them to resize), or the Explorer in a
+      separate, resizable window. Closing the Assistant tab only hides it:
+      the marks on the game keep working. Closing the Explorer tab does not
+      stop the World Atlas from learning (that is in Settings).
     * The AI uses the World Atlas: library or express questions that name
       places get the map / room facts SK knows (what is near on the map,
       where walking leads).
