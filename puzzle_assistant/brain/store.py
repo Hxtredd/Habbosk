@@ -465,12 +465,15 @@ class KnowledgeStore:
                     if c["origin"] != "observed" or not game:
                         raise BrainError("no automatic verification: a person must review it "
                                          "(only SK's own direct game observation is exempt)")
-                open_conflict = self._db.execute(
-                    "SELECT 1 FROM claim_links l JOIN claims o ON o.id = "
+                # only contradictions the claim's WHOLE audience can see count:
+                # a hidden (e.g. private) claim must not influence the review
+                others = self._db.execute(
+                    "SELECT o.* FROM claim_links l JOIN claims o ON o.id = "
                     "CASE WHEN l.from_claim=? THEN l.to_claim ELSE l.from_claim END "
                     "WHERE l.kind='contradicts' AND (l.from_claim=? OR l.to_claim=?) "
                     "AND o.status NOT IN ('rejected','outdated')",
-                    (claim_id, claim_id, claim_id)).fetchone()
+                    (claim_id, claim_id, claim_id)).fetchall()
+                open_conflict = any(self._same_audience(c, dict(o)) for o in others)
                 if open_conflict:
                     raise BrainError("cannot verify: a contradicting claim is still open "
                                      "(reject or mark it outdated first)")
@@ -569,11 +572,17 @@ class KnowledgeStore:
             self._db.commit()
 
     def _same_audience(self, c: dict, other: dict) -> bool:
-        """Can everyone who may see claim c also see claim `other`?"""
+        """Can everyone who may see claim c also see claim `other`?
+          personal          -> its owner
+          shared_candidate  -> its owner and every moderator
+          shared            -> everyone"""
         if other is None:
             return False
         if c["scope"] == "shared":
             return other["scope"] == "shared"
+        if c["scope"] == "shared_candidate":
+            return other["scope"] == "shared" or (other["scope"] == "shared_candidate"
+                                                  and other["owner_id"] == c["owner_id"])
         return self.can_see(other, c["owner_id"])
 
     def links(self, claim_id: int, viewer: Optional[str] = None) -> List[dict]:

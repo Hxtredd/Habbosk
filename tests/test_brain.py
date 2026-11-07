@@ -306,6 +306,137 @@ class MigrationTests(unittest.TestCase):
         b.close()
 
 
+class ReviewVisibilityTests(unittest.TestCase):
+    """A contradiction only influences a review if the WHOLE audience of the
+    reviewed claim can see it; hidden claims never change review outcomes."""
+
+    def setUp(self):
+        self.b = Brain(tmp("knowledge.db"))
+        st = self.b.store
+        self.ana = st.add_contributor("Ana")
+        self.bob = st.add_contributor("Bob")
+        self.mod = st.add_contributor("Mod", kind="moderator")
+
+    def tearDown(self):
+        self.b.close()
+
+    def _evidence(self, cid, by, h):
+        src = self.b.add_source("screenshot", title="proof", content_hash=h, by=by)
+        self.b.add_evidence(cid, "direct", src, by=by)
+
+    def _shared(self, text, h):
+        c = self.b.learn(text, "user", "Welcome Hall", by=self.ana)
+        self._evidence(c, self.ana, h)
+        self.b.review(c, "verified", reviewer=self.ana)
+        self.b.propose_share(c, by=self.ana)
+        self.b.approve_share(c, self.mod)
+        return c
+
+    def _hidden_ids_not_in(self, obj, hidden):
+        blob = repr(obj)
+        self.assertNotIn(f"claim {hidden}", blob)
+        self.assertNotIn("locker", blob)
+
+    def test_hidden_private_contradiction_does_not_block_a_moderator(self):
+        pub = self._shared("The Welcome Hall is open all day.", "h1")
+        priv = self.b.learn("My locker in the Welcome Hall closes at night.", "user",
+                            "Welcome Hall", by=self.ana)
+        self.b.link(priv, pub, "contradicts", by=self.ana)
+        self.assertEqual(self.b.claim(pub, viewer=self.bob)["status"], "verified")
+        self.b.review(pub, "outdated", reviewer=self.mod, note="re-check")
+        self.b.review(pub, "verified", reviewer=self.mod, note="re-checked")   # not blocked
+        self.assertEqual(self.b.claim(pub, viewer=self.bob)["status"], "verified")
+        self._hidden_ids_not_in(self.b.explain(pub, viewer=self.bob), priv)
+        self._hidden_ids_not_in(self.b.explain(pub, viewer=self.mod), priv)
+
+    def test_moderators_own_private_contradiction_does_not_block(self):
+        # the reviewer CAN see the contradiction, but the claim's audience can't
+        pub = self._shared("The Welcome Hall is open all day.", "h1")
+        mine = self.b.learn("My locker in the Welcome Hall closes at night.", "user",
+                            "Welcome Hall", by=self.mod)
+        self.b.link(mine, pub, "contradicts", by=self.mod)
+        self.b.review(pub, "outdated", reviewer=self.mod)
+        self.b.review(pub, "verified", reviewer=self.mod)       # audience rule, not reviewer
+        self.assertEqual(self.b.claim(pub, viewer=self.bob)["status"], "verified")
+
+    def test_visible_shared_contradiction_still_blocks(self):
+        a = self._shared("The Welcome Hall is open all day.", "h1")
+        b = self._shared("The Welcome Hall closes at night.", "h2")
+        self.b.link(b, a, "contradicts", by=self.ana)            # both shared: everyone sees it
+        self.assertEqual(self.b.claim(a, viewer=self.bob)["status"], "conflicting")
+        with self.assertRaises(BrainError):
+            self.b.review(a, "verified", reviewer=self.mod)
+        self.b.review(b, "rejected", reviewer=self.mod, note="closes only on holidays")
+        self.b.review(a, "verified", reviewer=self.mod)
+
+    def test_personal_claims_with_private_contradiction_still_block(self):
+        a = self.b.learn("The Welcome Hall is open all day.", "user", "Welcome Hall", by=self.ana)
+        b = self.b.learn("The Welcome Hall closes at night.", "user", "Welcome Hall", by=self.ana)
+        self._evidence(a, self.ana, "h1")
+        self.b.link(b, a, "contradicts", by=self.ana)            # same owner: she sees both
+        with self.assertRaises(BrainError):
+            self.b.review(a, "verified", reviewer=self.ana)
+        self.b.review(b, "rejected", reviewer=self.ana)
+        self.b.review(a, "verified", reviewer=self.ana)
+
+    def test_someone_elses_claim_contradicting_mine_blocks_only_their_side(self):
+        pub = self._shared("The Welcome Hall is open all day.", "h1")
+        bobs = self.b.learn("The Welcome Hall closes at night.", "user", "Welcome Hall",
+                            by=self.bob)
+        self._evidence(bobs, self.bob, "h3")
+        self.b.link(bobs, pub, "contradicts", by=self.bob)      # Bob sees both sides
+        with self.assertRaises(BrainError):
+            self.b.review(bobs, "verified", reviewer=self.bob)  # his claim is blocked
+        self.b.review(pub, "outdated", reviewer=self.mod)
+        self.b.review(pub, "verified", reviewer=self.mod)       # the shared one is not
+
+    def test_shared_candidate_audience_includes_moderators(self):
+        cand = self.b.learn("The Welcome Hall is open all day.", "user", "Welcome Hall",
+                            by=self.ana)
+        self._evidence(cand, self.ana, "h1")
+        self.b.propose_share(cand, by=self.ana)
+        priv = self.b.learn("My locker in the Welcome Hall closes at night.", "user",
+                            "Welcome Hall", by=self.ana)
+        self.b.link(priv, cand, "contradicts", by=self.ana)
+        self.assertIsNone(self.b.claim(priv, viewer=self.mod))   # moderators can't see it
+        self.assertEqual(self.b.claim(cand, viewer=self.mod)["status"], "submitted")
+        self.b.review(cand, "verified", reviewer=self.mod)        # not blocked by it
+        self._hidden_ids_not_in(self.b.explain(cand, viewer=self.mod), priv)
+        # a shared claim contradicting the candidate IS visible to its audience
+        cand2 = self.b.learn("The Welcome Hall has no doors.", "user", "Welcome Hall", by=self.ana)
+        self._evidence(cand2, self.ana, "h4")
+        self.b.propose_share(cand2, by=self.ana)
+        pub = self._shared("The Welcome Hall has two doors.", "h5")
+        self.b.link(cand2, pub, "contradicts", by=self.ana)
+        with self.assertRaises(BrainError):
+            self.b.review(cand2, "verified", reviewer=self.mod)
+
+    def test_hidden_contradiction_cannot_change_a_review_outcome(self):
+        def outcome(with_hidden):
+            b = Brain(tmp("k.db"))
+            st = b.store
+            ana, mod = st.add_contributor("Ana"), st.add_contributor("Mod", kind="moderator")
+            c = b.learn("The Welcome Hall is open all day.", "user", "Welcome Hall", by=ana)
+            src = b.add_source("screenshot", title="p", content_hash="h", by=ana)
+            b.add_evidence(c, "direct", src, by=ana)
+            b.review(c, "verified", reviewer=ana)
+            b.propose_share(c, by=ana)
+            b.approve_share(c, mod)
+            if with_hidden:
+                p = b.learn("My private note: the hall closes.", "user", "Welcome Hall", by=ana)
+                b.link(p, c, "contradicts", by=ana)
+            res = []
+            for st_ in ("outdated", "verified", "awaiting_verification", "verified"):
+                try:
+                    b.review(c, st_, reviewer=mod)
+                    res.append(("ok", b.claim(c, viewer=mod)["status"]))
+                except BrainError as exc:
+                    res.append(("refused", str(exc)))
+            b.close()
+            return res
+        self.assertEqual(outcome(False), outcome(True))
+
+
 class AdapterTests(unittest.TestCase):
     """The quiz memory and the World Atlas are read, never written."""
 
