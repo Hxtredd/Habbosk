@@ -1,4 +1,4 @@
-SK ASSISTANT  (v2.0 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v2.1 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -21,7 +21,7 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   a) Install Python from https://www.python.org/downloads/windows/
      During setup tick "Add python.exe to PATH" (Tkinter is included).
   b) Unzip it somewhere, e.g. into C:\ . The folder is named after the
-     version (SK_Assistant_v2). Updating from an older version: unzip the
+     version (e.g. SK_Assistant_v2.1). Updating from an older version: unzip the
      new one, run its INSTALL.bat (it moves the Desktop / Start icons to the
      new folder), then delete the old folder. Your memory, settings and
      keys are kept in your user profile, not in the program folder.

@@ -37,9 +37,10 @@ difficulties: keep the interface simple, plain-worded and calm.
 - Wants low running costs: memory first, built-in solvers, free AI tiers;
   paid AI only if explicitly enabled with a monthly cap.
 - Prefers updates as a ZIP (`dist/`). The folder inside the ZIP is named
-  after the version (`SK_Assistant_v2`); unzip, run `INSTALL.bat` (moves
+  after the version (`SK_Assistant_v2.1`); unzip, run `INSTALL.bat` (moves
   the shortcuts). Data lives in `%APPDATA%\SK Assistant`, so the folder
-  can change. Owner asked to keep fixes in the same version (still v2.0).
+  can change. Each update gets the next version: v2.1, v2.2, ... (ZIP and folder named
+  `SK_Assistant_v2.1` etc.; bump `puzzle_assistant/__init__.py` and README).
 
 ## Game rules learned from the owner (confirmed)
 
