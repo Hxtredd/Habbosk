@@ -300,6 +300,36 @@ class Memory:
         return len(rows)
 
     # -- importing ----------------------------------------------------------
+    def related(self, q: Question, limit: int = 5) -> List[str]:
+        """Facts the game confirmed that share topic words with `q` (people,
+        places, items...), as short lines for the AI: 'question -> answer
+        (game's explanation)'. The question itself is not included."""
+        words = _topic_words(" ".join([q.text] + list(q.options) + list(q.right) + list(q.clues)))
+        if not words:
+            return []
+        own = question_key(q)
+        with self._lock:
+            rows = self._db.execute("SELECT key, text, options, right_opts, answer, explanation "
+                                    "FROM questions WHERE verified=1").fetchall()
+        scored = []
+        for r in rows:
+            if r["key"] == own:
+                continue
+            ans = Answer.from_dict(json.loads(r["answer"]))
+            blob = " ".join([r["text"] or "", ans.summary(), r["explanation"] or ""]
+                            + json.loads(r["options"] or "[]") + json.loads(r["right_opts"] or "[]"))
+            hit = len(words & _topic_words(blob))
+            if hit:
+                scored.append((hit, r["text"], ans.summary(), r["explanation"] or ""))
+        scored.sort(key=lambda x: -x[0])
+        out = []
+        for _h, text, answer, expl in scored[:limit]:
+            line = f"{text} -> {answer}"
+            if expl:
+                line += f" ({expl[:200]})"
+            out.append(line[:400])
+        return out
+
     def forget_sum_questions(self) -> int:
         """Forget 'Ordena las cuentas' questions whose option texts may hold
         misread signs (see suspect_sum). The game teaches them again and the
@@ -365,6 +395,20 @@ class Memory:
         with self._lock:
             self._db.executescript("DELETE FROM questions; DELETE FROM history; DELETE FROM usage;")
             self._db.commit()
+
+
+_COMMON = set("""cual cuál cuales quien quién donde dónde cuando cuándo como cómo
+para pero porque esta este estos estas esto todo todos toda todas tiene tienen puede
+pueden hacer hace sobre entre desde hasta cada otro otra otros otras solo sólo
+frase frases error correcta correcto incorrecta incorrecto verdadero falso orden ordena
+menor mayor resultado siguiente sigue pista mismo misma that what which with from
+this there their have does""".split())
+
+
+def _topic_words(text: str) -> set:
+    """Distinctive words (names, places, items) for finding related facts."""
+    return {w for w in normalize(text).split()
+            if len(w) >= 4 and not w.isdigit() and w not in _COMMON}
 
 
 _EXACT_SUM = re.compile(r"^\d+(?: [+−×÷] \d+)+$")

@@ -62,6 +62,7 @@ class AIResult:
     model: str = ""
     ms: float = 0.0
     used_search: bool = False
+    facts: int = 0                 # learned facts sent along with the question
 
 
 class AIUnavailable(Exception):
@@ -77,11 +78,18 @@ SYSTEM = (
     "'error', 'falsa', 'incorrecta', 'NO', 'excepto' mean you must pick the WRONG statement. "
     "Hint lines are clues, never options. Many questions are about this particular game's "
     "own world (its characters, places, items, rules); if you cannot know the answer, say so "
-    "with a low confidence instead of guessing. Reply with JSON only, no other text.")
+    "with a low confidence instead of guessing. Facts listed as confirmed by this game are "
+    "true: use them when they are relevant, ignore them when they are not. "
+    "Reply with JSON only, no other text.")
 
 
-def build_prompt(q: Question, snippets: Optional[List[str]] = None) -> str:
-    lines = [f"Category: {q.category or '-'}", f"Question: {q.text}"]
+def build_prompt(q: Question, snippets: Optional[List[str]] = None,
+                 facts: Optional[List[str]] = None) -> str:
+    lines = []
+    if facts:
+        lines.append("Facts confirmed by this game (from earlier questions):")
+        lines += [f"  - {f}" for f in facts]
+    lines += [f"Category: {q.category or '-'}", f"Question: {q.text}"]
     for c in q.clues:
         lines.append(f"Clue: {c}")
     if q.kind == PAIRS:
@@ -384,7 +392,9 @@ class AIAnswerer:
         p = self.provider()
         res = AIResult(provider=p.name)
         try:
-            text, tin, tout = p.ask(SYSTEM, build_prompt(q), timeout)
+            facts = self.memory.related(q) if self.memory else []
+            res.facts = len(facts)
+            text, tin, tout = p.ask(SYSTEM, build_prompt(q, facts=facts), timeout)
             self._count(p.name, tin, tout)
             res.model = p.model()
             ans = parse_reply(text, q)
@@ -392,7 +402,7 @@ class AIAnswerer:
                     and ans.confidence < 0.7):
                 snippets = self._search(q)
                 if snippets:
-                    text, tin, tout = p.ask(SYSTEM, build_prompt(q, snippets), timeout)
+                    text, tin, tout = p.ask(SYSTEM, build_prompt(q, snippets, facts), timeout)
                     self._count(p.name, tin, tout)
                     ans2 = parse_reply(text, q)
                     if ans2.confidence >= ans.confidence:

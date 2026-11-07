@@ -192,6 +192,11 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
        "Gemini key", press Save. Never paste the key anywhere else (not in
        chats, not in config.json).
     3. Press "Test AI": it should say "Working".
+  Learned facts help the AI: with each new question SK Assistant sends up
+  to 5 related questions the game already confirmed (same people, places,
+  items) with their answers and the game's explanations. Only those few
+  entries are sent, never the whole memory. The window shows "used N
+  learned facts" under an AI answer.
   SK Assistant picks Google's newest stable "Flash-Lite" model by itself
   (fast and cheap). To force one, set "ai_model" in config.json.
 

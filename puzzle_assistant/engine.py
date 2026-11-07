@@ -441,6 +441,7 @@ class Engine(threading.Thread):
         st["check"] = (ident, ans, ans.source)
         self._emit(state="question", question=q, answer=ans, status=status, place=place,
                    ai_info=f"{res.provider} · {res.ms / 1000:.1f} s"
+                           + (f" · used {res.facts} learned facts" if res.facts else "")
                            + (" · searched the web" if res.used_search else ""))
 
     # -- money puzzle ------------------------------------------------------

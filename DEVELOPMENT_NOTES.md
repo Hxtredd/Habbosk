@@ -138,6 +138,9 @@ mark), lower → "Not sure". Never saved as truth; scored against the reveal
 (newest stable flash-lite, cached in the `meta` table, re-picked on 404).
 Key in header `x-goog-api-key`, never in the URL. Paid providers need
 `paid_api` + `monthly_limit`; free use capped by `ai_daily_limit`.
+Stage 4.2: `Memory.related(q)` picks up to 5 game-verified entries sharing
+topic words (`_topic_words`) and `build_prompt` sends them as "facts
+confirmed by this game"; still one request per question.
 Data folder override for tests: env `SK_ASSISTANT_DATA`.
 
 Sums on option buttons (`qa/mathread.py`): Tesseract misread ÷ (as '+',

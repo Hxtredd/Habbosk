@@ -231,6 +231,36 @@ class EngineAITests(Base):
         eng.stop()
 
 
+class LearnedFactsTests(Base):
+    """Stage 4.2: related answers the game confirmed are sent with the question."""
+
+    def test_related_facts_go_into_the_request(self):
+        from puzzle_assistant import storage
+        storage.add_seed(self.mem)
+        self.mem.set_meta("gemini_model", "m")
+        q = Question("¿QUIÉN SOY?", "Trabajo en el casino y reparto las cartas",
+                     ["Leo", "Mateo", "Rubén", "Tomás"])
+        facts = self.mem.related(q)
+        self.assertTrue(facts)
+        self.assertIn("-> Leo", facts[0])           # shares the NPC names with the options
+        self.assertLessEqual(len(facts), 5)
+        http = FakeHttp([(200, gemini_reply({"answer": "A", "confidence": 0.8}))])
+        r = ai.AIAnswerer(self.cfg, self.mem, http).answer(q)
+        prompt = http.calls[0][3]["contents"][0]["parts"][0]["text"]
+        self.assertIn("Facts confirmed by this game", prompt)
+        self.assertEqual(r.facts, len(facts))
+        self.assertEqual(len(http.calls), 1)                  # still one request
+
+    def test_unrelated_or_unverified_are_not_sent(self):
+        self.mem.save(Q, Answer(choice="París", source="ai"))            # not confirmed
+        self.assertEqual(self.mem.related(Question("PREGUNTA", "¿Capital de Francia?",
+                                                   ["Madrid", "París"])), [])
+        self.mem.save(Q, Answer(choice="París", source="game", verified=True))
+        self.assertEqual(self.mem.related(Q), [])                       # itself excluded
+        self.assertEqual(self.mem.related(Question("PREGUNTA", "¿Cuánto pesa un elefante?",
+                                                   ["1 t", "5 t"])), [])
+
+
 class ModelTests(unittest.TestCase):
     def test_answer_roundtrip_keeps_ai_source(self):
         a = Answer(choice="París", source="ai", confidence=0.8)
