@@ -1,4 +1,4 @@
-PUZZLE ANSWER ASSISTANT  (v1.6, Windows prototype)
+HABBOSK  (v1.7 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -84,13 +84,28 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
     The next puzzle is detected automatically; no restart needed.
 
   Buttons (the window must have focus for F5/F8):
-    Rescan (F5)  force a fresh scan of the screen right now
-    Numbers      show / hide the step numbers drawn on the puzzle cards
-    Region       drag a box around the puzzle window once. Makes detection
-                 faster and more reliable (recommended). Saved in config.json.
-    Auto         forget the region and search the whole monitor again
-    Snapshot     (F8) saves the current screen + what was read to .\debug
-                 Useful if recognition is wrong.
+    ● On / ○ Off  switch the whole assistant on or off
+    Rescan (F5)   force a fresh scan of the screen right now
+    Numbers       show / hide the numbers and answers drawn on the game
+    Settings      the settings panel (below). F8 = save a snapshot to .\debug
+
+  Settings panel:
+    General       assistant on/off, keep on top, numbers on screen, text size
+    What Habbosk helps with
+                  weapon puzzle, money puzzle, questions (on/off each);
+                  recognise questions automatically or only on "Scan"
+    AI and internet
+                  AI provider (none / Google Gemini / Anthropic Claude / OpenAI),
+                  API keys (stored encrypted with your Windows account in
+                  data\keys.bin - never in config.json), paid use on/off
+                  (off by default: never pays), monthly limit, internet search
+                  on/off, this month's requests and estimated cost.
+                  (AI answers are connected in a coming update.)
+    Memory        how many questions Habbosk has learned; export; forget all
+    Screen        select a region / watch all screens / save a snapshot
+
+  Learned questions live in data\habbosk.db (works offline, kept across
+  restarts). Back it up with Settings > Memory > Export.
 
   The window can be moved and resized; the answer text scales with the width.
   The window is hidden from screen capture (Windows 10 2004+), so it may
@@ -185,6 +200,9 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   puzzle_assistant\overlay.py   click-through step numbers drawn on the cards
   puzzle_assistant\render.py    anti-aliased badges, step chips (Pillow)
   puzzle_assistant\money.py     money puzzle: strip tracking, value reading, checks
+  puzzle_assistant\qa\         questions: model, text helpers, SQLite memory
+  puzzle_assistant\settings_ui.py  settings panel
+  puzzle_assistant\secrets.py   encrypted API key storage (Windows DPAPI)
   assets\fonts\                 Inter font (SIL Open Font License, see OFL.txt)
   tests\                     unit tests; tests\fixtures holds real puzzle panels and
                              two recorded money rounds (coins = 125, bills = 390)

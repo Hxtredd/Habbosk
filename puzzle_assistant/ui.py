@@ -15,6 +15,8 @@ from .analyzer import Analysis
 from .config import Config
 from .engine import Engine
 from .overlay import Overlay, money_overlay_items, overlay_items
+from .qa.memory import Memory
+from .settings_ui import open_settings
 
 from . import render as R
 
@@ -116,13 +118,17 @@ class App:
         self._images = {}                 # keep PhotoImage references alive
         self._view: Optional[dict] = None  # last rendered state (for resizes)
 
+        self.memory = Memory()             # learned questions (SQLite)
+        self._settings = None
         r = self.root = tk.Tk()
-        r.title("Puzzle Answer Assistant")
+        r.title("Habbosk")
+        self._base_scaling = float(r.tk.call("tk", "scaling"))
+        self._apply_text_scale()
         r.configure(bg=BG)
         r.geometry(cfg.window_geometry)
         r.minsize(300, 220)
         _set_icon(r)
-        r.attributes("-topmost", True)
+        r.attributes("-topmost", bool(cfg.always_on_top))
         try:
             r.attributes("-alpha", float(cfg.opacity))
         except tk.TclError:
@@ -136,7 +142,7 @@ class App:
         self.l_icon = tk.Label(head, bg=BG)
         self.l_icon.grid(row=0, column=0, padx=(0, 8))
         self._set_image(self.l_icon, "icon", _app_icon(18))
-        tk.Label(head, text="Puzzle Assistant", bg=BG, fg=FG, font=(FONT_SEMI, 11),
+        tk.Label(head, text="Habbosk", bg=BG, fg=FG, font=(FONT_SEMI, 11),
                  anchor="w").grid(row=0, column=1, sticky="w")
         self.l_pill = tk.Label(head, bg=BG)
         self.l_pill.grid(row=0, column=2, sticky="e")
@@ -176,15 +182,15 @@ class App:
         bar.grid(row=4, column=0, sticky="we", padx=10, pady=(6, 10))
         bar.columnconfigure(9, weight=1)
         self.b_overlay = None
-        for i, (txt, cmd) in enumerate((("Rescan", self.engine.rescan),
+        buttons = {}
+        for i, (txt, cmd) in enumerate((("On", self.toggle_power),
+                                        ("Rescan", self.engine.rescan),
                                         ("Numbers", self.toggle_overlay),
-                                        ("Region", self.pick_region),
-                                        ("Auto", self.clear_region),
-                                        ("Snapshot", self.engine.snapshot))):
+                                        ("Settings", self.open_settings))):
             b = _flat_button(bar, txt, cmd)
             b.grid(row=0, column=i, padx=(0, 4))
-            if txt == "Numbers":
-                self.b_overlay = b
+            buttons[txt] = b
+        self.b_overlay, self.b_power = buttons["Numbers"], buttons["On"]
         self.l_mode = tk.Label(bar, text="", bg=BG, fg=DIM, font=(FONT, 8))
         self.l_mode.grid(row=0, column=10, sticky="e")
 
@@ -205,6 +211,7 @@ class App:
             self.b_overlay.grid_remove()       # needs Windows
         self._update_overlay_button()
         self._update_region_label()
+        self._update_power()
         self._waiting("Starting…")
 
     # -- small helpers ---------------------------------------------------------
@@ -225,6 +232,71 @@ class App:
         return max(200, self.root.winfo_width() - 2 * 12 - 2 * 12 - 2)
 
     # -- actions -------------------------------------------------------------
+    def toggle_power(self) -> None:
+        self.cfg.assistant_on = not self.cfg.assistant_on
+        self.cfg.save()
+        self._setting_changed("assistant_on")
+
+    def _update_power(self) -> None:
+        on = self.cfg.assistant_on
+        self.b_power.config(text="● On" if on else "○ Off", fg=GOOD if on else DIM)
+        self.engine.set_paused(not on)
+        if not on:
+            self._last_place = self._last_analysis = self._last_money = None
+            self.overlay.clear()
+            self._view = None
+            self._pill("Off", R.MUTED)
+            self.l_target.config(text="Habbosk is switched off")
+            self.l_section.config(text="")
+            self._set_image(self.l_main, "main", None)
+            self.l_main.config(text="Paused", fg=DIM, font=(FONT_SEMI, 18))
+            self.l_next.config(text="")
+            self.l_tag_title.config(text="")
+            self._set_image(self.l_tags, "tags", None)
+            self.l_hint.config(text="Press “○ Off” to switch it back on.", fg=DIM)
+            self.l_warn.config(text="")
+        else:
+            self._waiting("Waiting for puzzle…")
+
+    def open_settings(self) -> None:
+        self._settings = open_settings(
+            self._settings, self.root, self.cfg, self.memory, self._setting_changed,
+            {"region": self.pick_region, "auto": self.clear_region,
+             "snapshot": self.engine.snapshot})
+
+    def _setting_changed(self, name: str) -> None:
+        if name == "assistant_on":
+            self._update_power()
+        elif name == "always_on_top":
+            self.root.attributes("-topmost", bool(self.cfg.always_on_top))
+        elif name == "text_scale":
+            self._apply_text_scale()
+            self._rerender()
+        elif name == "overlay":
+            self._update_overlay_button()
+            self._draw_overlay()
+        elif name in ("weapon_puzzle", "money_puzzle", "questions"):
+            self.engine.rescan()
+        elif name == "memory" and self._view is None and self.cfg.assistant_on:
+            self._waiting("Waiting for puzzle…")
+
+    def _apply_text_scale(self) -> None:
+        """Text size: Tk point sizes follow the 'tk scaling' factor."""
+        s = min(1.6, max(0.8, float(self.cfg.text_scale or 1.0)))
+        self.root.tk.call("tk", "scaling", self._base_scaling * s)
+        self._refresh_fonts(self.root)
+
+    def _refresh_fonts(self, widget) -> None:
+        """Re-apply each label's font so the new text size takes effect."""
+        for child in widget.winfo_children():
+            try:
+                f = child.cget("font")
+                if f:
+                    child.config(font=f)
+            except tk.TclError:
+                pass
+            self._refresh_fonts(child)
+
     def toggle_overlay(self) -> None:
         self.cfg.overlay = not self.cfg.overlay
         self.cfg.save()
@@ -292,6 +364,8 @@ class App:
             self._render(self._view["analysis"])
         elif self._view and self._view.get("money") is not None:
             self._render_money(self._view["money"])
+        elif self._view and self._view.get("question") is not None:
+            self._render_question(*self._view["question"])
 
     # -- engine messages -----------------------------------------------------
     def _poll(self) -> None:
@@ -313,6 +387,8 @@ class App:
         self.root.after(25, self._poll)
 
     def _show(self, m: dict) -> None:
+        if not self.cfg.assistant_on:
+            return
         st = m.get("state")
         if st in ("waiting", "searching", "analyzing"):
             self._last_place = self._last_analysis = self._last_money = None
@@ -343,7 +419,7 @@ class App:
     def _waiting(self, msg: str) -> None:
         self._view = None
         self._pill("Waiting", R.MUTED)
-        self.l_target.config(text="Open a puzzle in the game")
+        self.l_target.config(text="Open a puzzle or a question in the game")
         self.l_section.config(text="")
         self._set_image(self.l_main, "main", None)
         self.l_main.config(text="Waiting for puzzle…" if "No puzzle" not in msg else msg,
@@ -351,7 +427,9 @@ class App:
         self.l_next.config(text="")
         self.l_tag_title.config(text="")
         self._set_image(self.l_tags, "tags", None)
-        self.l_hint.config(text="Weapon assembly or money counting: detected automatically.",
+        st = self.memory.stats()
+        self.l_hint.config(text="Weapon assembly, money counting and questions are detected "
+                                f"automatically.\nMemory: {st['questions']} learned questions.",
                            fg=DIM)
         err = getattr(getattr(self, "overlay", None), "error", "")
         self.l_warn.config(text=f"Numbers on cards unavailable: {err}" if err else "", fg=WARN)
@@ -453,6 +531,34 @@ class App:
             self.l_warn.config(text="")
         self.l_next.config(text=values, fg=DIM if not st.done else FG)
 
+    def _render_question(self, q, ans, status: str = "") -> None:
+        """A recognised question and its answer.
+        status: 'memory' | 'solver' | 'game' | 'ai' | 'unsure' | 'thinking'"""
+        self._view = {"question": (q, ans, status)}
+        self._set_image(self.l_main, "main", None)
+        self._tags([], 0)
+        label = {"memory": ("From memory", R.GREEN_SOFT), "game": ("Confirmed", R.GREEN_SOFT),
+                 "solver": ("Solved", R.GREEN_SOFT), "ai": ("AI · unverified", R.AMBER),
+                 "unsure": ("Not sure", R.AMBER), "thinking": ("Thinking…", R.BLUE)}
+        text, colour = label.get(status, ("Question", R.BLUE))
+        self._pill(text, colour)
+        self.l_target.config(text=(q.category or "Pregunta").upper())
+        self.l_section.config(text="ANSWER")
+        if ans is None:
+            self.l_main.config(text="…", fg=DIM, font=(FONT_SEMI, 18))
+        else:
+            if ans.kind == "choice" and ans.choice in q.options:
+                letter = "ABCDEFGH"[q.options.index(ans.choice)]
+                main = f"{letter}.  {ans.choice}"
+            else:
+                main = ans.summary()
+            sure = status in ("memory", "game", "solver")
+            self.l_main.config(text=main, fg=GOOD if sure else WARN, font=(FONT_SEMI, 16))
+        clues = ("\n" + "  ·  ".join(q.clues)) if q.clues else ""
+        self.l_next.config(text=q.text + clues, fg=FG)
+        self.l_hint.config(text=(ans.explanation if ans and ans.explanation else ""), fg=DIM)
+        self.l_warn.config(text="")
+
     def _tags(self, items, width: int) -> None:
         img = R.tags(items, 22, R.RED, R.SURFACE) if items else None
         self.l_tag_title.config(text="Don't click" if items else "")
@@ -470,6 +576,7 @@ class App:
             self.cfg.save()
         finally:
             self.engine.stop()
+            self.memory.close()
             self.root.destroy()
 
 

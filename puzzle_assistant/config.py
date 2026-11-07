@@ -41,7 +41,23 @@ class Config:
     require_layout: bool = True         # only accept the game's card layout
     disappear_after_ms: int = 700       # puzzle gone this long -> reset display
 
+    # --- what Habbosk helps with ------------------------------------------
+    assistant_on: bool = True           # master on/off switch
+    weapon_puzzle: bool = True          # "Montar un arma"
+    money_puzzle: bool = True           # "Cuenta el dinero"
+    questions: bool = True              # quiz questions (library, general knowledge)
+    question_mode: str = "auto"         # "auto" = detect by itself, "manual" = on Scan
+
+    # --- AI and internet (API keys are stored encrypted, never here) -------
+    ai_provider: str = "none"           # none | gemini | anthropic | openai
+    paid_api: bool = False              # never pay unless switched on
+    monthly_limit: float = 0.0          # USD per month for paid use (0 = nothing)
+    web_search: bool = False
+    search_provider: str = "none"       # none | tavily | brave
+
     # --- UI --------------------------------------------------------------
+    always_on_top: bool = True
+    text_scale: float = 1.0             # 0.8 .. 1.6
     window_geometry: str = "440x360+40+40"
     opacity: float = 0.95
     overlay: bool = True                # draw step numbers on the puzzle cards

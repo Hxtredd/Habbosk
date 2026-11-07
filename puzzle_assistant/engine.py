@@ -169,6 +169,8 @@ class Engine(threading.Thread):
                 for b in targets:
                     frame, bounds = grabber.grab_bounds(b)
                     frames.append(frame)
+                    if not self.cfg.weapon_puzzle:
+                        continue
                     gray = to_gray(frame)
                     loc = locators.setdefault(_key(b), Locator(self.cfg))
                     hit = loc.find(frame, gray)
@@ -183,7 +185,7 @@ class Engine(threading.Thread):
                 if hit is None:
                     # No weapon puzzle: is it the money puzzle?
                     money = None
-                    for b, frame_b in zip(targets, frames):
+                    for b, frame_b in (zip(targets, frames) if self.cfg.money_puzzle else ()):
                         mp = locate_money(to_gray(frame_b))
                         if mp is not None:
                             money = (b, mp)

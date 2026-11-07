@@ -73,7 +73,7 @@ def _single_instance() -> bool:
     _MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, "PuzzleAnswerAssistant.Single")
     if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
         # bring the existing window to the front instead of opening a second one
-        hwnd = ctypes.windll.user32.FindWindowW(None, "Puzzle Answer Assistant")
+        hwnd = ctypes.windll.user32.FindWindowW(None, "Habbosk")
         if hwnd:
             ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
             ctypes.windll.user32.SetForegroundWindow(hwnd)
