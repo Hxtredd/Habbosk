@@ -13,7 +13,10 @@ Rules agreed with the owner:
 from __future__ import annotations
 
 import datetime as _dt
+import difflib
 import json
+import re
+import unicodedata
 import os
 import sqlite3
 import threading
@@ -56,6 +59,13 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 
 def _now() -> str:
     return _dt.datetime.now().isoformat(timespec="seconds")
+
+
+def name_key(name: str) -> str:
+    """Name for matching: no accents, case, spaces or punctuation."""
+    s = unicodedata.normalize("NFKD", name or "")
+    s = "".join(c for c in s if not unicodedata.combining(c)).lower()
+    return re.sub(r"[^a-z0-9]", "", s)
 
 
 def guess_kind(room_id: int, name: str, owner: Optional[str]) -> str:
@@ -107,6 +117,94 @@ class Atlas:
                 "SELECT * FROM rooms WHERE lower(name) LIKE ? OR CAST(room_id AS TEXT) LIKE ? "
                 "OR lower(aliases) LIKE ? ORDER BY room_id", (q, q, q)).fetchall()
         return [_room(r) for r in rows]
+
+    def find_by_name(self, name: str) -> List[dict]:
+        """Known rooms whose name (or an earlier name) matches what was read
+        in the name bar. Exact match first; otherwise one clearly closest
+        name (small reading slips), never a loose guess."""
+        k = name_key(name)
+        if len(k) < 2:
+            return []
+        with self._lock:
+            rows = [_room(r) for r in self._db.execute(
+                "SELECT * FROM rooms WHERE status!='pending'")]
+        exact = [r for r in rows if k in [name_key(r["name"])] + [name_key(a) for a in r["aliases"]]]
+        if exact:
+            return exact
+        scored = []
+        for r in rows:
+            best = max(difflib.SequenceMatcher(None, k, name_key(n)).ratio()
+                       for n in [r["name"]] + r["aliases"])
+            scored.append((best, r))
+        scored.sort(key=lambda t: -t[0])
+        if scored and scored[0][0] >= 0.9 and (len(scored) == 1 or scored[1][0] < scored[0][0] - 0.05):
+            return [scored[0][1]]
+        return []
+
+    def ask_for_id(self, name: str, from_room: Optional[int], method: str) -> bool:
+        """A room name SK doesn't know and no ID on screen: ask the owner
+        (once per name). Returns True when a new question was added."""
+        k = name_key(name)
+        with self._lock:
+            for p in self._db.execute("SELECT name FROM pending WHERE room_id IS NULL"):
+                if name_key(p["name"]) == k:
+                    return False
+            self._db.execute(
+                "INSERT INTO pending (room_id, name, owner, from_room, method, detected_at) "
+                "VALUES (NULL,?,NULL,?,?,?)", (name, from_room, method, _now()))
+            self._db.commit()
+        return True
+
+    def facts_for(self, text: str, limit: int = 6) -> List[str]:
+        """World Atlas knowledge for a quiz question that mentions places:
+        rooms / map places named in the text, what they are, what is near
+        them on the hotel map, and where walking from them leads."""
+        k = name_key(text)
+        if not k:
+            return []
+        with self._lock:
+            rooms = [_room(r) for r in self._db.execute("SELECT * FROM rooms WHERE status!='pending'")]
+            marks = [dict(r) for r in self._db.execute("SELECT * FROM markers")]
+        hits = []
+        seen = set()
+        for m in marks:
+            n = m["name"] or ""
+            if len(name_key(n)) >= 4 and name_key(n) in k and n not in seen:
+                seen.add(n)
+                if m["room_id"]:
+                    seen.add(m["room_id"])          # don't repeat it as a room below
+                hits.append(("marker", m))
+        for r in rooms:
+            for n in [r["name"]] + r["aliases"]:
+                if len(name_key(n)) >= 5 and name_key(n) in k and r["room_id"] not in seen:
+                    seen.add(r["room_id"])
+                    hits.append(("room", r))
+                    break
+        out = []
+        for kind, x in hits[:limit]:
+            if kind == "marker":
+                near = sorted((mm for mm in marks if mm["marker"] != x["marker"] and mm["name"]),
+                              key=lambda mm: (mm["x"] - x["x"]) ** 2 + (mm["y"] - x["y"]) ** 2)[:3]
+                line = (f"On the hotel map, '{x['name']}' is a {x['kind'] or 'place'}"
+                        + (f" (room ID {x['room_id']})" if x["room_id"] else "")
+                        + "; nearest on the map: " + ", ".join(mm["name"] for mm in near))
+                rid = x["room_id"]
+            else:
+                line = f"Room '{x['name']}' (ID {x['room_id']}) is a {x['kind'] or 'room'}"
+                if x["owner"]:
+                    line += f", owner {x['owner']}"
+                rid = x["room_id"]
+            if rid:
+                walk = [c for c in self.connections(rid) if c["method"] == "walk"
+                        and c["status"] == "observed"]
+                to = [self.room(c["to_room"]) for c in walk if c["from_room"] == rid]
+                frm = [self.room(c["from_room"]) for c in walk if c["to_room"] == rid]
+                if to:
+                    line += "; walking from it leads to " + ", ".join(t["name"] for t in to if t)
+                if frm:
+                    line += "; reached on foot from " + ", ".join(f["name"] for f in frm if f)
+            out.append(line + ".")
+        return out
 
     def by_name(self, name: str) -> List[dict]:
         with self._lock:
@@ -187,6 +285,8 @@ class Atlas:
             p = self._db.execute("SELECT * FROM pending WHERE id=?", (pending_id,)).fetchone()
             if p is None:
                 return "gone"
+            if p["room_id"] is None:
+                return self._answer_name_only(p, room_id, name)
             rid = room_id if room_id is not None else p["room_id"]
             nm = (name or p["name"] or "").strip()
             if rid != p["room_id"]:
@@ -215,11 +315,41 @@ class Atlas:
             self._db.commit()
             return "ok"
 
+    def _answer_name_only(self, p, room_id: Optional[int], name: Optional[str]) -> str:
+        """The owner typed the ID for a room name SK didn't know."""
+        if room_id is None:
+            return "need_id"
+        nm = (name or p["name"] or "").strip()
+        now = _now()
+        if self.room(room_id) is None:
+            self.add_room(room_id, nm, status="visited", source="owner (name from screen)")
+        else:
+            self.add_room(room_id, nm)            # known ID under a new name: keep the old one
+            self._db.execute("UPDATE rooms SET status='visited' WHERE room_id=? AND status='known'",
+                             (room_id,))
+        self._db.execute("UPDATE rooms SET last_visited=?, visits=visits+1 WHERE room_id=?",
+                         (now, room_id))
+        self._db.execute("INSERT INTO visits (room_id, name, from_room, method, at) VALUES (?,?,?,?,?)",
+                         (room_id, nm, p["from_room"], p["method"], now))
+        if p["from_room"] is not None and p["from_room"] != room_id and p["method"] == "walk":
+            self._db.execute(
+                "INSERT INTO connections (from_room, to_room, method, status, times, first_seen, "
+                "last_seen, evidence) VALUES (?,?,'walk','observed',1,?,?,'explorer (ID by owner)') "
+                "ON CONFLICT(from_room, to_room, method) DO UPDATE SET times=times+1, last_seen=?",
+                (p["from_room"], room_id, now, now, now))
+        self._db.execute("DELETE FROM pending WHERE id=?", (p["id"],))
+        self._db.commit()
+        return "ok"
+
     def decline(self, pending_id: int) -> None:
         """Not this room: forget the detection (its connection stays unverified)."""
         with self._lock:
             p = self._db.execute("SELECT * FROM pending WHERE id=?", (pending_id,)).fetchone()
             if p is None:
+                return
+            if p["room_id"] is None:                   # a name-only question: just drop it
+                self._db.execute("DELETE FROM pending WHERE id=?", (pending_id,))
+                self._db.commit()
                 return
             self._db.execute("DELETE FROM rooms WHERE room_id=? AND status='pending'", (p["room_id"],))
             self._db.execute("UPDATE connections SET status='unverified' "

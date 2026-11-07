@@ -147,9 +147,11 @@ class App:
             done = self.atlas.import_input()
             if done:
                 self._startup_notes.append(f"World Atlas: {done['rooms']} rooms imported")
+            self.engine.ai.atlas = self.atlas    # the AI can use map / room knowledge
             self.atlas_q: "queue.Queue[dict]" = queue.Queue()
             self.explorer = ExplorerThread(self.atlas, lambda: Tesseract(self.cfg), self.cfg,
                                            self.atlas_q)
+            self.explorer.engine_busy = lambda: self.engine.busy
         except Exception as exc:
             self._startup_notes.append(f"World Atlas unavailable: {exc}")
         r = self.root = tk.Tk()
@@ -173,7 +175,10 @@ class App:
         self.body.grid(row=1, column=0, sticky="nswe")
         self.body.columnconfigure(0, weight=1)
         self.body.rowconfigure(0, weight=1)
-        m = self.main = tk.Frame(self.body, bg=BG)
+        from .scrollframe import ScrollFrame
+        self._main_scroll = ScrollFrame(self.body, BG)
+        self.main_box = self._main_scroll.outer      # placed in the window / dock
+        m = self.main = self._main_scroll.inner      # the assistant's content
         m.columnconfigure(0, weight=1)
 
         # ---- header: icon, title, status pill --------------------------------
@@ -408,10 +413,10 @@ class App:
             # cheap switch between the two tabs
             if self._ex_panel is None and want_panel:
                 self._ex_panel = ExplorerPanel(self.body, self.atlas, self.explorer, self._ui_font)
-            self.main.grid_remove()
+            self.main_box.grid_remove()
             if self._ex_panel is not None:
                 self._ex_panel.win.grid_remove()
-            (self._ex_panel.win if want_panel else self.main).grid(row=0, column=0, sticky="nswe")
+            (self._ex_panel.win if want_panel else self.main_box).grid(row=0, column=0, sticky="nswe")
             return
         # tear down the previous arrangement
         if self._ex_panel is not None:
@@ -421,22 +426,22 @@ class App:
             self._ex_top.destroy()
             self._ex_top = None
         if self._ex_paned is not None:
-            self._ex_paned.forget(self.main)
+            self._ex_paned.forget(self.main_box)
             self._ex_paned.destroy()
             self._ex_paned = None
             if self._geom_before_dock:
                 self.root.geometry(self._geom_before_dock.split("+")[0])
                 self._geom_before_dock = None
                 self.root.update_idletasks()
-        self.main.grid_remove()
+        self.main_box.grid_remove()
         if mode == "tab":
             if want_panel:
                 self._ex_panel = ExplorerPanel(self.body, self.atlas, self.explorer, self._ui_font)
                 self._ex_panel.win.grid(row=0, column=0, sticky="nswe")
             else:
-                self.main.grid(row=0, column=0, sticky="nswe")
+                self.main_box.grid(row=0, column=0, sticky="nswe")
         elif mode == "window":
-            self.main.grid(row=0, column=0, sticky="nswe")
+            self.main_box.grid(row=0, column=0, sticky="nswe")
             top = self._ex_top = tk.Toplevel(self.root)
             top.title("SK Assistant – Explorer")
             top.configure(bg=BG)
@@ -461,11 +466,11 @@ class App:
             pw.grid(row=0, column=0, sticky="nswe")
             self._ex_panel = ExplorerPanel(pw, self.atlas, self.explorer, self._ui_font)
             first_is_explorer = mode in ("left", "top")
-            panes = [self._ex_panel.win, self.main] if first_is_explorer else \
-                [self.main, self._ex_panel.win]
+            panes = [self._ex_panel.win, self.main_box] if first_is_explorer else \
+                [self.main_box, self._ex_panel.win]
             for p_ in panes:
                 pw.add(p_, stretch="always", minsize=160)
-            self.main.lift()
+            self.main_box.lift()
             dim = "width" if horizontal else "height"
             pw.paneconfigure(self._ex_panel.win, **{dim: size})
 

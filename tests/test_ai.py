@@ -261,6 +261,24 @@ class LearnedFactsTests(Base):
                                                    ["1 t", "5 t"])), [])
 
 
+class AtlasFactsTests(Base):
+    def test_map_questions_get_world_atlas_facts(self):
+        from puzzle_assistant.world_atlas.db import Atlas
+        atlas = Atlas(os.path.join(tempfile.mkdtemp(), "atlas.db"))
+        atlas.import_input()
+        self.mem.set_meta("gemini_model", "m")
+        http = FakeHttp([(200, gemini_reply({"answer": "A", "confidence": 0.8}))])
+        ans = ai.AIAnswerer(self.cfg, self.mem, http)
+        ans.atlas = atlas
+        q = Question("PREGUNTA", "¿Qué lugar está al lado del Gran Casino?", ["Spa", "Mina", "Banco"])
+        r = ans.answer(q)
+        prompt = http.calls[0][3]["contents"][0]["parts"][0]["text"]
+        self.assertIn("Gran Casino", prompt)
+        self.assertIn("nearest on the map", prompt)
+        self.assertGreaterEqual(r.facts, 1)
+        atlas.close()
+
+
 class ModelTests(unittest.TestCase):
     def test_answer_roundtrip_keeps_ai_source(self):
         a = Answer(choice="París", source="ai", confidence=0.8)

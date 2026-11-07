@@ -79,33 +79,40 @@ class Tracker:
 
     def feed(self, v: RoomView) -> Optional[dict]:
         """One reading of the screen. Returns an event dict when something
-        was recorded, else None."""
+        was recorded, else None.
+
+        The room is identified by its NAME (bar above the chat), matched to
+        the rooms the Atlas knows; the share panel's ID, when visible, wins
+        and also teaches new names. A name SK doesn't know (or one shared by
+        several rooms) without a visible ID is asked to the owner."""
         if self._undecided():
             return None
         if not v.in_room:
             self.state = "Not in a room view (map, menu or something covers the name bar)"
             return None
-        cand = (v.room_id, v.name)
-        if self._cand is not None and cand[0] == self._cand[0] and _same_name(cand[1], self._cand[1]):
+        if not v.name:
+            return None
+        if self._cand is not None and _same_name(v.name, self._cand[1]):
             self._count += 1
+            if v.room_id is not None:
+                self._cand = (v.room_id, self._cand[1])
         else:
-            self._cand, self._count = cand, 1
+            self._cand, self._count = (v.room_id, v.name), 1
         if self._count < self.STABLE:
             return None
-        rid, name = cand
-        if rid is None:
-            self.need_id = True
-            self.state = "In a room - open the share panel so SK can read the room ID"
-            if self.current and not _same_name(name, self.current["name"]):
-                self.state = f"New room “{name}” - room ID needed: open the share panel"
-            return None
-        self.need_id = False
+        rid, name = self._cand
         cur = self.current
-        if cur is not None and cur["room_id"] == rid:
+        how = "id"
+        if rid is None:
+            found = self.atlas.find_by_name(name)
+            if len(found) == 1:
+                rid, how = found[0]["room_id"], "name"
+        if cur is not None and rid is not None and cur.get("room_id") == rid:
             self.state = "In room"
+            self.need_id = False
             self._loading_since_room = False     # a flash without a room change
-            # same room, different name: a rename (only if seen several times)
-            if name and not _same_name(name, cur["name"]):
+            # same ID, different name: a rename (only if seen several times)
+            if how == "id" and not _same_name(name, cur["name"]):
                 key, n = self._rename
                 n = n + 1 if key == name else 1
                 self._rename = (name, n)
@@ -115,18 +122,29 @@ class Tracker:
                     self._rename = (None, 0)
                     return {"event": "renamed", "room_id": rid, "name": name}
             return None
+        if cur is not None and rid is None and _same_name(name, cur["name"]):
+            return None                          # still in the same (unidentified) room
         method = "walk" if (cur is not None and self._loading_since_room) else (
             "taxi" if cur is not None else "start")
-        frm = cur["room_id"] if cur else None
-        res = self.atlas.record_visit(rid, name or "", v.owner, frm, method)
-        self.current = {"room_id": rid, "name": name}
+        frm = cur.get("room_id") if cur else None
         self._loading_since_room = False
-        self.state = "In room"
-        how = {"walk": "walked", "taxi": "instant change (taxi)", "start": "first room seen"}[method]
-        self.last_change = (f"{cur['name']} ({cur['room_id']}) → " if cur else "") + \
-            f"{name} ({rid}) · {how}"
+        hows = {"walk": "walked", "taxi": "instant change (taxi)", "start": "first room seen"}
+        prev = (f"{cur['name']} ({cur.get('room_id') or '?'}) → " if cur else "")
+        if rid is None:
+            # unknown name (or several rooms with it) and no ID on screen: ask
+            self.current = {"room_id": None, "name": name}
+            self.need_id = True
+            asked = self.atlas.ask_for_id(name, frm, method)
+            self.state = f"New room “{name}” - add its ID in the Explorer (or open the share panel)"
+            self.last_change = prev + f"{name} (ID?) · {hows[method]}"
+            return {"event": "need_id", "name": name, "from": frm, "method": method, "asked": asked}
+        self.need_id = False
+        res = self.atlas.record_visit(rid, name, v.owner, frm, method)
+        self.current = {"room_id": rid, "name": name}
+        self.state = "In room" + (" (recognised by its name)" if how == "name" else "")
+        self.last_change = prev + f"{name} ({rid}) · {hows[method]}"
         return {"event": "room", "room_id": rid, "name": name, "from": frm, "method": method,
-                "new_room": res["new_room"], "connection": res["connection"]}
+                "new_room": res["new_room"], "connection": res["connection"], "by": how}
 
 
 class ExplorerThread(threading.Thread):
@@ -140,6 +158,7 @@ class ExplorerThread(threading.Thread):
         self.view: Optional[RoomView] = None
         self._stop = threading.Event()
         self.paused = threading.Event()
+        self.engine_busy = None                  # callable: a puzzle / question is on screen
 
     def stop(self) -> None:
         self._stop.set()
@@ -155,31 +174,44 @@ class ExplorerThread(threading.Thread):
         cache: dict = {}
         order = list(range(len(grabber.screens)))
         last_read = 0.0
+        last_url_search = -1e9
+        url_where = None
+        last_name = None
         try:
             while not self._stop.is_set():
                 t0 = time.monotonic()
-                if self.paused.is_set() or not getattr(self.cfg, "world_atlas", True):
+                if (self.paused.is_set() or not getattr(self.cfg, "world_atlas", True)
+                        or (self.engine_busy is not None and self.engine_busy())):
+                    # a puzzle or a question is on screen: it gets the computer
                     time.sleep(0.5)
                     continue
                 img, _b = grabber.grab_bounds(grabber.screens[order[0]])
                 moved = self.tracker.motion(thumb(img), t0)
-                if moved or t0 - last_read >= 0.8:
+                if moved or t0 - last_read >= 2.0:
                     last_read = t0
-                    v = read_view(img, ocr, cache, want_owner=self._want_owner())
-                    if not v.in_room and len(order) > 1:
+                    name_changed = self.tracker._cand is None or (
+                        self.view is not None and self.view.name != last_name)
+                    search = moved or name_changed or t0 - last_url_search >= 8.0
+                    if search:
+                        last_url_search = t0
+                    v = read_view(img, ocr, cache, want_owner=self._want_owner(),
+                                  url_where=url_where, search_url=search)
+                    url_where = v.url_box
+                    if not v.in_room and len(order) > 1 and not moved:
                         for k in order[1:]:          # the game may be on another screen
                             img2, _b = grabber.grab_bounds(grabber.screens[k])
-                            v2 = read_view(img2, ocr, cache)
+                            v2 = read_view(img2, ocr, cache, search_url=False)
                             if v2.in_room:
                                 order.remove(k)
                                 order.insert(0, k)
                                 v = v2
                                 break
+                    last_name = self.view.name if self.view is not None else None
                     self.view = v
                     ev = self.tracker.feed(v)
                     if ev:
                         self.out.put(ev)
-                time.sleep(max(0.05, 0.2 - (time.monotonic() - t0)))
+                time.sleep(max(0.05, 0.3 - (time.monotonic() - t0)))
         finally:
             grabber.close()
 

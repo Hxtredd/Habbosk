@@ -341,6 +341,7 @@ class AIAnswerer:
         self.cfg, self.memory = cfg, memory
         self.http = http or default_http
         self.paused_until = 0.0
+        self.atlas = None                       # world_atlas.db.Atlas, set by the UI
 
     def provider(self) -> Optional[Provider]:
         cls = PROVIDERS.get(self.cfg.ai_provider)
@@ -393,6 +394,11 @@ class AIAnswerer:
         res = AIResult(provider=p.name)
         try:
             facts = self.memory.related(q) if self.memory else []
+            if self.atlas is not None:          # map / room knowledge from the World Atlas
+                try:
+                    facts += self.atlas.facts_for(" ".join([q.text] + q.options + q.clues))
+                except Exception:
+                    pass
             res.facts = len(facts)
             text, tin, tout = p.ask(SYSTEM, build_prompt(q, facts=facts), timeout)
             self._count(p.name, tin, tout)

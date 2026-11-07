@@ -78,12 +78,16 @@ def find_name_bar(img: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
     return best
 
 
-def read_name(img: np.ndarray, ocr) -> Tuple[Optional[str], Optional[tuple]]:
+def read_name(img: np.ndarray, ocr, cache: Optional[dict] = None
+              ) -> Tuple[Optional[str], Optional[tuple]]:
     box = find_name_bar(img)
     if box is None:
         return None, None
     x, y, w, h = box
     crop = img[y:y + h, x:x + w]
+    key = ("name", dhash(crop, 16))
+    if cache is not None and key in cache:
+        return cache[key], box                # same picture: no new text reading
     g = to_gray(crop)
     cols = np.where((g > 140).any(axis=0))[0]
     if len(cols) == 0:
@@ -94,7 +98,15 @@ def read_name(img: np.ndarray, ocr) -> Tuple[Optional[str], Optional[tuple]]:
     crop = crop[:, :end + 4]
     text = ocr.text(prep_for_ocr(crop, scale=3.0), psm=7).strip()
     text = re.sub(r"^[^\wÁÉÍÓÚÑáéíóúñ¿¡]+", "", text).strip(" |·.")
+    if cache is not None:
+        _remember(cache, key, text or None)
     return (text or None), box
+
+
+def _remember(cache: dict, key, value) -> None:
+    if len(cache) > 400:
+        cache.clear()
+    cache[key] = value
 
 
 # ---------------------------------------------------------------------------
@@ -120,25 +132,25 @@ def _url_boxes(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
     return keep
 
 
-def read_room_id(img: np.ndarray, ocr, cache: Optional[dict] = None
-                 ) -> Tuple[Optional[int], Optional[tuple]]:
-    """The number after habbosk.us/room/ in the share panel, if visible."""
-    for (x, y, w, h) in _url_boxes(img):
+def read_room_id(img: np.ndarray, ocr, cache: Optional[dict] = None,
+                 where: Optional[tuple] = None) -> Tuple[Optional[int], Optional[tuple]]:
+    """The number after habbosk.us/room/ in the share panel, if visible.
+    where = the box found last time: checked first (no full-screen search)."""
+    boxes = [where] if where is not None else _url_boxes(img)
+    for (x, y, w, h) in boxes:
         crop = img[y + 2:y + h - 2, x + 3:x + w - 3]
         if crop.size == 0:
             continue
         g = to_gray(crop)
         if not (g > 150).any():
             continue
-        key = dhash(crop, 16)
+        key = ("url", dhash(crop, 16))
         if cache is not None and key in cache:
             rid = cache[key]
         else:
             rid = _read_url(crop, ocr)
             if cache is not None:
-                if len(cache) > 400:
-                    cache.clear()
-                cache[key] = rid
+                _remember(cache, key, rid)
         if rid is not None:
             return rid, (x, y, w, h)
     return None, None
@@ -198,11 +210,18 @@ def flatness(t: np.ndarray) -> float:
 
 
 def read_view(img: np.ndarray, ocr, cache: Optional[dict] = None,
-              want_owner: bool = False) -> RoomView:
+              want_owner: bool = False, url_where: Optional[tuple] = None,
+              search_url: bool = True) -> RoomView:
+    """url_where: where the share panel's URL was last time (checked first);
+    search_url=False: don't search the whole screen for it this time."""
     v = RoomView()
-    v.name, v.name_box = read_name(img, ocr)
+    v.name, v.name_box = read_name(img, ocr, cache)
     v.in_room = v.name_box is not None
-    v.room_id, v.url_box = read_room_id(img, ocr, cache)
+    v.room_id, v.url_box = None, None
+    if url_where is not None:
+        v.room_id, v.url_box = read_room_id(img, ocr, cache, url_where)
+    if v.room_id is None and search_url:
+        v.room_id, v.url_box = read_room_id(img, ocr, cache)
     if want_owner and v.url_box is not None:
         v.owner = read_owner(img, ocr, v.url_box)
     return v

@@ -127,6 +127,8 @@ class Engine(threading.Thread):
         self.overlay_in_capture = False
         self.memory = None                     # qa.memory.Memory, set by the UI
         self.ai = None                         # qa.ai.AIAnswerer, set by the UI
+        self.busy = False                      # a puzzle / question is on screen
+        self._express_at = 0.0                 # last check for Preguntas express
         self._ai_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ai")
 
     # -- commands from the UI (thread-safe) ---------------------------------
@@ -239,7 +241,13 @@ class Engine(threading.Thread):
                     # Or a quiz question?
                     qhit = None
                     for b, frame_b in (zip(targets, frames) if self.cfg.questions else ()):
-                        lay = locate_question(frame_b) or locate_express(frame_b, analyzer.ocr)
+                        lay = locate_question(frame_b)
+                        if lay is None and (qstate.get("express") or tick - self._express_at >= 1.0):
+                            # the express window is checked about once a second
+                            # (every tick only while it is on screen)
+                            self._express_at = tick
+                            lay = locate_express(frame_b, analyzer.ocr)
+                            qstate["express"] = lay is not None
                         if lay is not None:
                             qhit = (b, frame_b, lay)
                             break
@@ -468,6 +476,7 @@ class Engine(threading.Thread):
 
     # -- money puzzle ------------------------------------------------------
     def _money_loop(self, grabber, analyzer, b: dict, panel: MoneyPanel) -> None:
+        self.busy = True
         """Watch only the money puzzle's strip (about 40 times a second) until
         the puzzle closes. Every coin / bill is tracked and read while it
         crosses; the game's 'Vistos N/M' counter verifies the count."""
@@ -535,6 +544,7 @@ class Engine(threading.Thread):
                 self._stop.wait(delay)
 
     def _sleep(self, tick: float, idle: bool = False) -> None:
+        self.busy = not idle                   # the World Atlas waits while busy
         ms = self.cfg.idle_poll_ms if idle else self.cfg.poll_interval_ms
         delay = ms / 1000.0 - (time.monotonic() - tick)
         if delay > 0:

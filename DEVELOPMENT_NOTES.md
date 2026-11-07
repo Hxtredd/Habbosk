@@ -88,6 +88,17 @@ difficulties: keep the interface simple, plain-worded and calm.
   (PanedWindow, resizable) or detach it as a resizable window; config
   `explorer_dock`, `explorer_size`, `explorer_geometry`. The window grows
   for the Explorer and returns to its size afterwards.
+- v2.6 (owner: "slower during everything"): measured per check: Explorer
+  read ~160 ms -> ~10 ms when unchanged (name OCR cached by image hash,
+  share-panel URL checked at its last position, full search only after a
+  change / every 8 s); Explorer motion check 3x/s, full read every 2 s or
+  on motion, paused while `engine.busy`; express check ~1x/s (63 ms).
+- v2.6: rooms identified by NAME (owner can't always show the ID):
+  `Atlas.find_by_name` (exact, else one clearly closest >= 0.9); unknown or
+  shared names -> name-only pending entry ("Add ID"); a visible ID wins.
+- v2.6: `Atlas.facts_for(text)` gives the AI map/room facts (nearest map
+  places, walking routes) for questions naming places.
+- v2.6: `scrollframe.ScrollFrame` makes Assistant and Explorer scroll.
 
 ## Architecture (puzzle_assistant/)
 

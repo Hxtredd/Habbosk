@@ -95,14 +95,54 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual([c for c in a.connections() if c["evidence"] == "explorer"], [])
         self.assertGreater(flatness(flat), 0.9)
 
-    def test_no_room_id_means_nothing_is_recorded(self):
+    def feed(self, tr, name, rid=None, n=3):
+        ev = None
+        for _ in range(n):
+            ev = tr.feed(RoomView(name=name, room_id=rid, in_room=True)) or ev
+        return ev
+
+    def test_known_name_identifies_the_room_without_the_share_panel(self):
         a = new_atlas()
         tr = Tracker(a)
-        for _ in range(4):
-            tr.feed(RoomView(name="Gran Casino", room_id=None, in_room=True))
-        self.assertIsNone(tr.current)
-        self.assertIn("share panel", tr.state)
-        self.assertEqual(a.stats()["visited"], 0)
+        ev = self.feed(tr, "Gran Casino")
+        self.assertEqual((ev["room_id"], ev["by"]), (12411, "name"))
+        ev = self.feed(tr, "Gran Casin0")                 # a small reading slip: same room
+        self.assertIsNone(ev)
+        self.assertEqual(a.room(12411)["visits"], 1)
+
+    def test_unknown_name_asks_for_the_id_once(self):
+        a = new_atlas()
+        tr = Tracker(a)
+        self.feed(tr, "Gran Casino")
+        tr._loading_since_room = True                      # walked through an arrow
+        ev = self.feed(tr, "Sala VIP del Casino")
+        self.assertEqual(ev["event"], "need_id")
+        self.assertIn("add its ID", tr.state)
+        [p] = a.pending()
+        self.assertIsNone(p["room_id"])
+        self.assertEqual(a.accept(p["id"]), "need_id")     # an ID must be typed
+        self.assertEqual(a.accept(p["id"], 13001, "Sala VIP del Casino"), "ok")
+        self.assertEqual(a.room(13001)["name"], "Sala VIP del Casino")
+        [c] = [c for c in a.connections(13001) if c["method"] == "walk"]
+        self.assertEqual((c["from_room"], c["to_room"]), (12411, 13001))
+        # next time the name alone is enough
+        tr2 = Tracker(a)
+        self.assertEqual(self.feed(tr2, "Sala VIP del Casino")["room_id"], 13001)
+
+    def test_name_shared_by_two_rooms_needs_the_id(self):
+        a = new_atlas()
+        a.add_room(9001, "Avenida Alameda")                 # same name as room 41
+        tr = Tracker(a)
+        self.assertEqual(self.feed(tr, "Avenida Alameda")["event"], "need_id")
+        tr = Tracker(a)
+        self.assertEqual(self.feed(tr, "Avenida Alameda", 41)["room_id"], 41)   # ID visible
+
+    def test_id_on_screen_wins_and_new_rooms_wait_for_approval(self):
+        a = new_atlas()
+        tr = Tracker(a)
+        ev = self.feed(tr, "Sala Nueva", 7777)
+        self.assertTrue(ev["new_room"])
+        self.assertEqual(a.pending()[0]["room_id"], 7777)
 
 
 class DatabaseTests(unittest.TestCase):
@@ -150,6 +190,13 @@ class DatabaseTests(unittest.TestCase):
         walks = [(c["from_room"], c["to_room"]) for c in a.connections() if c["method"] == "walk"]
         self.assertIn((13, 41), walks)
         self.assertNotIn((41, 13), walks)                        # never assumed both ways
+
+    def test_map_facts_for_the_ai(self):
+        a = new_atlas()
+        facts = a.facts_for("¿Qué hay al lado del Gran Casino? Spa / Banco")
+        self.assertTrue(any("Gran Casino" in f and "nearest on the map" in f for f in facts))
+        self.assertEqual(len([f for f in facts if "Gran Casino" in f]), 1)   # not repeated
+        self.assertEqual(a.facts_for("¿Cuánto es 7 x 8?"), [])
 
     def test_kinds(self):
         self.assertEqual(guess_kind(1900003897, "Mina · Nivel 1", "SK"), "generated")

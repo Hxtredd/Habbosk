@@ -25,15 +25,18 @@ class ExplorerPanel:
 
     def __init__(self, parent, atlas, explorer, font):
         self.atlas, self.explorer, self.font = atlas, explorer, font
-        self.win = tk.Frame(parent, bg=BG)
+        from ..scrollframe import ScrollFrame
+        self.scroll = ScrollFrame(parent, BG)
+        self.win = self.scroll.outer                 # what the host places / destroys
+        self.body = self.scroll.inner                # where the content goes
         self._build()
         self._tick()
 
     # -- layout ----------------------------------------------------------------
     def _section(self, title: str, grow: bool = False) -> tk.Frame:
-        tk.Label(self.win, text=title.upper(), bg=BG, fg=DIM, font=self.font(8),
+        tk.Label(self.body, text=title.upper(), bg=BG, fg=DIM, font=self.font(8),
                  anchor="w").pack(fill="x", padx=14, pady=(10, 2))
-        f = tk.Frame(self.win, bg=PANEL)
+        f = tk.Frame(self.body, bg=PANEL)
         f.pack(fill="both" if grow else "x", expand=grow, padx=12, pady=(0, 10 if grow else 0))
         return f
 
@@ -52,6 +55,8 @@ class ExplorerPanel:
         self.l_room.pack(fill="x", padx=12)
         self.l_info = tk.Label(f, bg=PANEL, fg=DIM, font=self.font(9), anchor="w", justify="left")
         self.l_info.pack(fill="x", padx=12, pady=(0, 8))
+        f.bind("<Configure>", lambda e: [lb.config(wraplength=max(160, e.width - 30))
+                                         for lb in (self.l_screen, self.l_room, self.l_info)])
 
         f = self._section("New rooms waiting for you")
         self.pend = tk.Frame(f, bg=PANEL)
@@ -105,7 +110,7 @@ class ExplorerPanel:
                 known = self.atlas.room(cur["room_id"])
                 kind = KIND.get(known["kind"] if known else None, "-")
                 owner = (known or {}).get("owner") or "?"
-                self.l_room.config(text=f"{cur['name']}   ·   ID {cur['room_id']}")
+                self.l_room.config(text=f"{cur['name']}   ·   ID {cur['room_id'] or '?'}")
                 visits = (known or {}).get("visits", 0)
                 self.l_info.config(text=f"{kind} · owner {owner} · visits {visits}\n"
                                         f"Last change: {tr.last_change}")
@@ -135,6 +140,18 @@ class ExplorerPanel:
         for p in items:
             row = tk.Frame(self.pend, bg=PANEL)
             row.pack(fill="x", pady=2)
+            if p["room_id"] is None:                 # a name SK doesn't know: ask for the ID
+                frm = self.atlas.room(p["from_room"]) if p["from_room"] else None
+                txt = f"{p['name']}  ·  ID unknown"
+                if frm:
+                    txt += f"\n{'walked' if p['method'] == 'walk' else 'came'} from {frm['name']}"
+                tk.Label(row, text=txt, bg=PANEL, fg=WARN, font=self.font(9), anchor="w",
+                         justify="left").pack(fill="x")
+                btns = tk.Frame(row, bg=PANEL)
+                btns.pack(fill="x", pady=(2, 4))
+                self._button(btns, "Add ID", lambda q=p: self._add_id(q)).pack(side="left", padx=(0, 4))
+                self._button(btns, "Not a room", lambda i=p["id"]: self._decline(i)).pack(side="left")
+                continue
             frm = self.atlas.room(p["from_room"]) if p["from_room"] else None
             how = {"walk": "walked from", "taxi": "taxi from"}.get(p["method"], "")
             txt = f"{p['name']}  ·  ID {p['room_id']}"
@@ -144,10 +161,12 @@ class ExplorerPanel:
             if same:
                 txt += f"\nsame name as room {', '.join(str(r['room_id']) for r in same)}"
             tk.Label(row, text=txt, bg=PANEL, fg=WARN, font=self.font(9), anchor="w",
-                     justify="left").pack(side="left", fill="x", expand=True)
-            self._button(row, "Accept", lambda i=p["id"]: self._accept(i)).pack(side="left", padx=2)
-            self._button(row, "Edit", lambda q=p: self._edit(q)).pack(side="left", padx=2)
-            self._button(row, "Not this", lambda i=p["id"]: self._decline(i)).pack(side="left", padx=2)
+                     justify="left").pack(fill="x")
+            btns = tk.Frame(row, bg=PANEL)
+            btns.pack(fill="x", pady=(2, 4))
+            self._button(btns, "Accept", lambda i=p["id"]: self._accept(i)).pack(side="left", padx=(0, 4))
+            self._button(btns, "Edit", lambda q=p: self._edit(q)).pack(side="left", padx=(0, 4))
+            self._button(btns, "Not this", lambda i=p["id"]: self._decline(i)).pack(side="left")
 
     def _accept(self, pid: int) -> None:
         self.atlas.accept(pid)
@@ -157,6 +176,21 @@ class ExplorerPanel:
     def _decline(self, pid: int) -> None:
         self.atlas.decline(pid)
         self._pending_key = None
+
+    def _add_id(self, p: dict) -> None:
+        rid = simpledialog.askinteger(
+            "Room ID", f"Room ID of “{p['name']}”\n(the number after habbosk.us/room/ in the "
+            "share panel):", parent=self.win, minvalue=1)
+        if rid is None:
+            return
+        known = self.atlas.room(rid)
+        if known and known["name"] != p["name"] and not messagebox.askyesno(
+                "Room ID", f"ID {rid} is “{known['name']}”.\nIs “{p['name']}” its new name?",
+                parent=self.win):
+            return
+        self.atlas.accept(p["id"], rid, p["name"])
+        self._pending_key = None
+        self._fill_rooms()
 
     def _edit(self, p: dict) -> None:
         rid = simpledialog.askinteger("Edit room", "Room ID (the number after habbosk.us/room/):",

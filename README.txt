@@ -1,4 +1,4 @@
-SK ASSISTANT  (v2.5 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v2.6 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -21,7 +21,7 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   a) Install Python from https://www.python.org/downloads/windows/
      During setup tick "Add python.exe to PATH" (Tkinter is included).
   b) Unzip it somewhere, e.g. into C:\ . The folder is named after the
-     version (e.g. SK_Assistant_v2.5). Updating from an older version: unzip the
+     version (e.g. SK_Assistant_v2.6). Updating from an older version: unzip the
      new one, run its INSTALL.bat (it moves the Desktop / Start icons to the
      new folder), then delete the old folder. Your memory, settings and
      keys are kept in your user profile, not in the program folder.
@@ -231,10 +231,12 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
 ---------------------------------------------
   SK Assistant learns the hotel's rooms while you play. It only watches
   the screen: it never clicks, types or moves you anywhere.
-    * Keep the share panel open ("¡Más amigos, más diversión!" with
-      habbosk.us/room/<number>): that number is the room ID. The room
-      name is read from the bar above the chat. Without the share panel
-      nothing is recorded (names alone are not unique).
+    * The room is recognised by its name (the bar above the chat), matched
+      to the rooms SK already knows - the share panel does not need to be
+      open. If it is open ("¡Más amigos, más diversión!" with
+      habbosk.us/room/<number>), that ID is used and wins.
+    * A name SK doesn't know (or one shared by two rooms) without the share
+      panel: the Explorer asks you for the ID ("Add ID" / "Not a room").
     * Walking through a floor arrow (black flash, grey loading screen)
       records a one-way connection: previous room -> new room.
     * A taxi trip (instant change) is recorded as a visit, not as a route.
@@ -246,6 +248,14 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
       - docked right / left / on top / below the assistant (drag the bar
       between them to resize), or as a separate, resizable window (closing
       it puts it back as a tab). The choice and sizes are remembered.
+    * The AI uses the World Atlas: library or express questions that name
+      places get the map / room facts SK knows (what is near on the map,
+      where walking leads).
+    * Both the Assistant and the Explorer scroll (mouse wheel or the thin
+      bar on the right) when the window is small.
+    * Speed: the Explorer pauses while a puzzle or question is on screen,
+      reads the screen text only when it changes, and the express quiz is
+      looked for about once a second.
     * Explorer: what SK sees right now, the rooms waiting for you,
       a searchable list of all rooms (ID, owner, visits, where walking
       leads), and Export... (a .json file you can send to Claude to add
