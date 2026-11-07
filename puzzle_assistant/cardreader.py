@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from .glyphs import Box, classify, components, crop, split_touching
+from .glyphs import Box, classify, components, crop, read_component
 
 GOOD_SCORE = 0.62     # correlation needed to accept a glyph
 GOOD_MARGIN = 0.07    # lead over the second-best character
@@ -31,6 +31,7 @@ class CardReading:
     confidence: float = 100.0
     notes: List[str] = field(default_factory=list)
     name_box: Optional[Box] = None        # where the name is (for optional OCR)
+    mounted: bool = False                 # green border + ✓: already mounted
     debug: str = ""
 
 
@@ -44,14 +45,50 @@ def _ink(card: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     return ink, ink > thr
 
 
-def _merge_close(boxes: List[Box], gap: float) -> List[Box]:
-    out: List[Box] = []
-    for b in sorted(boxes, key=lambda b: b[0]):
-        if out and b[0] - (out[-1][0] + out[-1][2]) <= gap:
-            x0, y0, w0, h0 = out[-1]
-            x1, y1 = max(x0 + w0, b[0] + b[2]), max(y0 + h0, b[1] + b[3])
-            nx, ny = min(x0, b[0]), min(y0, b[1])
-            out[-1] = (nx, ny, x1 - nx, y1 - ny)
+def _zone_mask(ink: np.ndarray, zone: np.ndarray) -> np.ndarray:
+    """Threshold one zone on its own: mounted cards draw their text dimmed, so
+    a threshold taken from the whole card (with its bright name) is too high."""
+    vals = ink[zone]
+    if vals.size == 0:
+        return np.zeros_like(zone)
+    hi = float(np.percentile(vals, 99.5))
+    thr = max(25.0, 0.42 * hi)
+    return zone & (ink > thr)
+
+
+def is_mounted(card: np.ndarray) -> bool:
+    """The game draws a green outline (and a ✓) around mounted pieces."""
+    if card.ndim != 3 or card.shape[0] < 10 or card.shape[1] < 10:
+        return False
+    c = card.astype(np.int16)
+    ring = np.concatenate([c[1:3, :].reshape(-1, 3), c[-3:-1, :].reshape(-1, 3),
+                           c[:, 1:3].reshape(-1, 3), c[:, -3:-1].reshape(-1, 3)])
+    green_excess = ring[:, 1] - np.maximum(ring[:, 0], ring[:, 2])
+    return float(np.percentile(green_excess, 75)) >= 12.0
+
+
+def _join(a: Box, b: Box) -> Box:
+    x0, y0 = min(a[0], b[0]), min(a[1], b[1])
+    x1, y1 = max(a[0] + a[2], b[0] + b[2]), max(a[1] + a[3], b[1] + b[3])
+    return (x0, y0, x1 - x0, y1 - y0)
+
+
+def _split_arrow(boxes: List[Box], H: int) -> List[Box]:
+    """[arrow, letter, letter...] from the components of the arrow group.
+    The arrow may be broken into pieces: they are joined only until the arrow
+    is arrow-sized, so a letter drawn close to it is never swallowed. Letters
+    broken into pieces (dimmed, mounted cards) are re-joined the same way."""
+    boxes = sorted(boxes, key=lambda b: b[0])
+    if not boxes:
+        return []
+    gap = max(1.0, 0.3 * H)
+    out: List[Box] = [boxes[0]]
+    for b in boxes[1:]:
+        cur = out[-1]
+        close = b[0] - (cur[0] + cur[2]) <= gap
+        limit = 1.15 * H if len(out) == 1 else 0.85 * H   # arrow / letter width
+        if close and cur[2] < limit and _join(cur, b)[2] <= (1.7 * H if len(out) == 1 else H):
+            out[-1] = _join(cur, b)
         else:
             out.append(b)
     return out
@@ -72,9 +109,11 @@ def read_card(card: np.ndarray) -> CardReading:
         r.notes.append("card too small")
         return r
     ink, mask = _ink(card)
+    r.mounted = is_mounted(card)
     b = max(2, int(round(min(h, w) * 0.06)))       # ignore the card's outline
-    mask[:b, :] = mask[-b:, :] = False
-    mask[:, :b] = mask[:, -b:] = False
+    inner = np.zeros(mask.shape, dtype=bool)
+    inner[b:-b, b:-b] = True
+    mask &= inner
     confs: List[float] = []
 
     # ---------------- badge letter (left part) -------------------------------
@@ -83,7 +122,7 @@ def read_card(card: np.ndarray) -> CardReading:
     comps = [c for c in components(left) if c[3] >= h * 0.08]
     if comps:
         bx = max(comps, key=lambda c: c[3])
-        ch, sc, mg = classify(crop(ink, bx), "ABCDEFGH")
+        ch, sc, mg = classify(crop(ink, bx, pad=0), "ABCDEFGH")
         if _accept(sc, mg):
             r.badge = ch
         r.debug += f"badge={ch}({sc:.2f},{mg:.2f}) "
@@ -101,9 +140,10 @@ def read_card(card: np.ndarray) -> CardReading:
         r.name_box = (x0, y0, x1 - x0, y1 - y0)
 
     # ---------------- bottom row: caliber .... ↳ letters --------------------
-    bot = mask.copy()
-    bot[:int(h * 0.50), :] = False
-    bot[:, :int(w * 0.25)] = False
+    zone = inner.copy()
+    zone[:int(h * 0.50), :] = False
+    zone[:, :int(w * 0.25)] = False
+    bot = _zone_mask(ink, zone)
     bc = [c for c in components(bot) if c[2] * c[3] >= 2]
     if not bc:
         r.notes.append("no caliber/arrow row found")
@@ -125,8 +165,8 @@ def read_card(card: np.ndarray) -> CardReading:
     # The arrow glyph is drawn thin and may break into pieces: merge pieces
     # separated by tiny gaps before deciding whether the last group starts
     # with an arrow.
-    merged = _merge_close(groups[-1], max(1.0, 0.3 * H))
-    if is_arrow(merged[0]) and merged[0][0] > w * 0.45:
+    merged = _split_arrow(groups[-1], H)
+    if merged and is_arrow(merged[0]) and merged[0][0] > w * 0.45:
         groups.pop()
         dep_group = merged
     if groups:
@@ -149,9 +189,7 @@ def read_card(card: np.ndarray) -> CardReading:
                     else:
                         text += "-"
                     continue
-                pieces = split_touching(c, ink, pitch) if c[2] > 1.25 * pitch else [c]
-                for p in pieces:
-                    ch, sc, mg = classify(crop(ink, p), "0123456789")
+                for ch, sc, mg, _ in read_component(ink, c, "0123456789", pitch):
                     text += ch
                     confs.append(_conf(sc, mg))
                     r.debug += f"{ch}({sc:.2f},{mg:.2f}) "
@@ -170,8 +208,7 @@ def read_card(card: np.ndarray) -> CardReading:
             confs.append(0.0)
         for c in letters:
             pitch = H * 0.80
-            for p in (split_touching(c, ink, pitch) if c[2] > 1.4 * pitch else [c]):
-                ch, sc, mg = classify(crop(ink, p), "ABCDEFGH")
+            for ch, sc, mg, _ in read_component(ink, c, "ABCDEFGH", pitch):
                 r.deps.append(ch)
                 confs.append(_conf(sc, mg))
                 r.debug += f"dep={ch}({sc:.2f},{mg:.2f}) "
@@ -188,5 +225,6 @@ def layout_recognised(readings: List[CardReading]) -> bool:
     if not readings:
         return False
     badges = sum(1 for r in readings if r.badge is not None)
-    rows = sum(1 for r in readings if "no caliber/arrow row found" not in r.notes)
+    rows = sum(1 for r in readings
+               if r.mounted or "no caliber/arrow row found" not in r.notes)
     return badges >= max(2, (len(readings) + 1) // 2) and rows == len(readings)

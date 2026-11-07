@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from .cardreader import layout_recognised, read_card
+from .cardreader import is_mounted, layout_recognised, read_card
 from .config import Config
 from .vision import Rect, dhash, find_cards, find_grids, hamming, panel_around
 
@@ -66,10 +66,18 @@ class Locator:
             (x, y, w, h), old = self.current
             if x + w <= frame.shape[1] and y + h <= frame.shape[0]:
                 cards = find_cards(gray[y:y + h, x:x + w])
-                if cards and len(cards) == len(old) and all(
-                        abs(a[0] - b[0]) <= 3 and abs(a[1] - b[1]) <= 3
-                        for a, b in zip(cards, old)):
-                    return self.current
+                # Same puzzle if every visible card is where a known card was.
+                # Mounted cards change look and may drop out of the detection,
+                # so fewer cards than before still counts.
+                def near(a, b):
+                    return abs(a[0] - b[0]) <= 3 and abs(a[1] - b[1]) <= 3
+                if cards and len(cards) <= len(old) and all(
+                        any(near(a, b) for b in old) for a in cards):
+                    panel = frame[y:y + h, x:x + w]
+                    missing = [b for b in old if not any(near(a, b) for a in cards)]
+                    if all(is_mounted(panel[by:by + bh, bx:bx + bw])
+                           for bx, by, bw, bh in missing):
+                        return self.current
                 if not cards:  # grid not visible as such (cards being mounted?)
                     band = self._band_hash(frame, self.current)
                     if band is not None and self._band is not None and \

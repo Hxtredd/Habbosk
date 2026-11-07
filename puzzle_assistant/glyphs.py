@@ -88,3 +88,54 @@ def split_touching(box: Box, ink: np.ndarray, pitch: float) -> List[Box]:
 def crop(ink: np.ndarray, box: Box, pad: int = 1) -> np.ndarray:
     x, y, w, h = box
     return ink[max(0, y - pad):y + h + pad, max(0, x - pad):x + w + pad]
+
+
+def _segment(ink: np.ndarray, box: Box, a: int, b: int) -> np.ndarray:
+    x, y, w, h = box
+    return ink[y:y + h, x + a:x + b]
+
+
+def read_component(ink: np.ndarray, box: Box, charset: str, pitch: float
+                   ) -> List[Tuple[str, float, float, Box]]:
+    """Recognise one connected component that may hold several touching
+    characters (e.g. '38' drawn with the 3 and 8 joined by one pixel).
+
+    Every way of cutting it into the expected number of characters is tried and
+    the cut whose pieces look most like real characters wins. A fixed cut
+    position would hand a sliver of one digit to its neighbour.
+    """
+    x, y, w, h = box
+    if pitch <= 0 or w <= 1.3 * pitch:
+        ch, sc, mg = classify(_segment(ink, box, 0, w), charset)
+        return [(ch, sc, mg, box)]
+    n = max(2, int(round(w / pitch)))
+    lo, hi = max(2, int(0.55 * pitch)), int(1.6 * pitch) + 1
+    cache = {}
+
+    def seg(a: int, b: int):
+        if (a, b) not in cache:
+            cache[(a, b)] = classify(_segment(ink, box, a, b), charset)
+        return cache[(a, b)]
+
+    best: Tuple[float, List[Tuple[int, int]]] = (-1e9, [])
+
+    def search(start: int, left: int, acc: float, cuts: List[Tuple[int, int]]):
+        nonlocal best
+        if left == 1:
+            if lo <= w - start <= hi:
+                total = acc + seg(start, w)[1]
+                if total > best[0]:
+                    best = (total, cuts + [(start, w)])
+            return
+        for end in range(start + lo, min(w, start + hi) + 1):
+            search(end, left - 1, acc + seg(start, end)[1], cuts + [(start, end)])
+
+    search(0, n, 0.0, [])
+    if not best[1]:  # no valid cut: fall back to equal widths
+        step = w / n
+        best = (0.0, [(int(round(i * step)), int(round((i + 1) * step))) for i in range(n)])
+    out = []
+    for a, b in best[1]:
+        ch, sc, mg = seg(a, b)
+        out.append((ch, sc, mg, (x + a, y, b - a, h)))
+    return out

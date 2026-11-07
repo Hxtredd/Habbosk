@@ -76,6 +76,28 @@ class SolverTests(unittest.TestCase):
         self.assertTrue(s.ok)
         self.assertFalse(s.certain)
 
+    def test_mounted_pieces_are_done(self):
+        # puzzle_12_three_mounted: B, E, G mounted; their faded cards may be misread
+        pz = make("12", [("A", "20", "G"), ("B", "12", "G"), ("C", "20", "D"), ("D", None, "BE"),
+                         ("E", None, "G"), ("F", "12", "D"), ("G", "12", ""), ("H", None, "D")])
+        for l in "BEG":
+            pz.pieces[l].mounted = True
+        pz.pieces["E"].deps = ["E"]          # garbage reading of a faded card
+        pz.pieces["E"].confidence = 0
+        s = solve(pz)
+        self.assertTrue(s.certain, s.problems + s.warnings)
+        self.assertEqual(s.done, ["B", "E", "G"])
+        self.assertEqual(s.remaining, ["D", "F", "H"])
+        self.assertEqual(s.excluded, ["A", "C"])
+
+    def test_mounted_too_early_is_flagged(self):
+        pz = make("12", [(l, None, "") for l in "ABCDEFGH"])
+        pz.pieces["B"].deps = ["A"]
+        pz.pieces["B"].mounted = True        # game shows B done but A is not
+        s = solve(pz)
+        self.assertFalse(s.certain)
+        self.assertIn("B", s.doubtful)
+
     def test_normalize(self):
         self.assertEqual(normalize_caliber("Cal. 12"), "12")
         self.assertEqual(normalize_caliber("9mm"), "9")

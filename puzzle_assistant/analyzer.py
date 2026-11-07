@@ -220,10 +220,11 @@ def describe(a: Analysis) -> str:
         for letter in sorted(p.pieces):
             pc = p.pieces[letter]
             lines.append(f"  {letter}: name={pc.name!r} cal={pc.caliber} deps={pc.deps} "
-                         f"conf={pc.confidence:.0f} notes={pc.notes}")
+                         f"conf={pc.confidence:.0f} mounted={pc.mounted} notes={pc.notes}")
             lines.append(f"      raw: {pc.raw_text}")
     if s:
-        lines.append(f"order={' -> '.join(s.order)} excluded={s.excluded} ok={s.ok} certain={s.certain}")
+        lines.append(f"order={' -> '.join(s.order)} done={s.done} remaining={s.remaining} "
+                     f"excluded={s.excluded} doubtful={s.doubtful} ok={s.ok} certain={s.certain}")
         for pr in s.problems:
             lines.append(f"  PROBLEM: {pr}")
         for w in s.warnings:

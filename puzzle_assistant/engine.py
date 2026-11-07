@@ -2,10 +2,12 @@
 
 Pipeline per tick (only reads the screen, never sends any input):
   grab -> find the grid of piece cards (no OCR) -> card hashes
-  -> skip if same puzzle as already shown -> parallel OCR -> parse -> solve
+  -> new puzzle? read it (glyphs + OCR) -> solve -> lock the verified answer
+  -> while locked: only follow the green ✓ marks (progress), no re-reading
 """
 from __future__ import annotations
 
+import copy
 import os
 import queue
 import threading
@@ -20,19 +22,45 @@ from .capture import ScreenGrabber
 from .config import DEBUG_DIR, Config
 from .ocr import OcrError, Tesseract
 from .locate import Locator
-from .vision import hamming, to_gray
+from .cardreader import is_mounted
+from .solver import solve
+from .vision import dhash, hamming, to_gray
 
 CARD_CHANGED_BITS = 10   # dhash distance meaning "this card looks different"
-SAME_PUZZLE_MAX_CHANGED = 2
+BAND_CHANGED_BITS = 24   # same for the "Pistola · calibre 38" line
 
 
-def same_layout(a: List[int], b: List[int]) -> bool:
-    if not a or not b or len(a) != len(b):
+def header_band(panel, cards) -> Optional[int]:
+    """Fingerprint of the line right above the cards ('Fusil · calibre 5.56')."""
+    top = min(c[1] for c in cards)
+    ch = int(sorted(c[3] for c in cards)[len(cards) // 2])
+    y0 = max(0, top - int(0.6 * ch))
+    if top - y0 < 4:
+        return None
+    x0 = min(c[0] for c in cards)
+    x1 = max(c[0] + c[2] for c in cards)
+    return dhash(panel[y0:top - 1, x0:x1], 16)
+
+
+def same_puzzle(old_hashes: List[int], old_band: Optional[int],
+                hashes: List[int], band: Optional[int], mounted: List[bool]) -> bool:
+    """Still the locked puzzle? Mounted (green) cards are allowed to look
+    different; every other card and the caliber line must be unchanged."""
+    if len(hashes) != len(old_hashes):
         return False
-    if len(a) == 1:
-        return hamming(a[0], b[0]) <= 12
-    changed = sum(1 for x, y in zip(a, b) if hamming(x, y) > CARD_CHANGED_BITS)
-    return changed <= SAME_PUZZLE_MAX_CHANGED
+    if band is not None and old_band is not None and hamming(band, old_band) > BAND_CHANGED_BITS:
+        return False
+    return all(m or hamming(a, b) <= CARD_CHANGED_BITS
+               for a, b, m in zip(hashes, old_hashes, mounted))
+
+
+def with_progress(locked: Analysis, mounted: List[bool], cfg: Config) -> Analysis:
+    """Re-solve the locked reading with the game's current ✓ marks (no OCR)."""
+    puzzle = copy.deepcopy(locked.puzzle)
+    for letter, m in zip(sorted(puzzle.pieces), mounted):
+        puzzle.pieces[letter].mounted = m
+    solution = solve(puzzle, puzzle.expected or len(puzzle.pieces), cfg.min_confidence)
+    return Analysis(puzzle, solution, locked.cards, locked.mode, 0.0, "", locked.card_hashes)
 
 
 class Engine(threading.Thread):
@@ -76,9 +104,14 @@ class Engine(threading.Thread):
 
         active = False
         last_seen = 0.0
-        shown: Optional[Analysis] = None
-        shown_hashes: List[int] = []
-        tried_hashes: List[int] = []
+        # Locked = a verified reading of the puzzle on screen. It is kept until
+        # the puzzle closes or changes; cards turning green (mounted) only
+        # update the progress, they never trigger a new reading.
+        locked: Optional[Analysis] = None
+        locked_hashes: List[int] = []
+        locked_band: Optional[int] = None
+        locked_mounted: List[bool] = []
+        tried: Optional[tuple] = None
         last_analysis: Optional[Analysis] = None
 
         while not self._stop.is_set():
@@ -94,6 +127,7 @@ class Engine(threading.Thread):
                     locator.reset()
                 if force:
                     locator.reset()
+                    locked = None
 
                 frame, _ = grabber.grab(self.cfg.region)
                 gray = to_gray(frame)
@@ -105,7 +139,7 @@ class Engine(threading.Thread):
 
                 if hit is None:
                     if active and tick - last_seen > self.cfg.disappear_after_ms / 1000.0:
-                        active, shown, shown_hashes, tried_hashes = False, None, [], []
+                        active, locked, tried = False, None, None
                         self._emit(state="waiting", msg="Waiting for puzzle…")
                     elif force:
                         self._emit(state="waiting", msg="No puzzle found on screen")
@@ -116,30 +150,34 @@ class Engine(threading.Thread):
                 (x, y, w, h), cards = hit
                 panel = frame[y:y + h, x:x + w]
                 hashes = card_hashes(panel, cards)
+                mounted = [is_mounted(panel[cy:cy + ch, cx:cx + cw]) for cx, cy, cw, ch in cards]
+                band = header_band(panel, cards)
 
-                if not force:
-                    if shown is not None and same_layout(hashes, shown_hashes):
+                if locked is not None:
+                    if same_puzzle(locked_hashes, locked_band, hashes, band, mounted):
+                        if mounted != locked_mounted:
+                            locked_mounted = mounted
+                            a = with_progress(locked, mounted, self.cfg)
+                            last_analysis = a
+                            self._emit(state="detected", analysis=a, msg="Puzzle detected")
                         self._sleep(tick)
                         continue
-                    if tried_hashes and hashes == tried_hashes:  # unchanged image
-                        self._sleep(tick)
-                        continue
+                    locked, tried = None, None  # a different puzzle
+
+                key = (tuple(hashes), tuple(mounted))
+                if not force and key == tried:  # unchanged image, already read
+                    self._sleep(tick)
+                    continue
 
                 if not active or force:
                     self._emit(state="analyzing", msg="Puzzle detected – reading…")
                 active = True
                 a = analyzer.analyze_panel(panel, cards)
                 last_analysis = a
-                tried_hashes = hashes
-
-                certain = bool(a.solution and a.solution.certain)
-                if shown is not None and shown.solution and shown.solution.certain and not certain:
-                    # keep the confirmed answer (pieces are probably being mounted)
-                    shown_hashes = hashes
-                elif certain or shown is None or not (shown.solution and shown.solution.certain) or force:
-                    if certain:
-                        shown, shown_hashes = a, hashes
-                    self._emit(state="detected", analysis=a, msg="Puzzle detected")
+                tried = key
+                if a.solution and a.solution.certain:
+                    locked, locked_hashes, locked_band, locked_mounted = a, hashes, band, mounted
+                self._emit(state="detected", analysis=a, msg="Puzzle detected")
             except Exception as exc:
                 self._emit(state="error", msg=f"{type(exc).__name__}: {exc}")
                 traceback.print_exc()

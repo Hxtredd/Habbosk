@@ -1,4 +1,4 @@
-PUZZLE ANSWER ASSISTANT  (v1.2, Windows prototype)
+PUZZLE ANSWER ASSISTANT  (v1.3, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -42,20 +42,28 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   * Open the game and play normally. When the puzzle appears the window shows:
 
         PUZZLE ANSWER ASSISTANT
-        Status: Puzzle detected ✓ verified
-        Target caliber: 12 · Pistola
-        RECOMMENDED ORDER:
-        H → A → C → D → G → B → E
-        Set aside (other caliber): F(9)
-        Then: test the weapon (probar el arma)
+        Status: Verified ✓
+        Target caliber: 38 · Pistola
+        ORDER:
+        C → B → A → D → E → G
+        Don't click (other caliber): F(9)
+        Then press PROBAR
 
+  * Progress: as you mount pieces (they turn green with a ✓ in the game) the
+    window shows "Done ✓ C B" and "NEXT → A → D → E → G", and finally
+    "PROBAR ✓". The answer is locked once verified: green cards never change
+    it. If a ✓ ever appears on a piece the answer says was not ready yet, a
+    warning is shown (the reading would have been wrong).
+  * Pieces of another caliber: leave them alone (no click needed).
+  * When several pieces are possible at the same time, any order works.
   * Colours:
-       GREEN  = every check passed (all pieces, letters, calibers, arrows read
-                with good confidence, no cycles).
-       AMBER  = an order was computed but something was read with low confidence.
-                The warnings underneath say what. Double-check those pieces.
-       RED    = not reliable (a piece is missing, the target caliber is not read,
-                circular dependencies, ...). Do not trust it; press F5 to rescan.
+       GREEN  = verified: every card was read clearly and everything adds up.
+                Safe to follow.
+       AMBER  = "NOT SURE – check X": some card was not read clearly. No order
+                is shown as an answer (a too-early click costs a point); only a
+                small "unverified guess". Look at the named card(s) or press F5.
+       RED    = "? – check X": not reliable (missing piece, target caliber not
+                read, impossible arrows...). Press F5 to read again.
   * When the puzzle closes the window goes back to "Waiting for puzzle…".
     The next puzzle is detected automatically; no restart needed.
 
@@ -86,8 +94,9 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
     "Fusil · calibre 5.56" (target caliber), "Montadas 0/8" (piece count
     check) and the piece names (display only).
   * Speed: typically 0.3 - 0.6 s from the puzzle appearing to the answer.
-    Unchanged puzzles are never re-read. Once a verified answer is shown it
-    stays while you mount the pieces, until the puzzle closes or changes.
+    Unchanged puzzles are never re-read. A verified answer is locked until
+    the puzzle closes or changes (other cards or "calibre" line); mounted
+    (green) cards only update the progress.
   * "Region" is optional: it limits the search to a part of the screen.
 
 4. PUZZLE RULES USED BY THE SOLVER
@@ -96,7 +105,7 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
    Aparta las de otro calibre y prueba el arma al acabar."
 
   * A piece is mounted only after all the pieces its arrow points to.
-  * Pieces with a caliber different from the target caliber are set aside.
+  * Pieces with a caliber different from the target caliber are left alone.
   * Pieces without a caliber number are caliber-neutral and are mounted.
   * The order is a topological sort (Kahn's algorithm, alphabetical tie-break).
   * Circular dependencies, unknown letters, a mounted piece depending on a

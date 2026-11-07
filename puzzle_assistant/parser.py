@@ -318,7 +318,7 @@ def build_from_readings(readings, names: List[str], header_words: List[Word]) ->
         puzzle.pieces[letter] = Piece(
             letter=letter, name=best_match(raw_name, PIECE_NAMES) or raw_name,
             caliber=r.caliber, deps=list(dict.fromkeys(r.deps)), confidence=r.confidence,
-            raw_text=r.debug, notes=notes)
+            raw_text=r.debug, notes=notes, mounted=r.mounted)
     return puzzle
 
 

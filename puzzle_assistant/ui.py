@@ -245,6 +245,7 @@ class App:
 
     def _clear(self) -> None:
         self.l_target.config(text="")
+        self.l_order_hdr.config(text="RECOMMENDED ORDER:")
         self.l_order.config(text="Waiting for puzzle…", fg=DIM)
         self.l_names.config(text="")
         self.l_aside.config(text="")
@@ -261,22 +262,44 @@ class App:
             return
         tgt = p.target_caliber or "?"
         self.l_target.config(text=f"Target caliber: {tgt}" + (f"   ·   {p.weapon}" if p.weapon else ""))
-        order = " → ".join(s.order) if s.order else "?"
-        if s.ok and s.certain:
-            colour, status = GOOD, "Puzzle detected ✓ verified"
-        elif s.ok:
-            colour, status = WARN, "UNVERIFIED – check warnings"
-        else:
-            colour, status = BAD, "NOT RELIABLE – see problems"
-        self.l_status.config(text=f"Status: {status}  ({a.ms:.0f} ms)", fg=colour)
-        self.l_order.config(text=order, fg=colour)
-        names = [f"{l} {p.pieces[l].name}" for l in s.order if l in p.pieces and p.pieces[l].name]
-        self.l_names.config(text=" · ".join(names))
-        aside = "Then: test the weapon (probar el arma)" if s.order else ""
+        timing = f"  ({a.ms:.0f} ms)" if a.ms else ""
+        dont = ""
         if s.excluded:
-            aside = "Set aside (other caliber): " + ", ".join(
-                f"{l}({p.pieces[l].caliber})" for l in s.excluded) + "\n" + aside
-        self.l_aside.config(text=aside)
+            dont = "Don't click (other caliber): " + ", ".join(
+                f"{l}({p.pieces[l].caliber})" for l in s.excluded)
+        done = ("Done ✓ " + " ".join(s.done)) if s.done else ""
+
+        if s.ok and s.certain:
+            self.l_status.config(text="Status: Verified ✓" + timing, fg=GOOD)
+            if s.remaining:
+                self.l_order_hdr.config(text="NEXT →" if s.done else "ORDER:")
+                self.l_order.config(text=" → ".join(s.remaining), fg=GOOD)
+                names = [f"{l} {p.pieces[l].name}" for l in s.remaining if p.pieces[l].name]
+                self.l_names.config(text="   ".join(x for x in (done, " · ".join(names)) if x))
+                self.l_aside.config(text="\n".join(x for x in (dont, "Then press PROBAR") if x))
+            else:
+                self.l_order_hdr.config(text="ALL PIECES MOUNTED:")
+                self.l_order.config(text="PROBAR ✓", fg=GOOD)
+                self.l_names.config(text=done)
+                self.l_aside.config(text=dont)
+            self.l_warn.config(text="")
+            return
+
+        # Not verified: never show an order that looks clickable. A click on a
+        # piece that is not ready costs a point.
+        check = ", ".join(s.doubtful)
+        if s.ok:
+            self.l_status.config(text="Status: NOT SURE – reading unclear" + timing, fg=WARN)
+            self.l_order_hdr.config(text="DON'T FOLLOW YET:")
+            self.l_order.config(text="NOT SURE" + (f" – check {check}" if check else ""), fg=WARN)
+            guess = " → ".join(s.remaining)
+            self.l_names.config(text=f"Unverified guess: {guess}" if guess else "")
+        else:
+            self.l_status.config(text="Status: NOT RELIABLE – see problems" + timing, fg=BAD)
+            self.l_order_hdr.config(text="NO ANSWER:")
+            self.l_order.config(text="?" + (f" – check {check}" if check else ""), fg=BAD)
+            self.l_names.config(text="")
+        self.l_aside.config(text="Press F5 to read again" + ("\n" + dont if dont else ""))
         msgs = [f"✖ {x}" for x in s.problems] + [f"⚠ {x}" for x in s.warnings]
         self.l_warn.config(text="\n".join(msgs[:4]) + ("\n…" if len(msgs) > 4 else ""),
                            fg=BAD if s.problems else WARN)

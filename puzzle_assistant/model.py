@@ -17,6 +17,7 @@ class Piece:
     raw_text: str = ""                # what OCR saw on the card (for debugging)
     notes: List[str] = field(default_factory=list)  # per-piece warnings
     bbox: Optional[Tuple[int, int, int, int]] = None  # x, y, w, h inside the panel
+    mounted: bool = False             # the game shows it as mounted (green, ✓)
 
 
 @dataclass
@@ -41,8 +42,11 @@ class Puzzle:
 class Solution:
     ok: bool                          # an order could be computed
     certain: bool                     # every check passed; safe to trust
-    order: List[str] = field(default_factory=list)
-    excluded: List[str] = field(default_factory=list)   # wrong-caliber pieces
+    order: List[str] = field(default_factory=list)      # full order (done pieces first)
+    done: List[str] = field(default_factory=list)       # already mounted
+    remaining: List[str] = field(default_factory=list)  # still to mount, in order
+    excluded: List[str] = field(default_factory=list)   # wrong caliber: do not click
+    doubtful: List[str] = field(default_factory=list)   # cards whose reading is unsure
     levels: List[List[str]] = field(default_factory=list)
     problems: List[str] = field(default_factory=list)   # blocking errors
     warnings: List[str] = field(default_factory=list)   # non-blocking doubts
