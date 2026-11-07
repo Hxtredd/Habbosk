@@ -1,7 +1,7 @@
 {
- "version": "2.9.0",
- "zip": "dist/SK_Assistant_v2.9.zip",
- "sha256": "ecc25ed1972f9356131a5f600ade95ece65553d727aec2e8da9e322ccd984897",
- "size": 11791274,
- "notes": "Go to Room: select a room in the Explorer and click - SK types :taxi <ID> for you (one trip per click)."
+ "version": "3.0.0",
+ "zip": "dist/SK_Assistant_v3.0.zip",
+ "sha256": "8139492b95be669a33f6729e0b6899491f13afe9e3d188aa15f63d48e8e80aed",
+ "size": 11832872,
+ "notes": "SK Brain test bench (optional developer tool) - SK Assistant itself unchanged."
 }

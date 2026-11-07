@@ -10,7 +10,6 @@ from __future__ import annotations
 import copy
 import os
 import queue
-import re
 import threading
 import time
 import traceback
@@ -89,37 +88,6 @@ def fingerprints(panel, cards) -> List[int]:
         card[my:my + mh, mx:mx + mw] = 0
         out.append(dhash(card))
     return out
-
-
-_DATA_ITEM = re.compile(r"^\s*[^\s,;]{1,6}\s*$")
-
-
-def is_data_clue(clue: str) -> bool:
-    """A clue line that is part of the puzzle itself (e.g. the sequence
-    'F, J, N, R, ?' or numbers), not a sentence-like hint ('• Era griego')."""
-    items = [x for x in re.split(r"[,;]", clue or "") if x.strip()]
-    if len(items) >= 3 and all(_DATA_ITEM.match(x) for x in items):
-        return True
-    return bool(re.search(r"\d", clue or "")) and len((clue or "").split()) <= 6
-
-
-def processing_identity(q) -> tuple:
-    """Has the question ON SCREEN changed enough to need fresh processing?
-    Category, kind, wording, the SET of answer options (order-independent:
-    a shuffle is the same question, a changed option is not), the right-hand
-    items of PAREJAS and the puzzle's data lines. Hint sentences are left
-    out (asking for a hint must not reset the answer shown). This is NOT the
-    memory's knowledge identity (qa/memory.py), which stays as it was."""
-    return (normalize(q.category), q.kind, normalize(q.text),
-            tuple(sorted(normalize(o) for o in q.options)),
-            tuple(sorted(normalize(o) for o in q.right)),
-            tuple(normalize(c) for c in q.clues if is_data_clue(c)))
-
-
-def _same_question(a: tuple, b: tuple) -> bool:
-    """Same category + wording (the identity used for scoring the solver /
-    AI against the game's reveal, as before Stage 1)."""
-    return a[:3] == b[:3]
 
 
 def _picked(screen) -> tuple:
@@ -406,13 +374,10 @@ class Engine(threading.Thread):
         mem = self.memory
         # Same question as already shown? Clicking options changes their look:
         # never downgrade a shown answer and don't repeat the same result.
-        ident = processing_identity(q)
+        ident = (normalize(q.category), normalize(q.text))
         shown = st.get("shown")
         if not shown or shown[0] != ident:
             st["progress"] = screen.progress
-            check = st.get("check")
-            if check and not screen.answered and check[0] != ident:
-                st["check"] = None       # a new question: an old solver / AI answer isn't scored
         if shown and shown[0] == ident and not force:
             if not screen.answered and shown[1] not in ("unknown", "thinking"):
                 # ORDENAR: the player is tapping the steps: move the highlight
@@ -428,7 +393,7 @@ class Engine(threading.Thread):
                 picked, ok = _picked(screen)
                 mem.record_feedback(q, picked, ok)
                 check = st.get("check")
-                if check and _same_question(check[0], ident):   # how did the solver / AI do?
+                if check and check[0] == ident:        # how did the solver / AI do?
                     mine, who = check[1], check[2]
                     mem.log_check(q, mine, answers_match(mine, screen.revealed), who)
                     st["check"] = None

@@ -1,4 +1,4 @@
-SK ASSISTANT  (v2.9 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v3.0 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -283,6 +283,22 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   The calibration data collected so far (74 rooms, all 53 map places) is
   imported on first start. The Atlas lives in %APPDATA%\SK Assistant\atlas.db.
   Switch it off in Settings > What SK Assistant helps with.
+
+
+2f. SK BRAIN TEST BENCH (optional developer tool, new in v3.0)
+--------------------------------------------------------------
+  A separate, TEMPORARY window for testing the SK Brain (the knowledge
+  foundation for a future SK chat). SK Assistant itself does not use it and
+  works exactly as before. Start it with BRAIN_TEST_BENCH.bat.
+    * At start you choose: Sandbox (a disposable copy - recommended),
+      Real database read-only, or Real database with changes allowed.
+    * Changes to the real Brain database are only possible after you
+      confirm; a backup is made first in %APPDATA%\SK Assistant
+      (knowledge.db.backup-YYYYMMDD-HHMMSS, never overwritten). If the
+      backup fails, nothing can be changed.
+    * It shows what the Brain FINDS for a question, with status, source
+      and why. It does not answer questions yet (reasoning comes later).
+    * Delete BRAIN_TEST_BENCH.bat and puzzle_assistant\devtools to remove it.
 
 
 3. HOW DETECTION WORKS
