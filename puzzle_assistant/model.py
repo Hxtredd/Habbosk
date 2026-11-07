@@ -25,6 +25,7 @@ class Puzzle:
     target_caliber: Optional[str] = None
     weapon: Optional[str] = None
     header_text: str = ""
+    expected: int = 0                 # number of pieces in this puzzle
     warnings: List[str] = field(default_factory=list)
 
     def signature(self) -> Tuple:

@@ -14,7 +14,9 @@ from .config import DEBUG_DIR, Config
 from .model import Puzzle, Solution
 from .ocr import Tesseract, Word
 from .model import LETTERS
-from .parser import build_puzzle, cluster_by_anchors, letter_tokens, parse_card
+from .cardreader import layout_recognised, read_card
+from .parser import (build_from_readings, build_puzzle, cluster_by_anchors, finish_header,
+                     letter_tokens, parse_card)
 from .solver import solve
 from .vision import Rect, dhash, find_big_glyph, find_cards, mask_rects, prep_for_ocr
 
@@ -119,6 +121,10 @@ class Analyzer:
             if again == letters:
                 w.conf = max(w.conf, 90.0)
 
+    def _ocr_line(self, img: np.ndarray) -> str:
+        g = prep_for_ocr(img, scale=3.0)
+        return " ".join(w.text for w in self.ocr.words(g, psm=7))
+
     def _ocr_sparse(self, img: np.ndarray, scale: float) -> List[Word]:
         g = prep_for_ocr(img, scale=scale)
         words = self.ocr.words(g, psm=11)
@@ -131,7 +137,33 @@ class Analyzer:
         if cards is None:
             cards = find_cards(panel, cfg.expected_pieces)
         try:
-            if cards:
+            readings = [read_card(panel[y:y + h, x:x + w]) for x, y, w, h in cards] if cards else []
+            if readings and layout_recognised(readings):
+                # Fast path for the game's card layout: letters, calibers and
+                # arrows are read with glyph templates (no OCR process).
+                header_img = mask_rects(panel, cards)
+                fut_header = self.pool.submit(self._ocr_sparse, header_img, 1.5)
+                name_futs = []
+                if cfg.read_names:
+                    for (x, y, w, h), r in zip(cards, readings):
+                        if r.name_box:
+                            nx, ny, nw, nh = r.name_box
+                            p = max(2, nh // 2)
+                            crop = panel[y + max(0, ny - p):y + ny + nh + p,
+                                         x + max(0, nx - p):x + nx + nw + p]
+                            name_futs.append(self.pool.submit(self._ocr_line, crop))
+                        else:
+                            name_futs.append(None)
+                names = []
+                for f in name_futs:
+                    try:
+                        names.append(f.result() if f else "")
+                    except Exception:
+                        names.append("")
+                puzzle = build_from_readings(readings, names, [])
+                finish_header(puzzle, fut_header.result(), len(cards))
+                mode = "layout"
+            elif cards:
                 header_img = mask_rects(panel, cards)
                 fut_header = self.pool.submit(self._ocr_sparse, header_img, 1.5)
                 futs = [self.pool.submit(self._ocr_card, panel[y:y + h, x:x + w])
@@ -146,7 +178,7 @@ class Analyzer:
                 if grouped is None:
                     return Analysis(None, None, None, "failed",
                                     (time.perf_counter() - t0) * 1000,
-                                    "Could not separate the 8 pieces")
+                                    "Could not separate the pieces")
                 groups, header = grouped
                 for g in groups:
                     _renumber_lines(g)
@@ -157,7 +189,7 @@ class Analyzer:
             return Analysis(None, None, cards, "failed",
                             (time.perf_counter() - t0) * 1000, f"OCR error: {exc}")
 
-        solution = solve(puzzle, cfg.expected_pieces, cfg.min_confidence)
+        solution = solve(puzzle, puzzle.expected or len(puzzle.pieces), cfg.min_confidence)
         a = Analysis(puzzle, solution, cards, mode, (time.perf_counter() - t0) * 1000)
         if cards:
             a.card_hashes = card_hashes(panel, cards)

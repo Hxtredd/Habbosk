@@ -1,7 +1,7 @@
 """Background monitoring loop.
 
 Pipeline per tick (only reads the screen, never sends any input):
-  grab -> cheap title template match -> (panel + card boxes) -> card hashes
+  grab -> find the grid of piece cards (no OCR) -> card hashes
   -> skip if same puzzle as already shown -> parallel OCR -> parse -> solve
 """
 from __future__ import annotations
@@ -18,9 +18,9 @@ import cv2
 from .analyzer import Analysis, Analyzer, card_hashes, describe
 from .capture import ScreenGrabber
 from .config import DEBUG_DIR, Config
-from .detector import TitleDetector
 from .ocr import OcrError, Tesseract
-from .vision import Rect, dhash, find_cards, find_panel, hamming, to_gray
+from .locate import Locator
+from .vision import hamming, to_gray
 
 CARD_CHANGED_BITS = 10   # dhash distance meaning "this card looks different"
 SAME_PUZZLE_MAX_CHANGED = 2
@@ -43,7 +43,6 @@ class Engine(threading.Thread):
         self._stop = threading.Event()
         self._rescan = threading.Event()
         self._snapshot = threading.Event()
-        self._relearn = threading.Event()
         self._paused = threading.Event()
         self.region_changed = threading.Event()
 
@@ -56,9 +55,6 @@ class Engine(threading.Thread):
 
     def snapshot(self) -> None:
         self._snapshot.set()
-
-    def relearn(self) -> None:
-        self._relearn.set()
 
     def set_paused(self, paused: bool) -> None:
         (self._paused.set if paused else self._paused.clear)()
@@ -74,20 +70,15 @@ class Engine(threading.Thread):
             self._emit(state="error", msg=str(exc))
             return
         grabber = ScreenGrabber(self.cfg.monitor)
-        detector = TitleDetector(self.cfg, ocr)
         analyzer = Analyzer(self.cfg, ocr)
-        self._emit(state="waiting", msg="Waiting for puzzle…" if detector.template is not None
-                   else "Waiting for puzzle… (first detection uses OCR, ~1 s)")
+        locator = Locator(self.cfg)
+        self._emit(state="waiting", msg="Waiting for puzzle…")
 
         active = False
         last_seen = 0.0
-        panel_rect: Optional[Rect] = None
-        title_ref: Optional[Rect] = None
         shown: Optional[Analysis] = None
         shown_hashes: List[int] = []
         tried_hashes: List[int] = []
-        last_disc_hash: Optional[int] = None
-        last_frame = None
         last_analysis: Optional[Analysis] = None
 
         while not self._stop.is_set():
@@ -98,62 +89,33 @@ class Engine(threading.Thread):
             try:
                 force = self._rescan.is_set()
                 self._rescan.clear()
-                if self._relearn.is_set():
-                    self._relearn.clear()
-                    detector.forget()
-                    force = True
                 if self.region_changed.is_set():
                     self.region_changed.clear()
-                    panel_rect = None
-                    detector.last_loc = None
+                    locator.reset()
+                if force:
+                    locator.reset()
 
-                frame, bounds = grabber.grab(self.cfg.region)
-                last_frame = frame
+                frame, _ = grabber.grab(self.cfg.region)
                 gray = to_gray(frame)
-                small = None
-                if detector.k != 1.0:
-                    small = cv2.resize(gray, None, fx=detector.k, fy=detector.k,
-                                       interpolation=cv2.INTER_AREA)
-                title = detector.match(gray, small) if detector.template is not None else None
-
-                if title is None and (detector.template is None or force):
-                    h = dhash(small if small is not None else gray, 16)
-                    changed = last_disc_hash is None or hamming(h, last_disc_hash) > 4
-                    if force or (changed and tick - detector.last_discovery > 1.5):
-                        if force:
-                            self._emit(state="searching", msg="Searching for puzzle (OCR)…")
-                        last_disc_hash = h
-                        title = detector.discover(gray)
-                        if title is not None:
-                            detector.learn(gray, title)
-                            detector.match(gray, None if detector.k == 1.0 else cv2.resize(
-                                gray, None, fx=detector.k, fy=detector.k, interpolation=cv2.INTER_AREA))
+                hit = locator.find(frame, gray)
 
                 if self._snapshot.is_set():
                     self._snapshot.clear()
                     self._save_snapshot(frame, last_analysis)
 
-                if title is None:
+                if hit is None:
                     if active and tick - last_seen > self.cfg.disappear_after_ms / 1000.0:
                         active, shown, shown_hashes, tried_hashes = False, None, [], []
-                        panel_rect = None
                         self._emit(state="waiting", msg="Waiting for puzzle…")
                     elif force:
                         self._emit(state="waiting", msg="No puzzle found on screen")
-                    self._sleep(tick)
+                    self._sleep(tick, idle=True)
                     continue
 
                 last_seen = tick
-                # ---- locate panel (cached while the title does not move) ----
-                moved = title_ref is None or abs(title[0] - title_ref[0]) > 4 or \
-                    abs(title[1] - title_ref[1]) > 4
-                if panel_rect is None or moved or force:
-                    panel_rect = self._locate_panel(gray, title)
-                    title_ref = title
-                x, y, w, h = panel_rect
+                (x, y, w, h), cards = hit
                 panel = frame[y:y + h, x:x + w]
-                cards = find_cards(panel, self.cfg.expected_pieces)
-                hashes = card_hashes(panel, cards) if cards else [dhash(panel, 16)]
+                hashes = card_hashes(panel, cards)
 
                 if not force:
                     if shown is not None and same_layout(hashes, shown_hashes):
@@ -185,20 +147,9 @@ class Engine(threading.Thread):
             self._sleep(tick)
         grabber.close()
 
-    def _locate_panel(self, gray, title: Rect) -> Rect:
-        H, W = gray.shape[:2]
-        if self.cfg.region:  # user-selected region is the panel
-            return (0, 0, W, H)
-        cands = find_panel(gray, title)
-        for r in cands:
-            x, y, w, h = r
-            if find_cards(gray[y:y + h, x:x + w], self.cfg.expected_pieces):
-                return r
-        # no piece boxes anywhere: smallest real panel, else generic area
-        return cands[0] if len(cands) > 2 else cands[-1]
-
-    def _sleep(self, tick: float) -> None:
-        delay = self.cfg.poll_interval_ms / 1000.0 - (time.monotonic() - tick)
+    def _sleep(self, tick: float, idle: bool = False) -> None:
+        ms = self.cfg.idle_poll_ms if idle else self.cfg.poll_interval_ms
+        delay = ms / 1000.0 - (time.monotonic() - tick)
         if delay > 0:
             self._stop.wait(delay)
 

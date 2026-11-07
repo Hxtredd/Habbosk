@@ -1,2 +1,2 @@
 """Puzzle Answer Assistant - read-only helper for the "Montar un arma" puzzle."""
-__version__ = "1.0.0"
+__version__ = "1.1.0"

@@ -14,7 +14,7 @@ from __future__ import annotations
 import difflib
 import re
 import unicodedata
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from .model import LETTERS, Piece, Puzzle
 from .ocr import Word
@@ -285,8 +285,46 @@ def assign_letters(pieces: List[Piece], expected: int) -> List[str]:
     return notes
 
 
+def parse_total(words: List[Word]) -> Optional[int]:
+    """'Montadas 0/8' -> 8 (number of pieces in this puzzle)."""
+    flat = strip_accents(" ".join(w.text for w in words)).lower()
+    m = re.search(r"montad\w*\s*\d+\s*/\s*(\d+)", flat)
+    return int(m.group(1)) if m else None
+
+
+def finish_header(puzzle: Puzzle, header_words: List[Word], n_pieces: int) -> None:
+    target, weapon, notes, text = parse_header(header_words)
+    puzzle.target_caliber, puzzle.weapon, puzzle.header_text = target, weapon, text
+    puzzle.warnings.extend(notes)
+    total = parse_total(header_words)
+    if total is not None and total != n_pieces:
+        puzzle.warnings.append(f"game says {total} pieces but {n_pieces} were found")
+        puzzle.expected = total
+    else:
+        puzzle.expected = n_pieces
+
+
+def build_from_readings(readings, names: List[str], header_words: List[Word]) -> Puzzle:
+    """Puzzle from cardreader.CardReading objects (cards in reading order)."""
+    puzzle = Puzzle()
+    for i, r in enumerate(readings):
+        letter = LETTERS[i]  # cards are laid out A, B, C... in reading order
+        notes = list(r.notes)
+        if r.badge is None:
+            notes.append("badge letter not confirmed")
+        elif r.badge != letter:
+            notes.append(f"badge reads {r.badge} but position says {letter}")
+        raw_name = names[i] if i < len(names) else ""
+        puzzle.pieces[letter] = Piece(
+            letter=letter, name=best_match(raw_name, PIECE_NAMES) or raw_name,
+            caliber=r.caliber, deps=list(dict.fromkeys(r.deps)), confidence=r.confidence,
+            raw_text=r.debug, notes=notes)
+    return puzzle
+
+
 def build_puzzle(card_words: List[List[Word]], header_words: List[Word],
-                 expected: int = 8) -> Puzzle:
+                 expected: int = 0) -> Puzzle:
+    expected = expected or len(card_words)
     pieces = [parse_card(ws, i) for i, ws in enumerate(card_words)]
     puzzle = Puzzle()
     puzzle.warnings.extend(assign_letters(pieces, expected))
@@ -296,9 +334,7 @@ def build_puzzle(card_words: List[List[Word]], header_words: List[Word],
             continue
         if p.letter in LETTERS:
             puzzle.pieces[p.letter] = p
-    target, weapon, notes, text = parse_header(header_words)
-    puzzle.target_caliber, puzzle.weapon, puzzle.header_text = target, weapon, text
-    puzzle.warnings.extend(notes)
+    finish_header(puzzle, header_words, expected)
     return puzzle
 
 
@@ -306,7 +342,7 @@ def cluster_by_anchors(words: List[Word], expected: int = 8
                        ) -> Optional[Tuple[List[List[Word]], List[Word]]]:
     """Fallback when card boxes cannot be found: group words around piece names."""
     anchors = [w for w in words if best_match(w.text, PIECE_NAMES, cutoff=0.8)]
-    if len(anchors) != expected:
+    if (expected and len(anchors) != expected) or not 3 <= len(anchors) <= len(LETTERS):
         return None
     # reading order of anchors
     med_h = sorted(a.h for a in anchors)[len(anchors) // 2] or 10

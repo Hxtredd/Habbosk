@@ -16,9 +16,9 @@ def analyse_image(path: str, cfg: Config) -> int:
     import cv2
 
     from .analyzer import Analyzer, describe
-    from .detector import TitleDetector
     from .ocr import Tesseract
-    from .vision import find_cards, find_panel, to_gray
+    from .locate import search
+    from .vision import to_gray
 
     img = cv2.imread(path, cv2.IMREAD_COLOR)
     if img is None:
@@ -27,23 +27,16 @@ def analyse_image(path: str, cfg: Config) -> int:
     ocr = Tesseract(cfg)
     analyzer = Analyzer(cfg, ocr)
     gray = to_gray(img)
-    panel = img
-    title = TitleDetector(cfg, ocr).discover(gray)
-    if title is None:
-        print("Title 'Montar un arma' not found - analysing the whole image as the puzzle panel.")
+    found = search(img, gray, cfg)
+    if found is None:
+        print("No puzzle card grid found - analysing the whole image as the panel.")
+        panel = img
+        a = analyzer.analyze_panel(img)
     else:
-        print(f"Title found at {title}")
-        cands = find_panel(gray, title)
-        chosen = cands[0] if len(cands) > 2 else cands[-1]
-        for r in cands:
-            x, y, w, h = r
-            if find_cards(gray[y:y + h, x:x + w], cfg.expected_pieces):
-                chosen = r
-                break
-        x, y, w, h = chosen
+        (x, y, w, h), cards = found
+        print(f"Puzzle panel: {(x, y, w, h)}  pieces: {len(cards)}")
         panel = img[y:y + h, x:x + w]
-        print(f"Panel: {chosen}")
-    a = analyzer.analyze_panel(panel)
+        a = analyzer.analyze_panel(panel, cards)
     print(describe(a))
     print("Debug image:", analyzer.save_debug(panel, a))
     return 0 if a.solution and a.solution.ok else 1

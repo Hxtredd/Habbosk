@@ -104,48 +104,35 @@ def reading_order(rects: List[Rect]) -> List[Rect]:
     return [r for row in rows for r in sorted(row, key=lambda r: r[0])]
 
 
-def find_cards(panel: np.ndarray, expected: int = 8) -> Optional[List[Rect]]:
-    """Find `expected` same-sized, non-overlapping boxes in the puzzle panel."""
+MIN_PIECES, MAX_PIECES = 3, 8
+
+
+def find_cards(panel: np.ndarray, expected: int = 0) -> Optional[List[Rect]]:
+    """Find the piece boxes: the biggest set of same-sized, non-overlapping
+    boxes in the panel. The number of pieces varies between puzzles (7, 8...),
+    so any count from MIN_PIECES to MAX_PIECES is accepted unless `expected`
+    (> 0) forces one."""
     gray = to_gray(panel)
     H, W = gray.shape[:2]
     area = H * W
-    rects = rect_candidates(gray, area / 120.0, area / (expected * 0.9))
+    lo_n = expected or MIN_PIECES
+    rects = rect_candidates(gray, area / 120.0, area / (lo_n * 0.9))
     best: Optional[List[Rect]] = None
-    best_area = -1.0
+    best_key = (-1, -1.0)
     for r in rects:
         group = [o for o in rects
                  if abs(o[2] - r[2]) <= 0.12 * r[2] and abs(o[3] - r[3]) <= 0.12 * r[3]]
         # drop boxes nested inside other boxes of the group
         group = [g for g in group if not any(o is not g and _contains(o, g) for o in group)]
-        if len(group) != expected:
+        n = len(group)
+        if (expected and n != expected) or not (MIN_PIECES <= n <= MAX_PIECES):
             continue
-        a = float(np.median([g[2] * g[3] for g in group]))
-        if a > best_area:
-            best, best_area = group, a
+        key = (n, float(np.median([g[2] * g[3] for g in group])))
+        if key > best_key:
+            best, best_key = group, key
     if best is None:
         return None
     return reading_order(best)
-
-
-def find_panel(screen_gray: np.ndarray, title: Rect) -> List[Rect]:
-    """Candidate panel rectangles containing the title, smallest first."""
-    H, W = screen_gray.shape[:2]
-    tx, ty, tw, th = title
-    min_area = max(tw * th * 12, 40 * 40)
-    rects = rect_candidates(screen_gray, min_area, H * W * 1.0)
-    cx, cy = tx + tw / 2, ty + th / 2
-    cands = [r for r in rects
-             if r[0] <= cx <= r[0] + r[2] and r[1] <= cy <= r[1] + r[3]
-             and r[3] > th * 4 and r[2] >= tw]
-    cands.sort(key=lambda r: r[2] * r[3])
-    cands.append((0, 0, W, H))  # the whole frame (e.g. a user-selected region)
-    # generic fallback: a generous area under and around the title
-    fx = max(0, int(tx - tw * 1.5))
-    fy = max(0, int(ty - th * 2))
-    fw = min(W - fx, int(tw * 4.0))
-    fh = min(H - fy, int(th * 22))
-    cands.append((fx, fy, fw, fh))
-    return cands
 
 
 def mask_rects(img: np.ndarray, rects: List[Rect]) -> np.ndarray:
@@ -181,3 +168,57 @@ def find_big_glyph(prepped: np.ndarray) -> Optional[Rect]:
         return None
     x, y, w, h = max(cands, key=lambda c: (c[3], -c[1], -c[0]))
     return (int(x), int(y), int(w), int(h))
+
+
+def find_grids(gray: np.ndarray, min_n: int = 5, max_n: int = MAX_PIECES) -> List[List[Rect]]:
+    """Whole-frame search for grids of same-sized boxes (puzzle piece cards).
+
+    No OCR and no title needed, so it is independent of the (translucent)
+    puzzle background and of other places showing the same title text.
+    Returns candidate grids (reading order), biggest boxes first.
+    """
+    H, W = gray.shape[:2]
+    A = H * W
+    rects = rect_candidates(gray, A / 4000.0, A / (min_n * 1.2))
+    rects = [r for r in rects if 1.2 <= r[2] / max(1, r[3]) <= 4.5]  # card-shaped
+    used = set()
+    grids: List[List[Rect]] = []
+    for i, r in enumerate(rects):
+        if i in used:
+            continue
+        same = [j for j, o in enumerate(rects)
+                if abs(o[2] - r[2]) <= 0.08 * r[2] and abs(o[3] - r[3]) <= 0.08 * r[3]]
+        # keep only boxes connected to r through small gaps (one grid)
+        cluster = {i}
+        frontier = [i]
+        while frontier:
+            a = rects[frontier.pop()]
+            for j in same:
+                if j in cluster:
+                    continue
+                b = rects[j]
+                gx = max(b[0] - (a[0] + a[2]), a[0] - (b[0] + b[2]))
+                gy = max(b[1] - (a[1] + a[3]), a[1] - (b[1] + b[3]))
+                if gx <= 0.5 * r[3] and gy <= 0.5 * r[3]:
+                    cluster.add(j)
+                    frontier.append(j)
+        used |= cluster
+        boxes = [rects[j] for j in cluster]
+        boxes = [g for g in boxes if not any(o is not g and _contains(o, g) for o in boxes)]
+        if min_n <= len(boxes) <= max_n:
+            grids.append(reading_order(boxes))
+    grids.sort(key=lambda g: -g[0][2] * g[0][3])
+    return grids
+
+
+def panel_around(cards: List[Rect], frame_shape) -> Rect:
+    """Area that holds the cards plus the header line above them
+    ('Fusil · calibre 5.56') and the footer below ('Montadas 0/8')."""
+    H, W = frame_shape[:2]
+    ch = int(np.median([c[3] for c in cards]))
+    cw = int(np.median([c[2] for c in cards]))
+    x0 = max(0, min(c[0] for c in cards) - int(0.15 * cw))
+    x1 = min(W, max(c[0] + c[2] for c in cards) + int(0.15 * cw))
+    y0 = max(0, min(c[1] for c in cards) - int(1.6 * ch))
+    y1 = min(H, max(c[1] + c[3] for c in cards) + int(1.0 * ch))
+    return (x0, y0, x1 - x0, y1 - y0)

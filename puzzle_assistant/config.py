@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import List, Optional
 
 
@@ -24,8 +24,8 @@ class Config:
     # --- capture ---------------------------------------------------------
     monitor: int = 1                    # 1 = primary monitor, 0 = all monitors
     region: Optional[List[int]] = None  # [left, top, width, height] screen px, or None = auto
-    poll_interval_ms: int = 120         # pause between screen checks
-    detect_scale: float = 0.5           # downscale used only for "is the puzzle there?"
+    poll_interval_ms: int = 100         # screen check interval while a puzzle is visible
+    idle_poll_ms: int = 150             # screen check interval while waiting
 
     # --- OCR -------------------------------------------------------------
     tesseract_cmd: str = ""             # empty = auto-detect
@@ -36,14 +36,16 @@ class Config:
     min_confidence: float = 60.0        # below this a token is "uncertain"
 
     # --- puzzle ----------------------------------------------------------
-    title_keywords: List[str] = field(default_factory=lambda: ["montar un arma"])
-    expected_pieces: int = 8
+    expected_pieces: int = 0            # 0 = auto (the game uses 7 or 8 pieces)
+    read_names: bool = True             # OCR piece names (display only)
+    require_layout: bool = True         # only accept the game's card layout
     disappear_after_ms: int = 700       # puzzle gone this long -> reset display
 
     # --- UI --------------------------------------------------------------
     window_geometry: str = "380x300+40+40"
     opacity: float = 0.95
     debug_save: bool = False            # save every analysed frame to ./debug
+    config_version: int = 2
 
     @classmethod
     def load(cls) -> "Config":
@@ -52,6 +54,10 @@ class Config:
             try:
                 with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
                     data = json.load(fh)
+                if int(data.get("config_version", 1)) < 2:
+                    # v1 forced exactly 8 pieces; the game also uses 7
+                    data.pop("expected_pieces", None)
+                    data["config_version"] = 2
                 for k, v in data.items():
                     if hasattr(cfg, k):
                         setattr(cfg, k, v)
