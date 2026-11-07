@@ -1,0 +1,41 @@
+{
+ "about": "Observed room connections (from the owner's recordings). Never assumed bidirectional.",
+ "connections": [
+  {
+   "from_room": 13,
+   "from_name": "Ayuntamiento de Ensenada",
+   "to_room": 41,
+   "to_name": "Avenida Alameda",
+   "method": "arrow (walked)",
+   "evidence": "2026-11-07_08-47-38.mp4, about 2.5-3.5 s",
+   "status": "observed"
+  },
+  {
+   "from_room": 13,
+   "from_name": "Ayuntamiento de Ensenada",
+   "to_room": 4,
+   "to_name": "Supermercado Eleven",
+   "method": ":taxi",
+   "evidence": "2026-11-07_08-48-19.mp4, about 4-6 s",
+   "status": "observed (taxi, not a walking route)"
+  }
+ ],
+ "rooms_seen": [
+  {
+   "room_id": 13,
+   "name": "Ayuntamiento de Ensenada"
+  },
+  {
+   "room_id": 41,
+   "name": "Avenida Alameda"
+  },
+  {
+   "room_id": 4,
+   "name": "Supermercado Eleven"
+  },
+  {
+   "room_id": 12407,
+   "name": "Biblioteca de Ensenada"
+  }
+ ]
+}

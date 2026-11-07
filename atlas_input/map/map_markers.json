@@ -163,22 +163,26 @@
    "kind": "place",
    "x": 716,
    "y": 201,
-   "name": null,
+   "name": "Iglesia",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "5acc7c21-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P14",
    "kind": "place",
    "x": 671,
    "y": 202,
-   "name": null,
+   "name": "Hospital",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "df3804fb-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P15",
@@ -235,11 +239,13 @@
    "kind": "place",
    "x": 569,
    "y": 245,
-   "name": null,
+   "name": "Mascotas",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "dffdda17-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P20",
@@ -259,11 +265,13 @@
    "kind": "place",
    "x": 581,
    "y": 294,
-   "name": null,
+   "name": "McDonald's",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "212c8747-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P22",
@@ -283,22 +291,32 @@
    "kind": "place",
    "x": 741,
    "y": 298,
-   "name": null,
+   "name": "Pastelería de Ensenada",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "3cfe8d8f-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P24",
    "kind": "place",
    "x": 814,
    "y": 315,
-   "name": null,
+   "name": "Ayuntamiento",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "a83919d4-image.png"
+   ],
+   "status": "named",
+   "room_id_candidate": {
+    "room_id": 13,
+    "room_name": "Ayuntamiento de Ensenada",
+    "source": "both recordings (share panel habbosk.us/room/13)",
+    "status": "unconfirmed - matched by name only; confirm by visiting"
+   }
   },
   {
    "marker": "P25",
@@ -318,11 +336,13 @@
    "kind": "place",
    "x": 696,
    "y": 321,
-   "name": null,
+   "name": "Apartamentos",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "eda08d1a-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P27",
@@ -342,11 +362,20 @@
    "kind": "place",
    "x": 774,
    "y": 346,
-   "name": null,
+   "name": "Biblioteca",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "f72aaddb-image.png",
+    "90be19b2-image.png"
+   ],
+   "status": "named",
+   "room_id_candidate": {
+    "room_id": 12407,
+    "room_name": "Biblioteca de Ensenada",
+    "source": "owner's share-panel screenshot (habbosk.us/room/12407)",
+    "status": "unconfirmed - matched by name only; confirm by visiting"
+   }
   },
   {
    "marker": "P29",
@@ -516,22 +545,26 @@
    "kind": "street",
    "x": 738,
    "y": 240,
-   "name": null,
+   "name": "Avenida Vitalia",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "f1bf5fd9-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S8",
    "kind": "street",
    "x": 615,
    "y": 302,
-   "name": null,
+   "name": "Avenida Arcos",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "b525b941-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S9",
@@ -542,7 +575,8 @@
    "room_id": null,
    "name_source": "map hover label",
    "evidence": [
-    "0b09db01-image.png"
+    "0b09db01-image.png",
+    "017b4e31-image.png"
    ],
    "status": "named"
   },
@@ -565,11 +599,19 @@
    "kind": "street",
    "x": 738,
    "y": 363,
-   "name": null,
+   "name": "Avenida Alameda",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "3af718f3-image.png"
+   ],
+   "status": "named",
+   "room_id_candidate": {
+    "room_id": 41,
+    "room_name": "Avenida Alameda",
+    "source": "walk recording 2026-11-07_08-47-38 (share panel habbosk.us/room/41)",
+    "status": "unconfirmed - matched by name only; confirm by visiting"
+   }
   },
   {
    "marker": "S12",
