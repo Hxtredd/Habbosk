@@ -24,12 +24,14 @@
    "x": 872,
    "y": 16,
    "name": "Aerotienda",
-   "room_id": null,
+   "room_id": 12396,
    "name_source": "map hover label",
    "evidence": [
     "d6148d58-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Aerotienda",
+   "room_link": "exact name match"
   },
   {
    "marker": "P2",
@@ -97,12 +99,14 @@
    "x": 1127,
    "y": 126,
    "name": "Gran Casino",
-   "room_id": null,
+   "room_id": 12411,
    "name_source": "map hover label",
    "evidence": [
     "f76f4252-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Gran Casino",
+   "room_link": "exact name match"
   },
   {
    "marker": "P7",
@@ -250,7 +254,8 @@
    "evidence": [
     "da173224-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "note": "owner: Cementerio has no room ID (no room to visit)"
   },
   {
    "marker": "P17",
@@ -454,13 +459,15 @@
    "x": 375,
    "y": 384,
    "name": "Tienda de Motos",
-   "room_id": null,
+   "room_id": 12408,
    "name_source": "map hover label",
    "evidence": [
     "d7311a04-image.png",
     "7edd0b0f-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Tienda de Motos",
+   "room_link": "exact name match"
   },
   {
    "marker": "P31",
@@ -483,12 +490,14 @@
    "x": 294,
    "y": 395,
    "name": "Taller de Vehículos",
-   "room_id": null,
+   "room_id": 12410,
    "name_source": "map hover label",
    "evidence": [
     "946c8b43-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Taller de Vehiculos",
+   "room_link": "name match (spelling differs: accent)"
   },
   {
    "marker": "P33",
@@ -512,12 +521,14 @@
    "x": 400,
    "y": 432,
    "name": "Tienda de Barcos",
-   "room_id": null,
+   "room_id": 12409,
    "name_source": "map hover label",
    "evidence": [
     "aa03e7e7-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Tienda de Barcos",
+   "room_link": "exact name match"
   },
   {
    "marker": "S0",

@@ -363,7 +363,7 @@
    "evidence": [
     "97327e99-image.png"
    ],
-   "note": "owner HabboSK; looks like a casino (Bally's slot machines, VIP sign) - maybe the Gran Casino interior or an unfinished room; name is just 'car'"
+   "note": "owner HabboSK; casino-like decoration (Bally's slots, VIP sign). Re-checked by OCR: URL habbosk.us/room/50, name bar 'car'. NOT the Gran Casino (that is 12411) - purpose unknown."
   },
   {
    "room_id": 65,
@@ -505,6 +505,15 @@
    ]
   },
   {
+   "room_id": 12396,
+   "name": "Aerotienda",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "evidence": [
+    "92417d5c-image.png"
+   ],
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')"
+  },
+  {
    "room_id": 12397,
    "name": "Planta Nuclear",
    "verification": "screenshot: share-panel ID + name bar + info panel agree",
@@ -610,6 +619,42 @@
    "evidence": [
     "73ac114c-image.png"
    ]
+  },
+  {
+   "room_id": 12408,
+   "name": "Tienda de Motos",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "evidence": [
+    "eb926743-image.png"
+   ],
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')"
+  },
+  {
+   "room_id": 12409,
+   "name": "Tienda de Barcos",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "evidence": [
+    "fc17e8c7-image.png"
+   ],
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')"
+  },
+  {
+   "room_id": 12410,
+   "name": "Taller de Vehiculos",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "evidence": [
+    "eb28ea01-image.png"
+   ],
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')"
+  },
+  {
+   "room_id": 12411,
+   "name": "Gran Casino",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "evidence": [
+    "cf63b70d-image.png"
+   ],
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')"
   },
   {
    "room_id": 12415,

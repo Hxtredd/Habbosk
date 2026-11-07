@@ -1,22 +1,22 @@
 # Hotel map: all 53 markers
 
-Map names from hover screenshots. Room IDs from share-panel screenshots/recordings, linked to the map by name.
+Map names from hover screenshots. Room IDs from share-panel screenshots/recordings, linked to the map by name. Cementerio has no room ID (owner).
 
 | Marker | Map name | Type | Room ID | Room name |
 |---|---|---|---|---|
 | P7 | Academia SK FC | place | 12399 | Academia SK FC |
-| P1 | Aerotienda | place |  |  |
+| P1 | Aerotienda | place | 12396 | Aerotienda |
 | P26 | Apartamentos | place | 14 | Apartamentos Hialeah |
 | P24 | Ayuntamiento | place | 13 | Ayuntamiento de Ensenada |
 | P2 | Banco | place | 3 | Banco de Ensenada |
 | P28 | Biblioteca | place | 12407 | Biblioteca de Ensenada |
-| P16 | Cementerio | place |  |  |
+| P16 | Cementerio | place | none |  |
 | P31 | Cine de Ensenada | place | 12401 | Cine de Ensenada |
 | P11 | Club Neón | place | 12418 | Club Neón |
 | P33 | Concesionario | place | 7 | Tienda de Autos |
 | P20 | Corte Suprema | place | 12416 | Corte Suprema |
 | P18 | Gimnasio | place | 5 | Gimnasio Olimpo |
-| P6 | Gran Casino | place |  |  |
+| P6 | Gran Casino | place | 12411 | Gran Casino |
 | P14 | Hospital | place | 2 | Hospital |
 | P13 | Iglesia | place | 16 | Iglesia Santa María |
 | P29 | Invernadero de Frutales | place | 12405 | Invernadero de Frutales |
@@ -32,12 +32,12 @@ Map names from hover screenshots. Room IDs from share-panel screenshots/recordin
 | P17 | Ropa | place | 11 | Tienda de ropas Macy's |
 | P5 | Spa | place | 18 | Spa Onsen |
 | P3 | Supermercado 7-11 | place | 4 | Supermercado Eleven |
-| P32 | Taller de Vehículos | place |  |  |
+| P32 | Taller de Vehículos | place | 12410 | Taller de Vehiculos |
 | P12 | Tienda Apple | place | 9 | Tienda Apple |
 | P4 | Tienda de Armas | place | 8 | Tienda de Armas |
-| P34 | Tienda de Barcos | place |  |  |
+| P34 | Tienda de Barcos | place | 12409 | Tienda de Barcos |
 | P27 | Tienda de Cultivos | place | 12400 | Tienda de Cultivos |
-| P30 | Tienda de Motos | place |  |  |
+| P30 | Tienda de Motos | place | 12408 | Tienda de Motos |
 | P10 | Weinrich Minerals | place | 12398 | Tienda de Minerales |
 | S11 | Avenida Alameda | street | 41 | Avenida Alameda |
 | S10 | Avenida Alborada | street | 25 | Avenida Alborada |
