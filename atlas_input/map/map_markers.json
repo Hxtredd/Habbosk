@@ -8,55 +8,71 @@
    "kind": "place",
    "x": 831,
    "y": 15,
-   "name": null,
+   "name": "Penitenciaría",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "47b938cc-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P1",
    "kind": "place",
    "x": 872,
    "y": 16,
-   "name": null,
+   "name": "Aerotienda",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "d6148d58-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P2",
    "kind": "place",
    "x": 737,
    "y": 58,
-   "name": null,
+   "name": "Banco",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "7e3e4563-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P3",
    "kind": "place",
    "x": 963,
    "y": 60,
-   "name": null,
+   "name": "Supermercado 7-11",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "b3453d63-image.png"
+   ],
+   "status": "named",
+   "room_id_candidate": {
+    "room_id": 4,
+    "room_name": "Supermercado Eleven",
+    "source": "taxi recording 2026-11-07_08-48-19 (habbosk.us/room/4)",
+    "status": "unconfirmed - likely the same shop (7-11 / Eleven)"
+   }
   },
   {
    "marker": "P4",
    "kind": "place",
    "x": 626,
    "y": 122,
-   "name": null,
+   "name": "Tienda de Armas",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "3847c83b-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P5",
@@ -102,11 +118,13 @@
    "kind": "place",
    "x": 585,
    "y": 136,
-   "name": null,
+   "name": "Planta Nuclear",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "8929510b-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P9",
@@ -126,11 +144,13 @@
    "kind": "place",
    "x": 478,
    "y": 175,
-   "name": null,
+   "name": "Weinrich Minerals",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "dde1c953-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P11",
@@ -189,11 +209,13 @@
    "kind": "place",
    "x": 425,
    "y": 206,
-   "name": null,
+   "name": "Mina",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "dd2d638c-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P16",
@@ -462,22 +484,26 @@
    "kind": "street",
    "x": 860,
    "y": 57,
-   "name": null,
+   "name": "Avenida Arelia",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "38d90c16-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S1",
    "kind": "street",
    "x": 738,
    "y": 117,
-   "name": null,
+   "name": "Avenida Livia",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "fe5edff5-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S2",
@@ -497,11 +523,13 @@
    "kind": "street",
    "x": 615,
    "y": 179,
-   "name": null,
+   "name": "Avenida Mirela",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "59f1ba7e-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S4",
@@ -534,11 +562,13 @@
    "kind": "street",
    "x": 492,
    "y": 240,
-   "name": null,
+   "name": "Avenida Crisol",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "13792d97-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S7",
@@ -644,33 +674,39 @@
    "kind": "street",
    "x": 245,
    "y": 487,
-   "name": null,
+   "name": "Avenida Venturas",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "9db5bbdb-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S15",
    "kind": "street",
    "x": 492,
    "y": 487,
-   "name": null,
+   "name": "Ct. Concourse",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "99bee802-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S16",
    "kind": "street",
    "x": 368,
    "y": 548,
-   "name": null,
+   "name": "Avenida Canastia",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "05775106-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S17",
