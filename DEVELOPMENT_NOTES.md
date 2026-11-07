@@ -83,10 +83,12 @@ difficulties: keep the interface simple, plain-worded and calm.
 | `solver.py`, `parser.py`, `analyzer.py` | weapon puzzle: topological sort, header OCR |
 | `money.py` | money puzzle: strip tracking, item reading, Vistos/legend checks |
 | `qa/screen.py` | question window: locate, OCR, revealed results |
-| `qa/memory.py` | SQLite memory (`data/habbosk.db`), matching, source priority, history |
+| `qa/memory.py` | SQLite memory (`%APPDATA%\SK Assistant\habbosk.db`), matching, source priority, history, merge/import |
+| `qa/ai.py` | AI providers over urllib (Gemini/Claude/OpenAI), model auto-choice, cost limits, web search |
+| `storage.py` | first-start migration of the old `data\` folder, starter questions (`assets/seed_questions.json`) |
 | `qa/model.py`, `qa/text.py` | Question/Answer model, normalisation |
 | `qa/solvers.py` | built-in solvers (safe arithmetic parser, sequence rules); answer only if exactly one option fits, refuse when two readings fit |
-| `secrets.py` | API keys encrypted with Windows DPAPI (`data/keys.bin`) |
+| `secrets.py` | API keys encrypted with Windows DPAPI (`keys.bin` in the data folder) |
 
 Key ideas: detect windows by **layout** (grids of boxes) not by OCR; tiny text
 via **glyph templates** (`glyph_templates.npz`, built by
@@ -101,7 +103,7 @@ source priority **game > user > solver > ai**.
 | 1 | Unified window, settings panel, SQLite memory, key storage | done (v1.7) |
 | 2 | Read the question window; learn from the game; answer from memory; marks | done (v1.8) |
 | 3 | Built-in solvers: ORDENAR sums, letter/number sequences, calculations, wrong equations, simple word problems ("likely" only) | done (v1.9) |
-| 4 | AI providers (Gemini first) + optional web search, cost controls, "unverified" label | todo — check current pricing first |
+| 4 | Memory in %APPDATA%\\SK Assistant (+ merge of old memories, Import, 12 starter questions); AI providers (Gemini first) + optional web search, cost controls, "AI · unverified" label | done (v2.0) — not yet tested against the real Gemini API from the dev container |
 | 5 | Manual corrections, history, statistics in the UI | todo |
 | 6 | Timed general-knowledge task (needs a recording), hints, packaging | todo |
 
@@ -125,6 +127,16 @@ the game); word problems 0.7 ("Probably", amber, no mark). Each solver answer
 is compared with what the game reveals (`solver_check` in the history; shown
 in Settings > Memory). The owner has not seen other "work it out" question
 types so far.
+
+AI policy (Stage 4): asked only after memory and solvers fail, in a
+background thread (one worker); reply must be JSON naming option letters,
+otherwise discarded. Confidence ≥ 0.6 → "AI · unverified" (amber, no overlay
+mark), lower → "Not sure". Never saved as truth; scored against the reveal
+(`ai_check` in history). Gemini model auto-picked from `GET /v1beta/models`
+(newest stable flash-lite, cached in the `meta` table, re-picked on 404).
+Key in header `x-goog-api-key`, never in the URL. Paid providers need
+`paid_api` + `monthly_limit`; free use capped by `ai_daily_limit`.
+Data folder override for tests: env `SK_ASSISTANT_DATA`.
 
 ## Known limits / ideas
 

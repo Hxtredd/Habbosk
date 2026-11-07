@@ -1,4 +1,4 @@
-SK ASSISTANT  (v1.9 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v2.0 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -97,15 +97,25 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
     AI and internet
                   AI provider (none / Google Gemini / Anthropic Claude / OpenAI),
                   API keys (stored encrypted with your Windows account in
-                  data\keys.bin - never in config.json), paid use on/off
+                  keys.bin - never in config.json), paid use on/off
                   (off by default: never pays), monthly limit, internet search
-                  on/off, this month's requests and estimated cost.
-                  (AI answers are connected in a coming update.)
-    Memory        how many questions SK Assistant has learned; export; forget all
+                  on/off, "Test AI", this month's requests and estimated cost.
+                  See 2d.
+    Memory        how many questions SK Assistant has learned, how often the
+                  built-in solving and the AI were right; Export; Import
+                  (add questions from a habbosk.db or an exported .json);
+                  forget all
     Screen        select a region / watch all screens / save a snapshot
 
-  Learned questions live in data\habbosk.db (works offline, kept across
-  restarts). Back it up with Settings > Memory > Export.
+  Since v2.0, learned questions, settings and keys live in your user
+  profile:  %APPDATA%\SK Assistant   (habbosk.db, config.json, keys.bin)
+  so they survive new versions, wherever you extract the program.
+  On first start v2.0 automatically merges the memory of the older version
+  in the same folder (data\habbosk.db -> renamed habbosk.db.merged) and adds
+  12 starter questions confirmed by the game. Found an older habbosk.db
+  somewhere else (e.g. another copy of the program)? Settings > Memory >
+  Import... adds its questions; nothing already known is lost.
+  Back up with Settings > Memory > Export.
 
   The window can be moved and resized; the answer text scales with the width.
   The window is hidden from screen capture (Windows 10 2004+), so it may
@@ -152,10 +162,47 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
       An answer is shown only when exactly one option fits; otherwise nothing
       (a wrong click costs a point). "Solved" answers are checked against
       what the game reveals: Settings > Memory shows how many were right.
-    * Questions repeat, so the memory fills up quickly. AI answers for
-      brand-new knowledge questions come in the next update.
+    * Questions repeat, so the memory fills up quickly.
+    * Still unknown and an AI is set up (2d): "Thinking...", then the AI's
+      answer in orange, "AI - unverified", with no mark on the game. If the
+      AI itself is not sure it says "Not sure". Check before clicking.
   Settings > "Recognise questions": automatically, or only when you press
   Rescan (F5).
+
+2d. AI ANSWERS (optional, off by default)
+-----------------------------------------
+  Order used for every question: memory -> built-in solving -> AI.
+  The AI is asked only for questions the first two can't answer, in the
+  background (the window keeps working). One request per new question.
+
+  Set up Google Gemini (has a free tier):
+    1. Get a key at aistudio.google.com ("Get API key").
+       To be sure you never pay: do NOT enable billing for that Google
+       project (free-tier keys simply stop for a moment when the free limit
+       is reached).
+    2. Settings > AI and internet > choose "Google Gemini", paste the key in
+       "Gemini key", press Save. Never paste the key anywhere else (not in
+       chats, not in config.json).
+    3. Press "Test AI": it should say "Working".
+  SK Assistant picks Google's newest stable "Flash-Lite" model by itself
+  (fast and cheap). To force one, set "ai_model" in config.json.
+
+  Cost controls:
+    * "Allow paid AI use" is off by default. Then Claude and OpenAI (always
+      paid) are never used, and Gemini is limited to ai_daily_limit (200)
+      requests per day.
+    * With paid use on: the monthly limit ($) stops all paid requests once
+      the estimated spending reaches it. Settings shows requests and the
+      estimate for this month (an estimate, the provider's bill is exact).
+    * "Too many requests" from the provider: the AI pauses for one minute.
+    * Internet search (Tavily / Brave, needs its own key) only when switched
+      on AND the AI said it is unsure.
+
+  AI answers are never saved as true. Only the game's revealed answer is
+  learned; the AI's answer is compared with it (Settings > Memory shows how
+  often the AI was right). Many questions are about this game's own world,
+  which an AI can't know - memory stays the main source.
+
 
 3. HOW DETECTION WORKS
 ----------------------
@@ -206,11 +253,12 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
                                      and exactly what OCR read for every piece.
   Test with a saved screenshot    -> drag the image onto TEST_SCREENSHOT.bat
 
-  config.json (created on first exit) settings:
+  config.json (in %APPDATA%\SK Assistant, created on first exit) settings:
     monitor, region, poll_interval_ms, idle_poll_ms, tesseract_cmd,
     tessdata_dir, ocr_upscale, ocr_threads, min_confidence (60),
-    expected_pieces (0 = automatic), read_names, require_layout,
-    disappear_after_ms, window_geometry, opacity, debug_save
+    read_names, require_layout, disappear_after_ms, window_geometry,
+    opacity, debug_save, ai_model ("" = automatic), ai_daily_limit (200),
+    ai_price_in / ai_price_out ($ per million tokens, for the estimate)
 
 
 6. FILES
@@ -232,7 +280,10 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   puzzle_assistant\money.py     money puzzle: strip tracking, value reading, checks
   puzzle_assistant\qa\         questions: model, text helpers, SQLite memory,
                              screen.py = reading the question window,
-                             solvers.py = built-in solving (sums, sequences)
+                             solvers.py = built-in solving (sums, sequences),
+                             ai.py = AI providers, cost limits, web search
+  puzzle_assistant\storage.py  memory in %APPDATA%, merging old memories
+  assets\seed_questions.json   12 starter questions confirmed by the game
   puzzle_assistant\settings_ui.py  settings panel
   puzzle_assistant\secrets.py   encrypted API key storage (Windows DPAPI)
   assets\fonts\                 Inter font (SIL Open Font License, see OFL.txt)
