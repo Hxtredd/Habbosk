@@ -529,12 +529,14 @@
    "x": 984,
    "y": 117,
    "name": "Avenida Noctalia",
-   "room_id": null,
+   "room_id": 40,
    "name_source": "map hover label",
    "evidence": [
     "cc9a6e6f-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Noctalia",
+   "room_link": "exact name match"
   },
   {
    "marker": "S3",
@@ -557,12 +559,14 @@
    "x": 861,
    "y": 179,
    "name": "Avenida Gambetia",
-   "room_id": null,
+   "room_id": 30,
    "name_source": "map hover label",
    "evidence": [
     "339a25ad-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Gambetia",
+   "room_link": "exact name match"
   },
   {
    "marker": "S5",
@@ -570,12 +574,14 @@
    "x": 1107,
    "y": 179,
    "name": "Avenida Espumia",
-   "room_id": null,
+   "room_id": 31,
    "name_source": "map hover label",
    "evidence": [
     "ad0aa767-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Espumia",
+   "room_link": "exact name match"
   },
   {
    "marker": "S6",
@@ -613,12 +619,14 @@
    "x": 615,
    "y": 302,
    "name": "Avenida Arcos",
-   "room_id": null,
+   "room_id": 39,
    "name_source": "map hover label",
    "evidence": [
     "b525b941-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Arcos",
+   "room_link": "exact name match"
   },
   {
    "marker": "S9",
@@ -626,13 +634,15 @@
    "x": 861,
    "y": 302,
    "name": "Avenida Soleia",
-   "room_id": null,
+   "room_id": 33,
    "name_source": "map hover label",
    "evidence": [
     "0b09db01-image.png",
     "017b4e31-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Soleia",
+   "room_link": "exact name match"
   },
   {
    "marker": "S10",
@@ -671,12 +681,14 @@
    "x": 121,
    "y": 424,
    "name": "Avenida Filmora",
-   "room_id": null,
+   "room_id": 26,
    "name_source": "map hover label",
    "evidence": [
     "b364cb83-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Filmora",
+   "room_link": "exact name match"
   },
   {
    "marker": "S13",
@@ -684,12 +696,14 @@
    "x": 368,
    "y": 425,
    "name": "Avenida Biela",
-   "room_id": null,
+   "room_id": 27,
    "name_source": "map hover label",
    "evidence": [
     "5dac98a8-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Biela",
+   "room_link": "exact name match"
   },
   {
    "marker": "S14",
@@ -697,12 +711,14 @@
    "x": 245,
    "y": 487,
    "name": "Avenida Venturas",
-   "room_id": null,
+   "room_id": 29,
    "name_source": "map hover label",
    "evidence": [
     "9db5bbdb-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Venturas",
+   "room_link": "exact name match"
   },
   {
    "marker": "S15",
@@ -710,12 +726,14 @@
    "x": 492,
    "y": 487,
    "name": "Ct. Concourse",
-   "room_id": null,
+   "room_id": 35,
    "name_source": "map hover label",
    "evidence": [
     "99bee802-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Ct. Concourse",
+   "room_link": "exact name match"
   },
   {
    "marker": "S16",
@@ -723,12 +741,14 @@
    "x": 368,
    "y": 548,
    "name": "Avenida Canastia",
-   "room_id": null,
+   "room_id": 38,
    "name_source": "map hover label",
    "evidence": [
     "05775106-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Canastia",
+   "room_link": "exact name match"
   },
   {
    "marker": "S17",
@@ -736,13 +756,15 @@
    "x": 976,
    "y": 240,
    "name": "Avenida Arenia",
-   "room_id": null,
+   "room_id": 32,
    "name_source": "map hover label",
    "evidence": [
     "e4e5626c-image.png"
    ],
    "status": "named",
-   "note": "hidden under the 'Estás aquí' badge in the reference map"
+   "note": "hidden under the 'Estás aquí' badge in the reference map",
+   "room_name": "Avenida Arenia",
+   "room_link": "exact name match"
   }
  ]
 }

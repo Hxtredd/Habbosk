@@ -213,11 +213,114 @@
    ]
   },
   {
+   "room_id": 26,
+   "name": "Avenida Filmora",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "88141bdb-image.png"
+   ]
+  },
+  {
+   "room_id": 27,
+   "name": "Avenida Biela",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "1fb5efed-image.png"
+   ],
+   "note": "an arch with 'SUR' stands at the end of the street"
+  },
+  {
+   "room_id": 29,
+   "name": "Avenida Venturas",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "bea73efa-image.png"
+   ]
+  },
+  {
+   "room_id": 30,
+   "name": "Avenida Gambetia",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "2142cd69-image.png"
+   ]
+  },
+  {
+   "room_id": 31,
+   "name": "Avenida Espumia",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "aa3e5b72-image.png"
+   ]
+  },
+  {
+   "room_id": 32,
+   "name": "Avenida Arenia",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "66cd799f-image.png"
+   ]
+  },
+  {
+   "room_id": 33,
+   "name": "Avenida Soleia",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "bc960a15-image.png"
+   ]
+  },
+  {
+   "room_id": 35,
+   "name": "Ct. Concourse",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "dfd71fbc-image.png"
+   ]
+  },
+  {
+   "room_id": 38,
+   "name": "Avenida Canastia",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "b7703ad3-image.png"
+   ]
+  },
+  {
+   "room_id": 39,
+   "name": "Avenida Arcos",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "d386d61c-image.png"
+   ],
+   "note": "an arch with 'NORTE' and a bridge over the water"
+  },
+  {
+   "room_id": 40,
+   "name": "Avenida Noctalia",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "57d3a0c2-image.png"
+   ]
+  },
+  {
    "room_id": 41,
    "name": "Avenida Alameda",
    "verification": "share-panel ID + name bar (walk recording)",
-   "arrived_by": "see observed.json",
-   "evidence": []
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "56205d12-image.png"
+   ]
   },
   {
    "room_id": 42,
@@ -228,6 +331,27 @@
     "37bab1a9-image.png"
    ],
    "note": "probably a room inside the Hospital (not on the map)"
+  },
+  {
+   "room_id": 46,
+   "name": "Convocatoria de Trabajo",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "e8895abd-image.png",
+    "2e62d6aa-image.png"
+   ],
+   "note": "not on the map; job room with a rules board"
+  },
+  {
+   "room_id": 48,
+   "name": "Interior, Departamento Gubernamental",
+   "verification": "screenshot: share-panel ID + name bar (info panel hidden)",
+   "arrived_by": "taxi probably ('Llegó a su destino' seen)",
+   "evidence": [
+    "c63f0764-image.png"
+   ],
+   "note": "not on the map; info panel hidden - name from the name bar only; game says '¡No hay entrevista por ahora, vuelve luego!'"
   },
   {
    "room_id": 441,

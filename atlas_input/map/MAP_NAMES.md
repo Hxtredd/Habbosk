@@ -41,19 +41,19 @@ Map names from hover screenshots. Room IDs from share-panel screenshots/recordin
 | P10 | Weinrich Minerals | place |  |  |
 | S11 | Avenida Alameda | street | 41 | Avenida Alameda |
 | S10 | Avenida Alborada | street | 25 | Avenida Alborada |
-| S8 | Avenida Arcos | street |  |  |
+| S8 | Avenida Arcos | street | 39 | Avenida Arcos |
 | S0 | Avenida Arelia | street | 22 | Avenida Arelia |
-| S17 | Avenida Arenia | street |  |  |
-| S13 | Avenida Biela | street |  |  |
-| S16 | Avenida Canastia | street |  |  |
+| S17 | Avenida Arenia | street | 32 | Avenida Arenia |
+| S13 | Avenida Biela | street | 27 | Avenida Biela |
+| S16 | Avenida Canastia | street | 38 | Avenida Canastia |
 | S6 | Avenida Crisol | street | 23 | Avenida Crisol |
-| S5 | Avenida Espumia | street |  |  |
-| S12 | Avenida Filmora | street |  |  |
-| S4 | Avenida Gambetia | street |  |  |
+| S5 | Avenida Espumia | street | 31 | Avenida Espumia |
+| S12 | Avenida Filmora | street | 26 | Avenida Filmora |
+| S4 | Avenida Gambetia | street | 30 | Avenida Gambetia |
 | S1 | Avenida Livia | street | 21 | Avenida Livia |
 | S3 | Avenida Mirela | street | 1 | Avenida Mirela |
-| S2 | Avenida Noctalia | street |  |  |
-| S9 | Avenida Soleia | street |  |  |
-| S14 | Avenida Venturas | street |  |  |
+| S2 | Avenida Noctalia | street | 40 | Avenida Noctalia |
+| S9 | Avenida Soleia | street | 33 | Avenida Soleia |
+| S14 | Avenida Venturas | street | 29 | Avenida Venturas |
 | S7 | Avenida Vitalia | street | 20 | Avenida Vitalia |
-| S15 | Ct. Concourse | street |  |  |
+| S15 | Ct. Concourse | street | 35 | Ct. Concourse |
