@@ -256,7 +256,7 @@ class SettingsWindow:
         f = self._section("Updates")
         tk.Label(f, text=f"This is version {__version__}.", bg=PANEL, fg=FG, font=(FONT, 10),
                  anchor="w").pack(fill="x", padx=12, pady=(10, 0))
-        self._check(f, "Look for a new version when SK starts (never installs by itself)",
+        self._check(f, "Look for new versions when SK starts",
                     "check_updates")
         row = tk.Frame(f, bg=PANEL)
         row.pack(fill="x", padx=12, pady=(2, 4))

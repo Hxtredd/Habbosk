@@ -378,7 +378,6 @@ class App:
         elif self._ex_panel is None:
             self._place_explorer(force=True)
         self._style_tabs()
-        self.root.after(4000, self._check_updates_later)
 
     def set_dock(self, mode: str) -> None:
         self._save_explorer_geometry()
@@ -916,6 +915,7 @@ class App:
             self.explorer.start()
             self.root.after(1500, self._atlas_poll)
         self.root.after(25, self._poll)
+        self.root.after(4000, self._check_updates_later)
         self.root.mainloop()
 
     def close(self) -> None:
