@@ -1,0 +1,137 @@
+{
+ "about": "Rooms with ID and name read from the owner's screenshots/recordings.",
+ "rooms": [
+  {
+   "room_id": 1,
+   "name": "Avenida Mirela",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "unknown",
+   "evidence": [
+    "19dd4af0-image.png"
+   ]
+  },
+  {
+   "room_id": 2,
+   "name": "Hospital",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "35c8f281-image.png"
+   ]
+  },
+  {
+   "room_id": 3,
+   "name": "Banco de Ensenada",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "b565acf3-image.png"
+   ]
+  },
+  {
+   "room_id": 4,
+   "name": "Supermercado Eleven",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "480e46d6-image.png"
+   ]
+  },
+  {
+   "room_id": 5,
+   "name": "Gimnasio Olimpo",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "764812a1-image.png"
+   ]
+  },
+  {
+   "room_id": 6,
+   "name": "Penitenciaría de Ensenada",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "868d925f-image.png"
+   ]
+  },
+  {
+   "room_id": 7,
+   "name": "Tienda de Autos",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "9eb9b123-image.png"
+   ],
+   "note": "the NPC greets with 'Bienvenido al Concesionario'"
+  },
+  {
+   "room_id": 8,
+   "name": "Tienda de Armas",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "da35b62d-image.png"
+   ]
+  },
+  {
+   "room_id": 9,
+   "name": "Tienda Apple",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "0f4c5ad0-image.png"
+   ]
+  },
+  {
+   "room_id": 10,
+   "name": "McDonald's",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "db6d334a-image.png"
+   ]
+  },
+  {
+   "room_id": 13,
+   "name": "Ayuntamiento de Ensenada",
+   "verification": "share-panel ID + name bar (recordings)",
+   "arrived_by": "see observed.json",
+   "evidence": []
+  },
+  {
+   "room_id": 19,
+   "name": "Baño del Gimnasio Olimpo",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "unknown",
+   "evidence": [
+    "1f4e755d-image.png"
+   ],
+   "note": "probably a room inside Gimnasio Olimpo (not on the map; gym has a 'BAÑOS' door)"
+  },
+  {
+   "room_id": 41,
+   "name": "Avenida Alameda",
+   "verification": "share-panel ID + name bar (walk recording)",
+   "arrived_by": "see observed.json",
+   "evidence": []
+  },
+  {
+   "room_id": 42,
+   "name": "Sala de urgencias",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "unknown",
+   "evidence": [
+    "37bab1a9-image.png"
+   ],
+   "note": "probably a room inside the Hospital (not on the map)"
+  },
+  {
+   "room_id": 12407,
+   "name": "Biblioteca de Ensenada",
+   "verification": "share-panel ID + name bar (screenshot)",
+   "arrived_by": "see observed.json",
+   "evidence": []
+  }
+ ]
+}

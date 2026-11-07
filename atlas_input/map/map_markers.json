@@ -9,12 +9,14 @@
    "x": 831,
    "y": 15,
    "name": "Penitenciaría",
-   "room_id": null,
+   "room_id": 6,
    "name_source": "map hover label",
    "evidence": [
     "47b938cc-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Penitenciaría de Ensenada",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P1",
@@ -35,12 +37,14 @@
    "x": 737,
    "y": 58,
    "name": "Banco",
-   "room_id": null,
+   "room_id": 3,
    "name_source": "map hover label",
    "evidence": [
     "7e3e4563-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Banco de Ensenada",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P3",
@@ -48,18 +52,14 @@
    "x": 963,
    "y": 60,
    "name": "Supermercado 7-11",
-   "room_id": null,
+   "room_id": 4,
    "name_source": "map hover label",
    "evidence": [
     "b3453d63-image.png"
    ],
    "status": "named",
-   "room_id_candidate": {
-    "room_id": 4,
-    "room_name": "Supermercado Eleven",
-    "source": "taxi recording 2026-11-07_08-48-19 (habbosk.us/room/4)",
-    "status": "unconfirmed - likely the same shop (7-11 / Eleven)"
-   }
+   "room_name": "Supermercado Eleven",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P4",
@@ -67,12 +67,14 @@
    "x": 626,
    "y": 122,
    "name": "Tienda de Armas",
-   "room_id": null,
+   "room_id": 8,
    "name_source": "map hover label",
    "evidence": [
     "3847c83b-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Tienda de Armas",
+   "room_link": "exact name match"
   },
   {
    "marker": "P5",
@@ -171,12 +173,14 @@
    "x": 954,
    "y": 200,
    "name": "Tienda Apple",
-   "room_id": null,
+   "room_id": 9,
    "name_source": "map hover label",
    "evidence": [
     "c5322023-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Tienda Apple",
+   "room_link": "exact name match"
   },
   {
    "marker": "P13",
@@ -197,12 +201,14 @@
    "x": 671,
    "y": 202,
    "name": "Hospital",
-   "room_id": null,
+   "room_id": 2,
    "name_source": "map hover label",
    "evidence": [
     "df3804fb-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Hospital",
+   "room_link": "exact name match"
   },
   {
    "marker": "P15",
@@ -249,12 +255,14 @@
    "x": 848,
    "y": 233,
    "name": "Gimnasio",
-   "room_id": null,
+   "room_id": 5,
    "name_source": "map hover label",
    "evidence": [
     "37d1b2e2-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Gimnasio Olimpo",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P19",
@@ -288,12 +296,14 @@
    "x": 581,
    "y": 294,
    "name": "McDonald's",
-   "room_id": null,
+   "room_id": 10,
    "name_source": "map hover label",
    "evidence": [
     "212c8747-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "McDonald's",
+   "room_link": "exact name match"
   },
   {
    "marker": "P22",
@@ -327,18 +337,14 @@
    "x": 814,
    "y": 315,
    "name": "Ayuntamiento",
-   "room_id": null,
+   "room_id": 13,
    "name_source": "map hover label",
    "evidence": [
     "a83919d4-image.png"
    ],
    "status": "named",
-   "room_id_candidate": {
-    "room_id": 13,
-    "room_name": "Ayuntamiento de Ensenada",
-    "source": "both recordings (share panel habbosk.us/room/13)",
-    "status": "unconfirmed - matched by name only; confirm by visiting"
-   }
+   "room_name": "Ayuntamiento de Ensenada",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P25",
@@ -385,19 +391,15 @@
    "x": 774,
    "y": 346,
    "name": "Biblioteca",
-   "room_id": null,
+   "room_id": 12407,
    "name_source": "map hover label",
    "evidence": [
     "f72aaddb-image.png",
     "90be19b2-image.png"
    ],
    "status": "named",
-   "room_id_candidate": {
-    "room_id": 12407,
-    "room_name": "Biblioteca de Ensenada",
-    "source": "owner's share-panel screenshot (habbosk.us/room/12407)",
-    "status": "unconfirmed - matched by name only; confirm by visiting"
-   }
+   "room_name": "Biblioteca de Ensenada",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P29",
@@ -458,13 +460,15 @@
    "x": 335,
    "y": 407,
    "name": "Concesionario",
-   "room_id": null,
+   "room_id": 7,
    "name_source": "map hover label",
    "evidence": [
     "00d1f9b5-image.png",
     "086c3b26-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Tienda de Autos",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P34",
@@ -524,12 +528,14 @@
    "x": 615,
    "y": 179,
    "name": "Avenida Mirela",
-   "room_id": null,
+   "room_id": 1,
    "name_source": "map hover label",
    "evidence": [
     "59f1ba7e-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Mirela",
+   "room_link": "exact name match"
   },
   {
    "marker": "S4",
@@ -630,18 +636,14 @@
    "x": 738,
    "y": 363,
    "name": "Avenida Alameda",
-   "room_id": null,
+   "room_id": 41,
    "name_source": "map hover label",
    "evidence": [
     "3af718f3-image.png"
    ],
    "status": "named",
-   "room_id_candidate": {
-    "room_id": 41,
-    "room_name": "Avenida Alameda",
-    "source": "walk recording 2026-11-07_08-47-38 (share panel habbosk.us/room/41)",
-    "status": "unconfirmed - matched by name only; confirm by visiting"
-   }
+   "room_name": "Avenida Alameda",
+   "room_link": "exact name match"
   },
   {
    "marker": "S12",
