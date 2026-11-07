@@ -164,6 +164,7 @@ class SettingsWindow:
         self._check(f, "Weapon puzzle (Montar un arma)", "weapon_puzzle")
         self._check(f, "Money puzzle (Cuenta el dinero)", "money_puzzle")
         self._check(f, "Questions (library, general knowledge)", "questions")
+        self._check(f, "World Atlas: learn rooms while I play (Live Explorer)", "world_atlas")
         tk.Label(f, text="Recognise questions:", bg=PANEL, fg=DIM, font=(FONT, 9),
                  anchor="w").pack(fill="x", padx=12, pady=(6, 0))
         self._radio(f, "question_mode", [("auto", "Automatically"),

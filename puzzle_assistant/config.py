@@ -66,6 +66,7 @@ class Config:
     weapon_puzzle: bool = True          # "Montar un arma"
     money_puzzle: bool = True           # "Cuenta el dinero"
     questions: bool = True              # quiz questions (library, general knowledge)
+    world_atlas: bool = True            # Live Explorer: learn rooms and connections
     question_mode: str = "auto"         # "auto" = detect by itself, "manual" = on Scan
 
     # --- AI and internet (API keys are stored encrypted, never here) -------

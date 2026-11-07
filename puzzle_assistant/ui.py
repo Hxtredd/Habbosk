@@ -16,6 +16,7 @@ from .analyzer import Analysis
 from .config import Config
 from .engine import Engine
 from .overlay import Overlay, money_overlay_items, overlay_items, question_overlay_items
+from .ocr import Tesseract
 from .qa.ai import AIAnswerer
 from .qa.memory import Memory
 from .settings_ui import open_settings
@@ -137,6 +138,21 @@ class App:
         self.engine.memory = self.memory
         self.engine.ai = AIAnswerer(self.cfg, self.memory)
         self._settings = None
+        # World Atlas (read-only Live Explorer), separate from the puzzles
+        self._explorer_win = None
+        self.atlas = self.explorer = None
+        try:
+            from .world_atlas.db import Atlas
+            from .world_atlas.explorer import ExplorerThread
+            self.atlas = Atlas()
+            done = self.atlas.import_input()
+            if done:
+                self._startup_notes.append(f"World Atlas: {done['rooms']} rooms imported")
+            self.atlas_q: "queue.Queue[dict]" = queue.Queue()
+            self.explorer = ExplorerThread(self.atlas, lambda: Tesseract(self.cfg), self.cfg,
+                                           self.atlas_q)
+        except Exception as exc:
+            self._startup_notes.append(f"World Atlas unavailable: {exc}")
         r = self.root = tk.Tk()
         r.title("SK Assistant")
         self._fonts: dict = {}             # (family, base size) -> named font
@@ -202,11 +218,13 @@ class App:
         for i, (txt, cmd) in enumerate((("On", self.toggle_power),
                                         ("Rescan", self.engine.rescan),
                                         ("Numbers", self.toggle_overlay),
+                                        ("Explorer", self.open_explorer),
                                         ("Settings", self.open_settings))):
             b = _flat_button(bar, txt, cmd, self._font(FONT, 9))
             b.grid(row=0, column=i, padx=(0, 4))
             buttons[txt] = b
         self.b_overlay, self.b_power = buttons["Numbers"], buttons["On"]
+        self.b_explorer = buttons["Explorer"]
         self.l_mode = tk.Label(bar, text="", bg=BG, fg=DIM, font=self._font(FONT, 8))
         self.l_mode.grid(row=0, column=10, sticky="e")
 
@@ -258,6 +276,8 @@ class App:
         on = self.cfg.assistant_on
         self.b_power.config(text="● On" if on else "○ Off", fg=GOOD if on else DIM)
         self.engine.set_paused(not on)
+        if getattr(self, "explorer", None) is not None:
+            (self.explorer.paused.clear if on else self.explorer.paused.set)()
         if not on:
             self._last_place = self._last_analysis = self._last_money = None
             self.overlay.clear()
@@ -274,6 +294,29 @@ class App:
             self.l_warn.config(text="")
         else:
             self._waiting("Waiting for puzzle…")
+
+    def open_explorer(self) -> None:
+        if self.atlas is None:
+            return
+        from .world_atlas.window import open_explorer
+        self._explorer_win = open_explorer(self._explorer_win, self.root, self.atlas,
+                                           self.explorer, self._ui_font)
+
+    def _ui_font(self, size: int, bold: bool = False):
+        return self._font(FONT_SEMI if bold else FONT, size)
+
+    def _atlas_poll(self) -> None:
+        """New rooms waiting for approval: show it on the Explorer button."""
+        try:
+            while True:
+                self.atlas_q.get_nowait()
+        except (queue.Empty, AttributeError):
+            pass
+        if self.atlas is not None:
+            n = self.atlas.stats()["pending"]
+            self.b_explorer.config(text=f"Explorer ● {n}" if n else "Explorer",
+                                   fg=WARN if n else DIM)
+        self.root.after(1500, self._atlas_poll)
 
     def open_settings(self) -> None:
         self._settings = open_settings(
@@ -660,6 +703,9 @@ class App:
     # -- lifecycle -------------------------------------------------------------
     def run(self) -> None:
         self.engine.start()
+        if self.explorer is not None:
+            self.explorer.start()
+            self.root.after(1500, self._atlas_poll)
         self.root.after(25, self._poll)
         self.root.mainloop()
 
@@ -669,6 +715,8 @@ class App:
             self.cfg.save()
         finally:
             self.engine.stop()
+            if self.explorer is not None:
+                self.explorer.stop()
             self.memory.close()
             self.root.destroy()
 

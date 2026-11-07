@@ -1,4 +1,4 @@
-SK ASSISTANT  (v2.1 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v2.3 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -21,7 +21,7 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   a) Install Python from https://www.python.org/downloads/windows/
      During setup tick "Add python.exe to PATH" (Tkinter is included).
   b) Unzip it somewhere, e.g. into C:\ . The folder is named after the
-     version (e.g. SK_Assistant_v2.1). Updating from an older version: unzip the
+     version (e.g. SK_Assistant_v2.3). Updating from an older version: unzip the
      new one, run its INSTALL.bat (it moves the Desktop / Start icons to the
      new folder), then delete the old folder. Your memory, settings and
      keys are kept in your user profile, not in the program folder.
@@ -221,6 +221,29 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   which an AI can't know - memory stays the main source.
 
 
+2e. WORLD ATLAS / LIVE EXPLORER (new in v2.3)
+---------------------------------------------
+  SK Assistant learns the hotel's rooms while you play. It only watches
+  the screen: it never clicks, types or moves you anywhere.
+    * Keep the share panel open ("¡Más amigos, más diversión!" with
+      habbosk.us/room/<number>): that number is the room ID. The room
+      name is read from the bar above the chat. Without the share panel
+      nothing is recorded (names alone are not unique).
+    * Walking through a floor arrow (black flash, grey loading screen)
+      records a one-way connection: previous room -> new room.
+    * A taxi trip (instant change) is recorded as a visit, not as a route.
+    * A room SK has never seen waits for you in the Explorer window:
+      Accept, Edit (fix ID / name; the original reading is kept) or
+      "Not this". The "Explorer" button shows a dot when one is waiting.
+    * Explorer window: what SK sees right now, the rooms waiting for you,
+      a searchable list of all rooms (ID, owner, visits, where walking
+      leads), and Export... (a .json file you can send to Claude to add
+      to the world knowledge).
+  The calibration data collected so far (74 rooms, all 53 map places) is
+  imported on first start. The Atlas lives in %APPDATA%\SK Assistant\atlas.db.
+  Switch it off in Settings > What SK Assistant helps with.
+
+
 3. HOW DETECTION WORKS
 ----------------------
   * The puzzle is found by its grid of piece cards (7 or 8 cards, each with a
@@ -300,6 +323,9 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
                              solvers.py = built-in solving (sums, sequences),
                              ai.py = AI providers, cost limits, web search
   puzzle_assistant\storage.py  memory in %APPDATA%, merging old memories
+  puzzle_assistant\world_atlas\  World Atlas: recognize.py (room name / ID),
+                             explorer.py (room changes), db.py, window.py
+  atlas_input\                 calibration data: rooms.json, map\, observed.json
   assets\seed_questions.json   12 starter questions confirmed by the game
   puzzle_assistant\settings_ui.py  settings panel
   puzzle_assistant\secrets.py   encrypted API key storage (Windows DPAPI)

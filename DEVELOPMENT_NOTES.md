@@ -161,6 +161,31 @@ progress = "Toca el paso N" (OCR under the options, also in the
 fingerprint) -> engine emits `question_progress`. Not yet checked against a
 real mid-ordering screenshot (fallback: count of numbered badges).
 
+## World Atlas (v2.3, stage 1 of the owner's World Atlas spec)
+
+Agreed with the owner (2026-11-07):
+- Read-only recognition and recording. **Go to Room** (typing `:taxi <id>`
+  in the hotel chat) is allowed later, but only one trip per click of the
+  owner (hotel rules allow helpers that are not fully autonomous; the
+  hotel has its own macro). **No autonomous exploration** - declined.
+- Note: the job room "Convocatoria de Trabajo" (46) lists "No usar
+  autoclick/type" among its job rules - mention when building Go to Room.
+
+Calibration (all from the owner's screenshots/recordings, `atlas_input/`):
+| Item | Method |
+|---|---|
+| Room name | bar above the chat: yellow pin + name (`find_name_bar`) |
+| Room ID | `habbosk.us/room/<id>` in the share panel (any position; it jumps to the middle after a change; the owner drags it back). Read twice at two zooms, must agree |
+| Walk | black flash + grey loading (~1 s): big change -> flat screen -> big change within 2.5 s (flatness alone is not enough: some rooms are as flat) |
+| Taxi | instant cut; chat "*Pide un Taxi VIP para ir a <name>*", "*Llegó a su destino*"; errors "[Taxi SK] No pudimos encontrar ese lugar.", "A ese lugar solo se llega caminando…"; ~3 s between trips; free |
+| Arrows | "Flecha de Suelo" items: pairs of small white floor arrows at doors (stage 3) |
+| Map | 53 markers named from hover labels; 52 linked to room IDs; Cementerio has no room |
+| Mine | entered from Avenida Crisol (23); levels have generated IDs (1900003897…); blocked in passive mode |
+
+Stage plan: 1 = Atlas DB + Live Explorer (done, v2.3); 2 = Go to Room;
+3 = arrow detection + coloured overlay + which exit was used; then
+exploration queue, connection graph.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the
