@@ -211,6 +211,7 @@ class SettingsWindow:
         row = tk.Frame(f, bg=PANEL)
         row.pack(fill="x", padx=12, pady=(0, 10))
         self._button(row, "Export…", self._export).pack(side="left", padx=(0, 6))
+        self._button(row, "Import…", self._import).pack(side="left", padx=(0, 6))
         self._button(row, "Forget everything…", self._clear).pack(side="left")
         self._refresh_memory()
 
@@ -242,6 +243,23 @@ class SettingsWindow:
         if path:
             n = self.memory.export_json(path)
             messagebox.showinfo("SK Assistant", f"Exported {n} questions.", parent=self.win)
+
+    def _import(self) -> None:
+        path = filedialog.askopenfilename(
+            parent=self.win, title="Add questions from an older memory or an export",
+            filetypes=[("SK Assistant memory", "*.db *.json"), ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            c = self.memory.merge_from(path)
+        except Exception as exc:
+            messagebox.showerror("SK Assistant", f"Could not read that file:\n{exc}", parent=self.win)
+            return
+        self._refresh_memory()
+        self.on_change("memory")
+        messagebox.showinfo("SK Assistant",
+                            f"{c['new']} new questions added, {c['updated']} improved, "
+                            f"{c['same'] + c['blocked']} already known.", parent=self.win)
 
     def _clear(self) -> None:
         if messagebox.askyesno("SK Assistant", "Forget every learned question and the history?\n"

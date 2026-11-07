@@ -1,4 +1,10 @@
-"""User-editable settings, stored in config.json next to the program."""
+"""User-editable settings (config.json) and where SK Assistant keeps its data.
+
+Learned questions, settings and API keys live in the user profile
+(Windows: %APPDATA%\\SK Assistant), not in the program folder, so they survive
+installing a new version into a different folder. Data from older versions
+(kept in <program folder>\\data) is merged in on start - see storage.py.
+"""
 from __future__ import annotations
 
 import json
@@ -14,9 +20,23 @@ def app_dir() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-CONFIG_PATH = os.path.join(app_dir(), "config.json")
-DATA_DIR = os.path.join(app_dir(), "data")
-DEBUG_DIR = os.path.join(app_dir(), "debug")
+def user_data_dir() -> str:
+    """%APPDATA%\\SK Assistant on Windows (override: SK_ASSISTANT_DATA)."""
+    env = os.environ.get("SK_ASSISTANT_DATA")
+    if env:
+        return env
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "SK Assistant")
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(base, "sk-assistant")
+
+
+DATA_DIR = user_data_dir()
+CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
+LEGACY_DATA_DIR = os.path.join(app_dir(), "data")          # versions up to 1.9
+LEGACY_CONFIG_PATH = os.path.join(app_dir(), "config.json")
+DEBUG_DIR = os.path.join(app_dir(), "debug")                # snapshots stay next to the program
 
 
 @dataclass
@@ -67,9 +87,11 @@ class Config:
     @classmethod
     def load(cls) -> "Config":
         cfg = cls()
-        if os.path.exists(CONFIG_PATH):
+        # settings of an older version (program folder) are taken over once
+        path = CONFIG_PATH if os.path.exists(CONFIG_PATH) else LEGACY_CONFIG_PATH
+        if os.path.exists(path):
             try:
-                with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+                with open(path, "r", encoding="utf-8") as fh:
                     data = json.load(fh)
                 version = int(data.get("config_version", 1))
                 if version < 2:
@@ -88,6 +110,7 @@ class Config:
 
     def save(self) -> None:
         try:
+            os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
             with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
                 json.dump(asdict(self), fh, indent=2, ensure_ascii=False)
         except Exception as exc:

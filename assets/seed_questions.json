@@ -1,0 +1,313 @@
+{
+ "about": "Starter memory for SK Assistant: answers revealed by the game in the owner's recorded library rounds.",
+ "questions": [
+  {
+   "category": "ADIVINANZA",
+   "kind": "choice",
+   "text": "Parezco un regalo, pero escondía soldados griegos para conquistar una ciudad. ¿Qué soy?",
+   "clues": [],
+   "options": [
+    "La espada de Aquiles",
+    "El escudo de Esparta",
+    "El barco de Ulises",
+    "El caballo de Troya"
+   ],
+   "right_opts": [],
+   "language": "es",
+   "answer": {
+    "kind": "choice",
+    "choice": "El caballo de Troya",
+    "explanation": "De ahí viene decir \"caballo de Troya\" para un engaño oculto.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  },
+  {
+   "category": "ORDENAR",
+   "kind": "order",
+   "text": "Ordena las cuentas de menor a mayor resultado",
+   "clues": [],
+   "options": [
+    "9 + 12",
+    "21 + 10",
+    "63 − 8",
+    "36 + 10"
+   ],
+   "right_opts": [],
+   "language": "es",
+   "answer": {
+    "kind": "order",
+    "order": [
+     "9 + 12",
+     "21 + 10",
+     "36 + 10",
+     "63 − 8"
+    ],
+    "explanation": "Resolver primero cada cuenta hace fácil ordenarlas.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  },
+  {
+   "category": "ADIVINANZA",
+   "kind": "choice",
+   "text": "Soy un boleto instantáneo que se compra en cualquier lugar con :raspadito. ¿Qué soy?",
+   "clues": [],
+   "options": [
+    "Una mesa de UNO",
+    "El Casino de la Playa",
+    "El raspadito",
+    "La tragamonedas de palanca"
+   ],
+   "right_opts": [],
+   "language": "es",
+   "answer": {
+    "kind": "choice",
+    "choice": "El raspadito",
+    "explanation": "El resultado se revela a los pocos segundos, y entre boletos hay que esperar un poco.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  },
+  {
+   "category": "¿QUIÉN SOY?",
+   "kind": "choice",
+   "text": "Soy un asistente NPC",
+   "clues": [],
+   "options": [
+    "Rubén",
+    "Mateo",
+    "Tomás",
+    "Leo"
+   ],
+   "right_opts": [],
+   "language": "es",
+   "answer": {
+    "kind": "choice",
+    "choice": "Leo",
+    "explanation": "Leo cubre el turno del gimnasio mientras no hay empleados; Lucía sigue en la recepción.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  },
+  {
+   "category": "ENCUENTRA EL ERROR",
+   "kind": "choice",
+   "text": "¿Qué frase tiene un error?",
+   "clues": [],
+   "options": [
+    "Las tragamonedas del Gran Casino tienen tres rodillos.",
+    "El raspadito es un boleto instantáneo.",
+    "El Casino de la Playa tiene tragamonedas de palanca.",
+    "Las tragamonedas siempre devuelven más de lo apostado."
+   ],
+   "right_opts": [],
+   "language": "es",
+   "answer": {
+    "kind": "choice",
+    "choice": "Las tragamonedas siempre devuelven más de lo apostado.",
+    "explanation": "A la larga, las tragamonedas devuelven menos de lo apostado. Apuesta solo lo que puedas perder: el juego se paga con el efectivo de la cartera.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  },
+  {
+   "category": "PREGUNTA",
+   "kind": "choice",
+   "text": "¿Qué letra sigue?",
+   "clues": [
+    "F, J, N, R, ?"
+   ],
+   "options": [
+    "U",
+    "X",
+    "W",
+    "V"
+   ],
+   "right_opts": [],
+   "language": "es",
+   "answer": {
+    "kind": "choice",
+    "choice": "V",
+    "explanation": "Cada letra salta +4 en el alfabeto: sigue la V.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  },
+  {
+   "category": "PAREJAS",
+   "kind": "pairs",
+   "text": "Une cada término de la prisión con su descripción",
+   "clues": [],
+   "options": [
+    "Fianza",
+    "Fuga",
+    "Talleres",
+    "Libertad condicional"
+   ],
+   "right_opts": [
+    "La paga otro jugador",
+    "Los minutos tras salir",
+    "Cavar en la celda",
+    "Restan condena"
+   ],
+   "language": "es",
+   "answer": {
+    "kind": "pairs",
+    "pairs": {
+     "Fianza": "La paga otro jugador",
+     "Fuga": "Cavar en la celda",
+     "Talleres": "Restan condena",
+     "Libertad condicional": "Los minutos tras salir"
+    },
+    "explanation": "La condena solo avanza mientras estás conectado.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  },
+  {
+   "category": "PAREJAS",
+   "kind": "pairs",
+   "text": "Une cada máquina del gimnasio con su minijuego",
+   "clues": [],
+   "options": [
+    "Cinta de correr",
+    "Elíptica",
+    "Banco de press",
+    "Sentadilla"
+   ],
+   "right_opts": [
+    "Equilibrar la barra",
+    "Cadencia dentro de la franja",
+    "Empujar la barra hasta arriba",
+    "Saltar vallas y esquivar conos"
+   ],
+   "language": "es",
+   "answer": {
+    "kind": "pairs",
+    "pairs": {
+     "Cinta de correr": "Saltar vallas y esquivar conos",
+     "Elíptica": "Cadencia dentro de la franja",
+     "Banco de press": "Empujar la barra hasta arriba",
+     "Sentadilla": "Equilibrar la barra"
+    },
+    "explanation": "Cada máquina sortea una serie distinta y no repite las dos últimas que jugaste.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  },
+  {
+   "category": "PAREJAS",
+   "kind": "pairs",
+   "text": "Une cada animal con su alimento favorito",
+   "clues": [],
+   "options": [
+    "Panda",
+    "Koala",
+    "Vaca",
+    "Abeja"
+   ],
+   "right_opts": [
+    "Pasto",
+    "Néctar",
+    "Eucalipto",
+    "Bambú"
+   ],
+   "language": "es",
+   "answer": {
+    "kind": "pairs",
+    "pairs": {
+     "Panda": "Bambú",
+     "Koala": "Eucalipto",
+     "Vaca": "Pasto",
+     "Abeja": "Néctar"
+    },
+    "explanation": "Algunos animales comen casi un solo tipo de alimento.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  },
+  {
+   "category": "ENCUENTRA EL ERROR",
+   "kind": "choice",
+   "text": "¿Qué frase tiene un error?",
+   "clues": [],
+   "options": [
+    "No existen transferencias de banco a banco entre jugadores.",
+    "El dinero se entrega en mano, en el mismo lugar.",
+    "Con :dar puedes entregar dinero que tienes en el banco.",
+    "No se puede dar dinero a otra de tus cuentas."
+   ],
+   "right_opts": [],
+   "language": "es",
+   "answer": {
+    "kind": "choice",
+    "choice": "Con :dar puedes entregar dinero que tienes en el banco.",
+    "explanation": ":dar entrega solo efectivo, nunca dinero del banco. Para pasar dinero, retira en la ventanilla o en un cajero y entrega el efectivo.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  },
+  {
+   "category": "ORDENAR",
+   "kind": "order",
+   "text": "Ordena los peces de menor a mayor precio de referencia",
+   "clues": [],
+   "options": [
+    "Pulpo",
+    "Sardina",
+    "Atún",
+    "Pez espada",
+    "Dorada"
+   ],
+   "right_opts": [],
+   "language": "es",
+   "answer": {
+    "kind": "order",
+    "order": [
+     "Sardina",
+     "Dorada",
+     "Pulpo",
+     "Atún",
+     "Pez espada"
+    ],
+    "explanation": "Los peces más valiosos exigen más nivel de pesca y son más difíciles de recoger.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  },
+  {
+   "category": "ADIVINANZA",
+   "kind": "choice",
+   "text": "Estudias 45 minutos y luego 25 minutos más. ¿Cuántos minutos estudiaste?",
+   "clues": [],
+   "options": [
+    "79",
+    "69",
+    "70",
+    "71"
+   ],
+   "right_opts": [],
+   "language": "es",
+   "answer": {
+    "kind": "choice",
+    "choice": "70",
+    "explanation": "La cuenta da 70.",
+    "source": "game",
+    "verified": true,
+    "confidence": 1.0
+   }
+  }
+ ]
+}

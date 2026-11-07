@@ -17,6 +17,7 @@ from .engine import Engine
 from .overlay import Overlay, money_overlay_items, overlay_items, question_overlay_items
 from .qa.memory import Memory
 from .settings_ui import open_settings
+from .storage import add_seed, migrate_legacy
 
 from . import render as R
 
@@ -118,7 +119,15 @@ class App:
         self._images = {}                 # keep PhotoImage references alive
         self._view: Optional[dict] = None  # last rendered state (for resizes)
 
-        self.memory = Memory()             # learned questions (SQLite)
+        self.memory = Memory()             # learned questions (SQLite, in %APPDATA%)
+        self._startup_notes = []
+        try:                               # older versions kept it in the program folder
+            self._startup_notes = migrate_legacy(self.memory)
+            added = add_seed(self.memory)
+            if added:
+                self._startup_notes.append(f"{added} starter questions added")
+        except Exception as exc:
+            self._startup_notes.append(f"could not import old memory: {exc}")
         self.engine.memory = self.memory
         self._settings = None
         r = self.root = tk.Tk()
@@ -453,8 +462,10 @@ class App:
         self.l_tag_title.config(text="")
         self._set_image(self.l_tags, "tags", None)
         st = self.memory.stats()
+        notes = ("\n" + "; ".join(self._startup_notes).capitalize() + ".") \
+            if getattr(self, "_startup_notes", None) else ""
         self.l_hint.config(text="Weapon assembly, money counting and questions are detected "
-                                f"automatically.\nMemory: {st['questions']} learned questions.",
+                                f"automatically.\nMemory: {st['questions']} learned questions.{notes}",
                            fg=DIM)
         err = getattr(getattr(self, "overlay", None), "error", "")
         self.l_warn.config(text=f"Numbers on cards unavailable: {err}" if err else "", fg=WARN)

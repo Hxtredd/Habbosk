@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS history (
     id INTEGER PRIMARY KEY, question_id INTEGER, event TEXT, old TEXT, new TEXT,
     source TEXT, detail TEXT, ts TEXT
 );
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS usage (
     month TEXT, provider TEXT, requests INTEGER DEFAULT 0, est_cost REAL DEFAULT 0,
     PRIMARY KEY (month, provider)
@@ -287,6 +288,49 @@ class Memory:
         with open(path, "w", encoding="utf-8") as fh:
             json.dump({"questions": rows, "history": hist}, fh, ensure_ascii=False, indent=2)
         return len(rows)
+
+    # -- importing ----------------------------------------------------------
+    def get_meta(self, key: str) -> Optional[str]:
+        with self._lock:
+            row = self._db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        with self._lock:
+            self._db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
+            self._db.commit()
+
+    def merge_from(self, path: str) -> dict:
+        """Add the questions of another memory: an older habbosk.db or an
+        exported .json. Nothing here is overwritten by something weaker
+        (normal source priority applies). Returns counts per outcome."""
+        rows: List[dict] = []
+        if path.lower().endswith(".json"):
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            rows = data.get("questions", data if isinstance(data, list) else [])
+        else:
+            src = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            src.row_factory = sqlite3.Row
+            try:
+                rows = [_row_dict(r) for r in src.execute("SELECT * FROM questions")]
+            finally:
+                src.close()
+        counts = {"new": 0, "updated": 0, "same": 0, "blocked": 0, "skipped": 0}
+        for r in rows:
+            try:
+                q = Question(r.get("category") or "", r.get("text") or "",
+                             list(r.get("options") or []), r.get("kind") or CHOICE,
+                             list(r.get("clues") or []), list(r.get("right_opts") or r.get("right") or []),
+                             r.get("language") or "es")
+                ans = r.get("answer")
+                ans = Answer.from_dict(ans if isinstance(ans, dict) else json.loads(ans))
+                if r.get("explanation") and not ans.explanation:
+                    ans.explanation = r["explanation"]
+                counts[self.save(q, ans)] += 1
+            except Exception:
+                counts["skipped"] += 1
+        return counts
 
     def clear(self) -> None:
         """Forget everything that was learned (questions, history, usage)."""
