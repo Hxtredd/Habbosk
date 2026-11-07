@@ -1,15 +1,19 @@
-SK ASSISTANT  (v2.8 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v2.9 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
 "Montar un arma" weapon-assembly puzzle (habbosk.us/play), reads the pieces
 (7 or 8, lettered A-H), works out the assembly order and shows it immediately.
 
-STRICTLY READ-ONLY
-------------------
-The program only takes screenshots and shows text in its own window.
-It never clicks, never moves the mouse, never presses keys and never talks
-to the browser or the game. You do every action yourself.
+READ-ONLY - WITH ONE EXCEPTION YOU TRIGGER
+-----------------------------------------
+The program takes screenshots and shows text in its own window. For the
+puzzles and questions it never clicks, never moves the mouse and never
+presses keys: you do every action yourself.
+The one exception is "Go to Room" in the Explorer (v2.9): only when YOU
+click it, SK clicks once into the hotel chat box, types ":taxi <room ID>"
+and presses Enter - one command per click, never on its own (the hotel
+allows helpers that are not fully autonomous).
 All OCR runs locally (Tesseract). Nothing is sent over the internet unless
 you switch on an AI in Settings (then only the text of new questions).
 
@@ -247,6 +251,15 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
     * A room SK has never seen waits for you in the Explorer window:
       Accept, Edit (fix ID / name; the original reading is kept) or
       "Not this". The "Explorer" button shows a dot when one is waiting.
+    * Go to Room (Windows): select a room in the Explorer's list (or type
+      its ID) and press "Go to Room". SK shows the destination, clicks
+      into the chat box, checks it has the keyboard (gold border; if not,
+      nothing is typed), types ":taxi <ID>" + Enter, puts the mouse back,
+      and waits up to 10 s for the arrival (checked by the room's ID or
+      name). One trip per click, at most one every 3.5 s. If the taxi
+      refuses (walk-only place, passive mode, place not found) it says so
+      and records nothing. Note: some job rooms forbid "autoclick/type" -
+      don't use it while working there.
     * Tabs at the top: "Assistant" and "Explorer". Click a tab to show it;
       "×" closes it, "+ Explorer" / "+ Assistant" opens it again (one of the
       two always stays open). With both open, the ⧉ button chooses: one at

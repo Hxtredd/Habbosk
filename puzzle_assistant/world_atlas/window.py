@@ -82,10 +82,27 @@ class ExplorerPanel:
         self.rooms.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
         self.rooms.bind("<<ListboxSelect>>", lambda e: self._show_room())
+        # Go to Room: one click = one ":taxi <ID>" in the hotel chat
+        go = tk.Frame(f, bg=PANEL)
+        go.pack(fill="x", padx=12, pady=(0, 4), before=lst)
+        self.b_go = self._button(go, "Go to Room ▸", self._go_selected)
+        self.b_go.pack(side="left")
+        tk.Label(go, text="  or ID:", bg=PANEL, fg=DIM, font=self.font(9)).pack(side="left")
+        self.e_id = tk.Entry(go, width=8, bg=HOVER, fg=FG, insertbackground=FG, relief="flat",
+                             font=self.font(10))
+        self.e_id.pack(side="left", padx=(4, 4))
+        self.e_id.bind("<Return>", lambda e: self._go_typed())
+        self._button(go, "Go", self._go_typed).pack(side="left")
+        self.l_go = tk.Label(f, text="Select a room (or type an ID), then Go to Room.", bg=PANEL,
+                             fg=DIM, font=self.font(9), anchor="w", justify="left")
+        self.l_go.pack(fill="x", padx=12, pady=(0, 6), before=lst)
+        f.bind("<Configure>", lambda e: self.l_go.config(wraplength=max(200, e.width - 30)),
+               add="+")
         self.l_detail = tk.Label(f, bg=PANEL, fg=FG, font=self.font(9), anchor="w",
                                  justify="left", wraplength=500)
         self.l_detail.pack(fill="x", padx=12, pady=(0, 10), before=lst)
-        f.bind("<Configure>", lambda e: self.l_detail.config(wraplength=max(200, e.width - 30)))
+        f.bind("<Configure>", lambda e: self.l_detail.config(wraplength=max(200, e.width - 30)),
+               add="+")
         self._room_ids = []
         self._pending_key = None
         self._fill_rooms()
@@ -248,6 +265,36 @@ class ExplorerPanel:
         if r.get("note"):
             lines.append(r["note"])
         self.l_detail.config(text="\n".join(lines))
+
+    # -- Go to Room ------------------------------------------------------------------
+    def _go_selected(self) -> None:
+        sel = self.rooms.curselection()
+        if not sel:
+            self._go_status("Select a room in the list first.", "fail")
+            return
+        self._go(self._room_ids[sel[0]])
+
+    def _go_typed(self) -> None:
+        txt = self.e_id.get().strip()
+        if not txt.isdigit():
+            self._go_status("Type the room ID (a number).", "fail")
+            return
+        self._go(int(txt))
+
+    def _go(self, room_id: int) -> None:
+        nav = getattr(self.explorer, "navigator", None) if self.explorer else None
+        if nav is None:
+            self._go_status("Go to Room is not available.", "fail")
+            return
+        r = self.atlas.room(room_id)
+        self._go_status(f"Destination: {r['name'] if r else '?'}  ·  ID {room_id}", "info")
+        nav.go(room_id, lambda text, kind: self.win.after(0, self._go_status, text, kind))
+
+    def _go_status(self, text: str, kind: str) -> None:
+        try:
+            self.l_go.config(text=text, fg={"ok": GOOD, "fail": WARN}.get(kind, ACCENT))
+        except tk.TclError:
+            pass
 
     def _export(self) -> None:
         path = filedialog.asksaveasfilename(parent=self.win, defaultextension=".json",

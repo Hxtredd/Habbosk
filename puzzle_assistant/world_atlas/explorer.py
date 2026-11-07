@@ -159,6 +159,8 @@ class ExplorerThread(threading.Thread):
         self._stop = threading.Event()
         self.paused = threading.Event()
         self.engine_busy = None                  # callable: a puzzle / question is on screen
+        self.screen = None                       # monitor (mss bounds) showing the game
+        self.navigator = None                    # navigate.Navigator, set by the UI
 
     def stop(self) -> None:
         self._stop.set()
@@ -187,6 +189,8 @@ class ExplorerThread(threading.Thread):
                     continue
                 img, _b = grabber.grab_bounds(grabber.screens[order[0]])
                 moved = self.tracker.motion(thumb(img), t0)
+                if self.navigator is not None and self.navigator.busy:
+                    moved = True                 # a trip is running: read every check
                 if moved or t0 - last_read >= 2.0:
                     last_read = t0
                     name_changed = self.tracker._cand is None or (
@@ -197,6 +201,8 @@ class ExplorerThread(threading.Thread):
                     v = read_view(img, ocr, cache, want_owner=self._want_owner(),
                                   url_where=url_where, search_url=search)
                     url_where = v.url_box
+                    if v.in_room:
+                        self.screen = grabber.screens[order[0]]
                     if not v.in_room and len(order) > 1 and not moved:
                         for k in order[1:]:          # the game may be on another screen
                             img2, _b = grabber.grab_bounds(grabber.screens[k])
@@ -204,6 +210,7 @@ class ExplorerThread(threading.Thread):
                             if v2.in_room:
                                 order.remove(k)
                                 order.insert(0, k)
+                                self.screen = grabber.screens[k]
                                 v = v2
                                 break
                     last_name = self.view.name if self.view is not None else None

@@ -154,6 +154,8 @@ class App:
             self.explorer = ExplorerThread(self.atlas, lambda: Tesseract(self.cfg), self.cfg,
                                            self.atlas_q)
             self.explorer.engine_busy = lambda: self.engine.busy
+            from .world_atlas.navigate import Navigator
+            self.explorer.navigator = Navigator(self.explorer, self.atlas)
         except Exception as exc:
             self._startup_notes.append(f"World Atlas unavailable: {exc}")
         r = self.root = tk.Tk()
@@ -636,7 +638,7 @@ class App:
         self.engine.rescan()
 
     def _update_region_label(self) -> None:
-        self.l_mode.config(text="region" if self.cfg.region else "read-only")
+        self.l_mode.config(text="region" if self.cfg.region else "watching")
 
     def _on_resize(self, event) -> None:
         if event.widget is not self.main:

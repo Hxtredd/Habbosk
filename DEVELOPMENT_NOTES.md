@@ -15,8 +15,10 @@ difficulties: keep the interface simple, plain-worded and calm.
 
 ## Hard rules (agreed with the owner — do not change without asking)
 
-1. **Strictly read-only.** Never click, move the mouse, type, or interact with
-   the browser/game. The player does every action. The owner later asked about
+1. **Read-only for puzzles and questions.** Never click, move the mouse,
+   type, or interact with the browser/game for them. Single exception agreed
+   with the owner: World Atlas "Go to Room" types `:taxi <id>` in the hotel
+   chat only on the owner's click (one command per click). The player does every action. The owner later asked about
    an "automated" option; it was **declined** (it would be a bot earning in-game
    currency, against the server's rules and other players). Offer accessibility
    help instead (bigger marks, spoken cues, high contrast).
@@ -218,7 +220,15 @@ Calibration (all from the owner's screenshots/recordings, `atlas_input/`):
 | Map | 53 markers named from hover labels; 52 linked to room IDs; Cementerio has no room |
 | Mine | entered from Avenida Crisol (23); levels have generated IDs (1900003897…); blocked in passive mode |
 
-Stage plan: 1 = Atlas DB + Live Explorer (done, v2.3); 2 = Go to Room;
+Go to Room (stage 2, v2.9, `world_atlas/navigate.py`): owner's click ->
+check cooldown (3.5 s) and room view -> chat input = pink chat icon below
+the name bar -> one click into it -> must turn gold (red-blue >= 12 on its
+border rows; measured in the taxi recording) or nothing is typed ->
+SendInput unicode ":taxi <id>" + Enter -> mouse restored -> wait 10 s for
+the tracker to report that room (ID or name). This is the ONLY place SK
+sends input; the README's read-only section says so.
+
+Stage plan: 1 = Atlas DB + Live Explorer (done, v2.3); 2 = Go to Room (done, v2.9);
 3 = arrow detection + coloured overlay + which exit was used; then
 exploration queue, connection graph.
 
