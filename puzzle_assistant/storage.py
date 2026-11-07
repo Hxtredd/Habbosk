@@ -52,3 +52,17 @@ def add_seed(memory, path: str = SEED_PATH) -> int:
     counts = memory.merge_from(path)
     memory.set_meta(SEED_TAG, "1")
     return counts["new"]
+
+
+MATH_FIX_TAG = "math_fix_v1"
+
+
+def repair_math_reads(memory) -> int:
+    """Once: forget sum-ordering questions saved with possibly misread signs
+    (before v2.0 read sums by shape; see qa.memory.suspect_sum). Merging and
+    importing skip such questions too."""
+    if memory.get_meta(MATH_FIX_TAG):
+        return 0
+    n = memory.forget_sum_questions()
+    memory.set_meta(MATH_FIX_TAG, "1")
+    return n

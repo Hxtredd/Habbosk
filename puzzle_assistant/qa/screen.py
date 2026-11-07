@@ -24,6 +24,7 @@ import cv2
 import numpy as np
 
 from ..vision import Rect, dhash, prep_for_ocr, rect_candidates, to_gray
+from .mathread import looks_like_math, read_math
 from .model import CHOICE, ORDER, PAIRS, Answer, Question
 from .text import guess_language, normalize
 
@@ -54,6 +55,9 @@ class Screen:
     verdict: str = ""                 # "No era esa..." / "¡Bien!..."
     explanation: str = ""
     layout: Optional[Layout] = None
+    # an option looked like a number / sum but couldn't be read with
+    # certainty: the built-in solvers must not answer from this reading
+    text_unsure: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -339,12 +343,14 @@ def read_question(frame: np.ndarray, lay: Layout, ocr, pool: Optional[ThreadPool
         category = snap_category(_clean(" ".join(_ocr_lines(ocr, cat_img, 7, 2.0))))
         boxes = lay.all_boxes()
         order_like = not lay.pairs and normalize(category).startswith("orden")
-        f_opts, f_nums = [], []
+        f_opts, f_nums, f_math = [], [], []
         for bx, by, bw, bh in boxes:
             # text only: skip the ✓/✕ icon on the right and the step badge on the left
             left = bx + (int(bh * 0.95) if order_like else 6)
             right = bx + bw - (6 if lay.pairs else 30)
-            f_opts.append(pool.submit(_ocr_option, ocr, frame[by + 3:by + bh - 3, left:right]))
+            crop = frame[by + 3:by + bh - 3, left:right]
+            f_opts.append(pool.submit(_ocr_option, ocr, crop))
+            f_math.append(None if lay.pairs else pool.submit(read_math, crop, ocr))
             if order_like:
                 f_nums.append(_badge_number(frame[by:by + bh, bx:bx + bw], bh))
         f_fb = None
@@ -354,6 +360,16 @@ def read_question(frame: np.ndarray, lay: Layout, ocr, pool: Optional[ThreadPool
 
         text, clues = split_question(f_q.result())
         raw_opts = [_clean(f.result()) for f in f_opts]
+        # numbers and sums: the shape-based reader is exact (÷, lost digits);
+        # where it can't be sure, say so instead of trusting general OCR
+        text_unsure = False
+        for i, fm in enumerate(f_math):
+            exact = fm.result() if fm is not None else None
+            if exact is not None:
+                raw_opts[i] = exact
+            elif fm is not None and looks_like_math(_LEAD_RE.sub("", raw_opts[i]) if order_like
+                                                    else raw_opts[i]):
+                text_unsure = True
         cat_n = normalize(category)
         kind = PAIRS if lay.pairs else (ORDER if cat_n.startswith("orden") else CHOICE)
 
@@ -376,7 +392,7 @@ def read_question(frame: np.ndarray, lay: Layout, ocr, pool: Optional[ThreadPool
         revealed = _revealed(frame, lay, q, status, numbers) if answered else None
         if revealed is not None:
             revealed.explanation = explanation
-        return Screen(q, answered, status, revealed, verdict, explanation, lay)
+        return Screen(q, answered, status, revealed, verdict, explanation, lay, text_unsure)
     finally:
         if own_pool:
             pool.shutdown(wait=False)

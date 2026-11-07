@@ -10,7 +10,8 @@ STRICTLY READ-ONLY
 The program only takes screenshots and shows text in its own window.
 It never clicks, never moves the mouse, never presses keys and never talks
 to the browser or the game. You do every action yourself.
-All OCR runs locally (Tesseract). Nothing is sent over the internet.
+All OCR runs locally (Tesseract). Nothing is sent over the internet unless
+you switch on an AI in Settings (then only the text of new questions).
 
 
 1. INSTALLATION
@@ -19,7 +20,11 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
 
   a) Install Python from https://www.python.org/downloads/windows/
      During setup tick "Add python.exe to PATH" (Tkinter is included).
-  b) Unzip this folder somewhere, e.g.  C:\PuzzleAssistant
+  b) Unzip it somewhere, e.g. into C:\ . The folder is named after the
+     version (SK_Assistant_v2). Updating from an older version: unzip the
+     new one, run its INSTALL.bat (it moves the Desktop / Start icons to the
+     new folder), then delete the old folder. Your memory, settings and
+     keys are kept in your user profile, not in the program folder.
   c) Double-click INSTALL.bat
        - creates a private Python environment (.venv)
        - installs numpy, opencv-python-headless, mss and pillow
@@ -35,8 +40,8 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
     the Start menu (CREATE_SHORTCUTS.bat recreates them, e.g. after moving
     the folder). Double-click it (or RUN.bat): the dark floating window appears.
   * Pin to the taskbar: right-click the Desktop icon (Windows 11: then
-    "Show more options") > "Pin to taskbar". Or search "Puzzle Answer
-    Assistant" in the Start menu > right-click > "Pin to taskbar".
+    "Show more options") > "Pin to taskbar". Or search "SK Assistant"
+    in the Start menu > right-click > "Pin to taskbar".
     Windows does not let programs pin themselves, so this one click is manual.
     Clicking the icon while it is already running brings the window forward.
   * Open the game and play normally. When the puzzle appears the window shows:
@@ -110,11 +115,12 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   Since v2.0, learned questions, settings and keys live in your user
   profile:  %APPDATA%\SK Assistant   (habbosk.db, config.json, keys.bin)
   so they survive new versions, wherever you extract the program.
-  On first start v2.0 automatically merges the memory of the older version
-  in the same folder (data\habbosk.db -> renamed habbosk.db.merged) and adds
-  12 starter questions confirmed by the game. Found an older habbosk.db
-  somewhere else (e.g. another copy of the program)? Settings > Memory >
-  Import... adds its questions; nothing already known is lost.
+  Coming from v1.x? Settings > Memory > Import... and choose the old
+  memory file: <old program folder>\data\habbosk.db (e.g. in the old
+  PuzzleAnswerAssistant folder). Its questions are added; nothing already
+  known is lost. (If v2 is unzipped into the old folder itself, this
+  happens automatically on first start.) 12 starter questions confirmed by
+  the game are added on first start.
   Back up with Settings > Memory > Export.
 
   The window can be moved and resized; the answer text scales with the width.
@@ -152,7 +158,9 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
       Next time that question appears - even with the options shuffled - the
       answer is shown before you click.
     * Built-in solving (no AI, instant) for brand-new "work it out" questions:
-        - ORDENAR with sums (9 + 12, 63 − 8 ...), smallest or largest first
+        - ORDENAR with sums (9 + 12, 63 − 8, 10 × 2, 20 ÷ 5 ...), smallest or
+          largest first. Numbers and signs are read by their shape; if any
+          of them can't be read with certainty, no answer is given.
         - sequences: ¿Qué letra/número sigue? (F, J, N, R -> V; 2, 4, 8 -> 16;
           1, 1, 2, 3, 5 -> 8; missing or previous term)
         - ¿Cuánto es 7 × 8?  and  "which equation is wrong / correct"

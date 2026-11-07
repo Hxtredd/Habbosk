@@ -9,6 +9,7 @@ from __future__ import annotations
 import queue
 import sys
 import tkinter as tk
+import tkinter.font as tkfont
 from typing import Optional
 
 from .analyzer import Analysis
@@ -18,7 +19,7 @@ from .overlay import Overlay, money_overlay_items, overlay_items, question_overl
 from .qa.ai import AIAnswerer
 from .qa.memory import Memory
 from .settings_ui import open_settings
-from .storage import add_seed, migrate_legacy
+from .storage import add_seed, migrate_legacy, repair_math_reads
 
 from . import render as R
 
@@ -124,6 +125,10 @@ class App:
         self._startup_notes = []
         try:                               # older versions kept it in the program folder
             self._startup_notes = migrate_legacy(self.memory)
+            fixed = repair_math_reads(self.memory)
+            if fixed:
+                self._startup_notes.append(f"{fixed} sum questions will be re-learned "
+                                           "(their numbers had been misread)")
             added = add_seed(self.memory)
             if added:
                 self._startup_notes.append(f"{added} starter questions added")
@@ -134,8 +139,7 @@ class App:
         self._settings = None
         r = self.root = tk.Tk()
         r.title("SK Assistant")
-        self._base_scaling = float(r.tk.call("tk", "scaling"))
-        self._apply_text_scale()
+        self._fonts: dict = {}             # (family, base size) -> named font
         r.configure(bg=BG)
         r.geometry(cfg.window_geometry)
         r.minsize(300, 220)
@@ -154,11 +158,11 @@ class App:
         self.l_icon = tk.Label(head, bg=BG)
         self.l_icon.grid(row=0, column=0, padx=(0, 8))
         self._set_image(self.l_icon, "icon", _app_icon(18))
-        tk.Label(head, text="SK Assistant", bg=BG, fg=FG, font=(FONT_SEMI, 11),
+        tk.Label(head, text="SK Assistant", bg=BG, fg=FG, font=self._font(FONT_SEMI, 11),
                  anchor="w").grid(row=0, column=1, sticky="w")
         self.l_pill = tk.Label(head, bg=BG)
         self.l_pill.grid(row=0, column=2, sticky="e")
-        self.l_target = tk.Label(r, text="", bg=BG, fg=DIM, font=(FONT, 10), anchor="w")
+        self.l_target = tk.Label(r, text="", bg=BG, fg=DIM, font=self._font(FONT, 10), anchor="w")
         self.l_target.grid(row=1, column=0, sticky="we", padx=14, pady=(4, 6))
 
         # ---- main card -------------------------------------------------------
@@ -167,25 +171,25 @@ class App:
         card.grid(row=2, column=0, sticky="nswe", padx=12)
         r.rowconfigure(2, weight=1)
         card.columnconfigure(0, weight=1)
-        self.l_section = tk.Label(card, text="", bg=PANEL, fg=DIM, font=(FONT_SEMI, 8), anchor="w")
+        self.l_section = tk.Label(card, text="", bg=PANEL, fg=DIM, font=self._font(FONT_SEMI, 8), anchor="w")
         self.l_section.grid(row=0, column=0, sticky="we", padx=12, pady=(10, 4))
-        self.l_main = tk.Label(card, bg=PANEL, fg=DIM, font=(FONT_SEMI, 20), anchor="w",
+        self.l_main = tk.Label(card, bg=PANEL, fg=DIM, font=self._font(FONT_SEMI, 20), anchor="w",
                                justify="left")
         self.l_main.grid(row=1, column=0, sticky="we", padx=12)
-        self.l_next = tk.Label(card, text="", bg=PANEL, fg=FG, font=(FONT, 10), anchor="w",
+        self.l_next = tk.Label(card, text="", bg=PANEL, fg=FG, font=self._font(FONT, 10), anchor="w",
                                justify="left")
         self.l_next.grid(row=2, column=0, sticky="we", padx=12, pady=(8, 0))
         tagrow = tk.Frame(card, bg=PANEL)
         tagrow.grid(row=3, column=0, sticky="we", padx=12, pady=(6, 0))
-        self.l_tag_title = tk.Label(tagrow, text="", bg=PANEL, fg=DIM, font=(FONT, 9))
+        self.l_tag_title = tk.Label(tagrow, text="", bg=PANEL, fg=DIM, font=self._font(FONT, 9))
         self.l_tag_title.pack(side="left")
         self.l_tags = tk.Label(tagrow, bg=PANEL)
         self.l_tags.pack(side="left", padx=(6, 0))
-        self.l_hint = tk.Label(card, text="", bg=PANEL, fg=DIM, font=(FONT, 9), anchor="w",
+        self.l_hint = tk.Label(card, text="", bg=PANEL, fg=DIM, font=self._font(FONT, 9), anchor="w",
                                justify="left")
         self.l_hint.grid(row=4, column=0, sticky="we", padx=12, pady=(4, 10))
 
-        self.l_warn = tk.Label(r, text="", bg=BG, fg=WARN, font=(FONT, 9), anchor="w",
+        self.l_warn = tk.Label(r, text="", bg=BG, fg=WARN, font=self._font(FONT, 9), anchor="w",
                                justify="left")
         self.l_warn.grid(row=3, column=0, sticky="we", padx=14, pady=(6, 0))
 
@@ -199,11 +203,11 @@ class App:
                                         ("Rescan", self.engine.rescan),
                                         ("Numbers", self.toggle_overlay),
                                         ("Settings", self.open_settings))):
-            b = _flat_button(bar, txt, cmd)
+            b = _flat_button(bar, txt, cmd, self._font(FONT, 9))
             b.grid(row=0, column=i, padx=(0, 4))
             buttons[txt] = b
         self.b_overlay, self.b_power = buttons["Numbers"], buttons["On"]
-        self.l_mode = tk.Label(bar, text="", bg=BG, fg=DIM, font=(FONT, 8))
+        self.l_mode = tk.Label(bar, text="", bg=BG, fg=DIM, font=self._font(FONT, 8))
         self.l_mode.grid(row=0, column=10, sticky="e")
 
         r.bind("<F5>", lambda e: self.engine.rescan())
@@ -239,7 +243,7 @@ class App:
         label.config(image=photo)
 
     def _pill(self, text: str, colour) -> None:
-        self._set_image(self.l_pill, "pill", R.status_pill(text, colour, 22, R.BG))
+        self._set_image(self.l_pill, "pill", R.status_pill(text, colour, round(22 * self._scale()), R.BG))
 
     def _content_width(self) -> int:
         return max(200, self.root.winfo_width() - 2 * 12 - 2 * 12 - 2)
@@ -262,7 +266,7 @@ class App:
             self.l_target.config(text="SK Assistant is switched off")
             self.l_section.config(text="")
             self._set_image(self.l_main, "main", None)
-            self.l_main.config(text="Paused", fg=DIM, font=(FONT_SEMI, 18))
+            self.l_main.config(text="Paused", fg=DIM, font=self._font(FONT_SEMI, 18))
             self.l_next.config(text="")
             self.l_tag_title.config(text="")
             self._set_image(self.l_tags, "tags", None)
@@ -293,22 +297,30 @@ class App:
         elif name == "memory" and self._view is None and self.cfg.assistant_on:
             self._waiting("Waiting for puzzle…")
 
-    def _apply_text_scale(self) -> None:
-        """Text size: Tk point sizes follow the 'tk scaling' factor."""
-        s = min(1.6, max(0.8, float(self.cfg.text_scale or 1.0)))
-        self.root.tk.call("tk", "scaling", self._base_scaling * s)
-        self._refresh_fonts(self.root)
+    def _scale(self) -> float:
+        return min(1.6, max(0.8, float(self.cfg.text_scale or 1.0)))
 
-    def _refresh_fonts(self, widget) -> None:
-        """Re-apply each label's font so the new text size takes effect."""
-        for child in widget.winfo_children():
-            try:
-                f = child.cget("font")
-                if f:
-                    child.config(font=f)
-            except tk.TclError:
-                pass
-            self._refresh_fonts(child)
+    def _font(self, family: str, size: int) -> tkfont.Font:
+        """Shared named font for a base size. Changing the text size resizes
+        these in place, so every label using one is redrawn at once."""
+        key = (family, size)
+        f = self._fonts.get(key)
+        if f is None:
+            f = self._fonts[key] = tkfont.Font(root=self.root, family=family,
+                                               size=max(6, round(size * self._scale())))
+        return f
+
+    def _apply_text_scale(self) -> None:
+        """Text size (Settings > General): resize every named font."""
+        for (_family, size), f in self._fonts.items():
+            f.configure(size=max(6, round(size * self._scale())))
+        self._rerender()
+        # bigger text needs more room: grow the window if the content no longer fits
+        r = self.root
+        r.update_idletasks()
+        need, have = r.winfo_reqheight(), r.winfo_height()
+        if have > 1 and need > have:
+            r.geometry(f"{r.winfo_width()}x{need}")
 
     def toggle_overlay(self) -> None:
         self.cfg.overlay = not self.cfg.overlay
@@ -427,7 +439,7 @@ class App:
             self.l_target.config(text="A question is on screen")
             self.l_section.config(text="")
             self._set_image(self.l_main, "main", None)
-            self.l_main.config(text="Press Rescan (F5)", fg=FG, font=(FONT_SEMI, 18))
+            self.l_main.config(text="Press Rescan (F5)", fg=FG, font=self._font(FONT_SEMI, 18))
             self.l_next.config(text="Questions are read only when you ask (Settings).", fg=DIM)
             self.l_hint.config(text="")
             return
@@ -459,7 +471,7 @@ class App:
         self.l_section.config(text="")
         self._set_image(self.l_main, "main", None)
         self.l_main.config(text="Waiting for puzzle…" if "No puzzle" not in msg else msg,
-                           fg=DIM, font=(FONT_SEMI, 18))
+                           fg=DIM, font=self._font(FONT_SEMI, 18))
         self.l_next.config(text="")
         self.l_tag_title.config(text="")
         self._set_image(self.l_tags, "tags", None)
@@ -480,7 +492,7 @@ class App:
             self._pill("No answer", R.RED)
             self.l_section.config(text="")
             self._set_image(self.l_main, "main", None)
-            self.l_main.config(text="Can't read this puzzle", fg=BAD, font=(FONT_SEMI, 16))
+            self.l_main.config(text="Can't read this puzzle", fg=BAD, font=self._font(FONT_SEMI, 16))
             self.l_next.config(text=a.error)
             self.l_hint.config(text="Press F5 to read again", fg=DIM)
             return
@@ -523,14 +535,14 @@ class App:
             self._pill("Not sure", R.AMBER)
             self.l_section.config(text="DON'T FOLLOW YET")
             self.l_main.config(text=f"Check card {check}" if check else "Reading unclear",
-                               fg=WARN, font=(FONT_SEMI, 18))
+                               fg=WARN, font=self._font(FONT_SEMI, 18))
             guess = " → ".join(s.remaining)
             self.l_next.config(text=f"Unverified guess:  {guess}" if guess else "", fg=DIM)
         else:
             self._pill("No answer", R.RED)
             self.l_section.config(text="NOT RELIABLE")
             self.l_main.config(text=f"Check card {check}" if check else "Can't solve this reading",
-                               fg=BAD, font=(FONT_SEMI, 18))
+                               fg=BAD, font=self._font(FONT_SEMI, 18))
             self.l_next.config(text="")
         self.l_hint.config(text="Press F5 to read again.", fg=DIM)
         msgs = [f"✖  {x}" for x in s.problems] + [f"⚠  {x}" for x in s.warnings]
@@ -550,13 +562,13 @@ class App:
         if st.done and st.verified:
             self._pill("Verified", R.GREEN_SOFT)
             self.l_section.config(text=f"TOTAL  ·  {st.counted} ITEMS")
-            self.l_main.config(text=f"{st.total}", fg=GOOD, font=(FONT_SEMI, 34))
+            self.l_main.config(text=f"{st.total}", fg=GOOD, font=self._font(FONT_SEMI, 34))
             self.l_hint.config(text="Type it in yourself, then press ✓.", fg=DIM)
             self.l_warn.config(text="")
         elif st.done:
             self._pill("Not sure", R.AMBER)
             self.l_section.config(text="DON'T TRUST YET")
-            self.l_main.config(text=f"{st.total} ?", fg=WARN, font=(FONT_SEMI, 30))
+            self.l_main.config(text=f"{st.total} ?", fg=WARN, font=self._font(FONT_SEMI, 30))
             self.l_hint.config(text="The count doesn't match the game. Check before typing.",
                                fg=DIM)
             self.l_warn.config(text="\n".join(f"⚠  {p}" for p in st.problems[:4]), fg=WARN)
@@ -564,7 +576,7 @@ class App:
             self._pill("Counting", R.BLUE)
             self.l_section.config(text=f"RUNNING TOTAL  ·  SEEN {seen}")
             self.l_main.config(text=f"{st.total}" if st.counted else "…", fg=FG,
-                               font=(FONT_SEMI, 30))
+                               font=self._font(FONT_SEMI, 30))
             self.l_hint.config(text="Wait until the strip is empty.", fg=DIM)
             self.l_warn.config(text="")
         self.l_next.config(text=values, fg=DIM if not st.done else FG)
@@ -590,7 +602,7 @@ class App:
             msg = {"unknown": "Not learned yet", "answered": "Result not readable",
                    "thinking": "Asking the AI…"}.get(status, "…")
             self.l_main.config(text=msg, fg=WARN if status == "unknown" else DIM,
-                               font=(FONT_SEMI, 16))
+                               font=self._font(FONT_SEMI, 16))
             self.l_next.config(text=q.text + (("\n" + "  ·  ".join(q.clues)) if q.clues else ""),
                                fg=FG)
             hint = ""
@@ -617,7 +629,7 @@ class App:
             else:
                 main = ans.summary()
             sure = status in ("memory", "game", "solver")
-            self.l_main.config(text=main, fg=GOOD if sure else WARN, font=(FONT_SEMI, size))
+            self.l_main.config(text=main, fg=GOOD if sure else WARN, font=self._font(FONT_SEMI, size))
         clues = ("\n" + "  ·  ".join(q.clues)) if q.clues else ""
         self.l_next.config(text=q.text + clues, fg=FG)
         expl = ans.explanation if ans and ans.explanation else ""
@@ -654,9 +666,9 @@ class App:
             self.root.destroy()
 
 
-def _flat_button(parent, text: str, cmd) -> tk.Label:
+def _flat_button(parent, text: str, cmd, font) -> tk.Label:
     """Flat, rounded-looking text button with hover highlight."""
-    b = tk.Label(parent, text=text, bg=PANEL, fg=DIM, font=(FONT, 9), padx=10, pady=4,
+    b = tk.Label(parent, text=text, bg=PANEL, fg=DIM, font=font, padx=10, pady=4,
                  cursor="hand2")
     b.bind("<Button-1>", lambda e: cmd())
     b.bind("<Enter>", lambda e: b.config(bg=HOVER, fg=FG))

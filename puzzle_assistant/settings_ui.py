@@ -283,7 +283,10 @@ class SettingsWindow:
         self.on_change("memory")
         messagebox.showinfo("SK Assistant",
                             f"{c['new']} new questions added, {c['updated']} improved, "
-                            f"{c['same'] + c['blocked']} already known.", parent=self.win)
+                            f"{c['same'] + c['blocked']} already known."
+                            + (f"\n{c['skipped']} left out (sum questions read by an older "
+                               "version, or unreadable entries)." if c["skipped"] else ""),
+                            parent=self.win)
 
     def _clear(self) -> None:
         if messagebox.askyesno("SK Assistant", "Forget every learned question and the history?\n"

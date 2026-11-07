@@ -389,7 +389,8 @@ class Engine(threading.Thread):
                 self._emit(state="question", question=q, answer=m.answer, status="memory",
                            how=m.how, display=m.stored, place=place)
             else:
-                sol = solve_question(q)
+                # never solve from a doubtful reading of numbers / signs
+                sol = None if screen.text_unsure else solve_question(q)
                 if sol is not None:
                     status = "solver" if sol.confidence >= 1.0 else "likely"
                     st["shown"] = (ident, status)

@@ -15,6 +15,7 @@ import datetime as _dt
 import difflib
 import json
 import os
+import re
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -299,6 +300,21 @@ class Memory:
         return len(rows)
 
     # -- importing ----------------------------------------------------------
+    def forget_sum_questions(self) -> int:
+        """Forget 'Ordena las cuentas' questions whose option texts may hold
+        misread signs (see suspect_sum). The game teaches them again and the
+        built-in solver answers them meanwhile."""
+        with self._lock:
+            rows = self._db.execute("SELECT id, category, text, kind, options FROM questions "
+                                    "WHERE kind='order'").fetchall()
+            gone = [r["id"] for r in rows if suspect_sum(r["text"] or "", r["kind"],
+                                                         json.loads(r["options"] or "[]"))]
+            for qid in gone:
+                self._db.execute("DELETE FROM questions WHERE id=?", (qid,))
+                self._log(qid, "forgotten", None, None, "repair", "sum text re-read")
+            self._db.commit()
+        return len(gone)
+
     def get_meta(self, key: str) -> Optional[str]:
         with self._lock:
             row = self._db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
@@ -309,7 +325,7 @@ class Memory:
             self._db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
             self._db.commit()
 
-    def merge_from(self, path: str) -> dict:
+    def merge_from(self, path: str, skip_suspect_sums: bool = True) -> dict:
         """Add the questions of another memory: an older habbosk.db or an
         exported .json. Nothing here is overwritten by something weaker
         (normal source priority applies). Returns counts per outcome."""
@@ -332,6 +348,9 @@ class Memory:
                              list(r.get("options") or []), r.get("kind") or CHOICE,
                              list(r.get("clues") or []), list(r.get("right_opts") or r.get("right") or []),
                              r.get("language") or "es")
+                if skip_suspect_sums and suspect_sum(q.text, q.kind, q.options):
+                    counts["skipped"] += 1
+                    continue
                 ans = r.get("answer")
                 ans = Answer.from_dict(ans if isinstance(ans, dict) else json.loads(ans))
                 if r.get("explanation") and not ans.explanation:
@@ -346,6 +365,20 @@ class Memory:
         with self._lock:
             self._db.executescript("DELETE FROM questions; DELETE FROM history; DELETE FROM usage;")
             self._db.commit()
+
+
+_EXACT_SUM = re.compile(r"^\d+(?: [+−×÷] \d+)+$")
+
+
+def suspect_sum(text: str, kind: str, options: List[str]) -> bool:
+    """A 'put the sums in order' question saved before sums were read by
+    shape (v2.0 fix): the old reading turned ÷ into '+' or a digit and could
+    drop a 0. Exact readings look like '20 ÷ 5', '40 − 3' and use the real
+    − × ÷ signs, which the old reader never produced."""
+    if kind != ORDER or "cuentas" not in normalize(text):
+        return False
+    exact = all(_EXACT_SUM.match(o or "") for o in options)
+    return not (exact and any(c in "".join(options) for c in "−×÷"))
 
 
 def _row_dict(r) -> dict:

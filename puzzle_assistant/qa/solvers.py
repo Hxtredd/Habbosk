@@ -140,6 +140,9 @@ def _arith_core(o: str) -> str:
     return re.sub(r"(?:\s+[A-Za-z]{1,3})+$", "", o).strip()
 
 
+_HAS_OP = re.compile(r"\d\s*[-+−–x×X*÷:/]\s*\(?\d")
+
+
 def solve_order(q: Question) -> Optional[Answer]:
     if q.kind != ORDER:
         return None
@@ -148,6 +151,9 @@ def solve_order(q: Question) -> Optional[Answer]:
     desc = any(k in t for k in _DESC)
     if asc == desc:
         return None                                       # direction unknown
+    if ("cuenta" in t or "operacion" in t or "resultado" in t) and \
+            not all(_HAS_OP.search(_arith_core(o)) for o in q.options):
+        return None             # every option must be a sum: '2055' means a misread sign
     vals = [evaluate(o) if evaluate(o) is not None else evaluate(_arith_core(o))
             for o in q.options]
     if None in vals or len(set(vals)) != len(vals):

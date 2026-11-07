@@ -36,8 +36,10 @@ difficulties: keep the interface simple, plain-worded and calm.
 - Modern dark look (Inter font, anti-aliased badges, chips, status pills).
 - Wants low running costs: memory first, built-in solvers, free AI tiers;
   paid AI only if explicitly enabled with a monthly cap.
-- Prefers updates as a ZIP (`dist/`), extracted over the existing folder,
-  then `INSTALL.bat`.
+- Prefers updates as a ZIP (`dist/`). The folder inside the ZIP is named
+  after the version (`SK_Assistant_v2`); unzip, run `INSTALL.bat` (moves
+  the shortcuts). Data lives in `%APPDATA%\SK Assistant`, so the folder
+  can change. Owner asked to keep fixes in the same version (still v2.0).
 
 ## Game rules learned from the owner (confirmed)
 
@@ -137,6 +139,17 @@ mark), lower → "Not sure". Never saved as truth; scored against the reveal
 Key in header `x-goog-api-key`, never in the URL. Paid providers need
 `paid_api` + `monthly_limit`; free use capped by `ai_daily_limit`.
 Data folder override for tests: env `SK_ASSISTANT_DATA`.
+
+Sums on option buttons (`qa/mathread.py`): Tesseract misread ÷ (as '+',
+'5' or nothing) and dropped a 0 next to ×, and the solver then showed a
+wrong order as "Solved". Now: operators by shape (÷ dot/bar/dot, − flat
+bar, × vs + by corner ink), numbers by Tesseract digits-only with a digit
+count check; `Screen.text_unsure` blocks the solvers when a number-like
+option can't be read exactly; "cuentas" questions need a sign in every
+option. Old memory entries with possibly misread sums are forgotten once
+(`math_fix_v1`) and skipped on Import (`suspect_sum`).
+Text size: named Tk fonts resized in place (`tk scaling` did not redraw on
+Windows); the window grows when the bigger text no longer fits.
 
 ## Known limits / ideas
 
