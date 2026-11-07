@@ -362,7 +362,8 @@ class ReviewVisibilityTests(unittest.TestCase):
     def test_visible_shared_contradiction_still_blocks(self):
         a = self._shared("The Welcome Hall is open all day.", "h1")
         b = self._shared("The Welcome Hall closes at night.", "h2")
-        self.b.link(b, a, "contradicts", by=self.ana)            # both shared: everyone sees it
+        self.b.link(b, a, "contradicts", by=self.mod)            # both shared: everyone sees it
+        #  (linking shared knowledge is a moderator action since B2 validation)
         self.assertEqual(self.b.claim(a, viewer=self.bob)["status"], "conflicting")
         with self.assertRaises(BrainError):
             self.b.review(a, "verified", reviewer=self.mod)

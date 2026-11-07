@@ -13,7 +13,7 @@ from typing import List
 
 # Bump when tokenising / stemming / synonyms change: the stored index is
 # rebuilt automatically (it is derived data; claims are never touched).
-INDEX_VERSION = 3   # lexicon-only changes don't need a rebuild (query-side)
+INDEX_VERSION = 4   # lexicon-only changes don't need a rebuild (query-side)
 
 STOP = set("""
 a al algo algun alguna alguno algunos ante antes aqui asi con como contra cual cuales cuando
@@ -27,7 +27,8 @@ him his how i if in into is it its itself just me more most my of on once only o
 other our out over own same she should so some such than that the their them then there
 these they this those through to too under until up very was we were what when where which
 while who whom why will with would you your yours
-please tell know find show give called named
+please tell know find show give called named sure
+llego llegar voy puedo
 """.split())
 
 
@@ -72,7 +73,12 @@ def stem(w: str) -> str:
                              ("sses", "ss", 6), ("ing", "", 6), ("ed", "", 5),
                              ("ones", "on", 6), ("es", "", 5), ("s", "", 4)):
         if w.endswith(suf) and len(w) >= minlen and not w.endswith("ss"):
-            return w[:len(w) - len(suf)] + rep
+            w = w[:len(w) - len(suf)] + rep
+            break
+    # a final -e goes too, so close / closes / closed, rule / rules and
+    # puerta-like words without -e all meet at one stem
+    if len(w) >= 4 and w.endswith("e") and not w.endswith("ee"):
+        w = w[:-1]
     return w
 
 

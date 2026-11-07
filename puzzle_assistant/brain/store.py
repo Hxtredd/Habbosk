@@ -22,6 +22,7 @@ Rules enforced here (not left to callers):
 from __future__ import annotations
 
 import datetime as _dt
+import functools
 import json
 import os
 import re
@@ -47,12 +48,44 @@ def _now() -> str:
     return _dt.datetime.now().isoformat(timespec="seconds")
 
 
+def _atomic(fn):
+    """A write is all or nothing. If anything fails part-way (a rule check,
+    or SQLite reporting the file locked by another program), every change it
+    made is rolled back, so a later write can never commit it by accident and
+    the database is not left locked. Writes inside writes commit once, at the
+    end of the outermost one."""
+    @functools.wraps(fn)
+    def run(self, *args, **kwargs):
+        with self._lock:
+            self._depth += 1
+            try:
+                result = fn(self, *args, **kwargs)
+                if self._depth == 1 and self._db.in_transaction:
+                    self._db.commit()
+                return result
+            except BaseException:
+                if self._depth == 1 and self._db.in_transaction:
+                    self._db.rollback()
+                raise
+            finally:
+                self._depth -= 1
+    return run
+
+
 class KnowledgeStore:
     def __init__(self, path: str):
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         self.path = path
         self._lock = threading.RLock()
+        self._depth = 0
         self._db = sqlite3.connect(path, check_same_thread=False)
+        try:
+            self._open()
+        except BaseException:
+            self._db.close()                 # never leave the file open (Windows keeps it locked)
+            raise
+
+    def _open(self) -> None:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
         self._db.executescript(SCHEMA)
@@ -78,10 +111,17 @@ class KnowledgeStore:
     def _setup_fts(self) -> bool:
         try:
             self._db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS claim_fts USING fts5(terms)")
+            self._db.execute("SELECT COUNT(*) FROM claim_fts").fetchone()   # usable, not just present
             self._db.commit()
             return True
-        except sqlite3.OperationalError:
-            return False                     # SQLite without FTS5: plain Python search
+        except sqlite3.Error:
+            return False                     # SQLite without FTS5 (or a damaged table): Python search
+
+    def _fts_off(self) -> None:
+        """FTS5 failed while running: carry on with the plain Python search
+        (same results) and have the next start rebuild the FTS5 table."""
+        self.fts = False
+        self._set_meta("fts_stale", "1")
 
     def _index_claim(self, claim_id: int, text: str, subject: str, category: str) -> None:
         t = index_text(text, subject or "", category or "")
@@ -91,8 +131,13 @@ class KnowledgeStore:
                           normalize(f"{subject or ''} {text}"), normalize(subject or ""),
                           int(polarity(text))))
         if self.fts:
-            self._db.execute("DELETE FROM claim_fts WHERE rowid=?", (claim_id,))
-            self._db.execute("INSERT INTO claim_fts (rowid, terms) VALUES (?,?)", (claim_id, t))
+            try:
+                self._db.execute("DELETE FROM claim_fts WHERE rowid=?", (claim_id,))
+                self._db.execute("INSERT INTO claim_fts (rowid, terms) VALUES (?,?)", (claim_id, t))
+            except sqlite3.Error:
+                self._fts_off()
+        else:                                # written without FTS5: that table is now behind
+            self._set_meta("fts_stale", "1")
 
     def _ensure_index(self) -> None:
         """Rebuild the index if it is missing, incomplete or from an older
@@ -104,17 +149,27 @@ class KnowledgeStore:
                 self._db.executescript(SCHEMA)
             n_claims = self._db.execute("SELECT COUNT(*) FROM claims").fetchone()[0]
             n_index = self._db.execute("SELECT COUNT(*) FROM claim_index").fetchone()[0]
-            n_fts = self._db.execute("SELECT COUNT(*) FROM claim_fts").fetchone()[0] \
-                if self.fts else n_claims
+            n_fts = n_claims
+            if self.fts:
+                try:
+                    n_fts = self._db.execute("SELECT COUNT(*) FROM claim_fts").fetchone()[0]
+                except sqlite3.Error:
+                    self.fts = False
+            fts_stale = self.fts and self._meta("fts_stale") == "1"
             if (self._meta("index_version") == str(INDEX_VERSION) and n_index == n_claims
-                    and n_fts == n_claims):
+                    and n_fts == n_claims and not fts_stale):
                 return
             self._db.execute("DELETE FROM claim_index")
             if self.fts:
-                self._db.execute("DELETE FROM claim_fts")
+                try:
+                    self._db.execute("DELETE FROM claim_fts")
+                except sqlite3.Error:
+                    self.fts = False
             for r in self._db.execute("SELECT id, text, subject, category FROM claims").fetchall():
                 self._index_claim(r[0], r[1], r[2], r[3])
             self._set_meta("index_version", str(INDEX_VERSION))
+            if self.fts:
+                self._db.execute("DELETE FROM meta WHERE key='fts_stale'")
             self._db.commit()
 
     def _visible_sql(self, viewer: Optional[str], alias: str = "c"):
@@ -139,10 +194,18 @@ class KnowledgeStore:
                  "i.positive "
                  "FROM claims c "
                  f"JOIN claim_index i ON i.claim_id = c.id WHERE {vis}")
+            rows = None
             if match_terms and use_fts:
-                q += " AND c.id IN (SELECT rowid FROM claim_fts WHERE claim_fts MATCH ?)"
-                args = args + [" OR ".join('"%s"' % t.replace('"', '') for t in match_terms)]
-            rows = [dict(r) for r in self._db.execute(q, args)]
+                try:
+                    rows = [dict(r) for r in self._db.execute(
+                        q + " AND c.id IN (SELECT rowid FROM claim_fts WHERE claim_fts MATCH ?)",
+                        args + [" OR ".join('"%s"' % t.replace('"', '') for t in match_terms)])]
+                except sqlite3.Error:        # FTS5 broke while running: same search in Python
+                    self._fts_off()
+                    self._db.commit()
+                    use_fts = False
+            if rows is None:
+                rows = [dict(r) for r in self._db.execute(q, args)]
         if match_terms and not use_fts:
             want = set(match_terms)
             rows = [r for r in rows if want & set(r["terms"].split())]
@@ -223,13 +286,13 @@ class KnowledgeStore:
     def schema_version(self) -> int:
         return int(self._meta("schema_version") or 0)
 
+    @_atomic
     def add_contributor(self, display_name: str, kind: str = "external_user",
                         contributor_id: Optional[str] = None) -> str:
         cid = contributor_id or str(uuid.uuid4())
         with self._lock:
             self._db.execute("INSERT OR IGNORE INTO contributors VALUES (?,?,?,?)",
                              (cid, display_name, kind, _now()))
-            self._db.commit()
         return cid
 
     def _known_contributor(self, cid: str) -> str:
@@ -259,7 +322,33 @@ class KnowledgeStore:
         if c["scope"] == "personal" and c["owner_id"] != who:
             raise BrainError(f"cannot {action} another person's personal claim")
 
+    def _require_changer(self, c: dict, who: str, action: str) -> None:
+        """Who may add evidence or links to a claim:
+          personal          -> its owner
+          shared_candidate  -> its owner (supporting the proposal) or a moderator
+          shared            -> moderators only (everyone else: propose_correction)"""
+        self._require_owner(c, who, action)
+        if c["scope"] == "shared_candidate" and c["owner_id"] == who:
+            return
+        if c["scope"] != "personal" and self._known_contributor(who) not in MODERATOR_KINDS:
+            raise BrainError(f"shared knowledge: only moderators can {action} it "
+                             "(use propose_correction)")
+
+    def _usable_source(self, source_id: int, who: str) -> Optional[dict]:
+        """The source if `who` may cite it: it exists and is not someone
+        else's private source. Same answer for both refusals, so a private
+        source's existence is never revealed."""
+        src = self.source(source_id)
+        if src is None or (src["private"] and src["added_by"] != who):
+            return None
+        return src
+
+    def _usable_section(self, section_id: int, who: str) -> bool:
+        r = self._db.execute("SELECT source_id FROM sections WHERE id=?", (section_id,)).fetchone()
+        return r is not None and self._usable_source(r[0], who) is not None
+
     # -- sources and sections ----------------------------------------------------
+    @_atomic
     def add_source(self, kind: str, title: str = "", reference: str = "", by: Optional[str] = None,
                    content_hash: Optional[str] = None, captured_at: Optional[str] = None,
                    private: bool = False, raw_text: Optional[str] = None,
@@ -274,16 +363,19 @@ class KnowledgeStore:
                 "added_by, private, raw_text, meta) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (kind, title, reference, content_hash, captured_at, _now(), by, int(private),
                  raw_text, json.dumps(meta or {}, ensure_ascii=False)))
-            self._db.commit()
             return cur.lastrowid
 
+    @_atomic
     def add_section(self, source_id: int, text: str, heading_path: str = "",
-                    position: int = 0) -> int:
+                    position: int = 0, by: Optional[str] = None) -> int:
+        by = by or self.local_user
         with self._lock:
+            src = self.source(source_id)
+            if src is None or src["added_by"] != by:
+                raise BrainError(f"no source {source_id} of yours")
             cur = self._db.execute(
                 "INSERT INTO sections (source_id, heading_path, position, text) VALUES (?,?,?,?)",
                 (source_id, heading_path, position, text))
-            self._db.commit()
             return cur.lastrowid
 
     def source(self, source_id: int) -> Optional[dict]:
@@ -292,6 +384,7 @@ class KnowledgeStore:
         return dict(r) if r else None
 
     # -- claims ------------------------------------------------------------------
+    @_atomic
     def add_claim(self, text: str, origin: str, by: Optional[str] = None, subject: str = "",
                   category: str = "", section_id: Optional[int] = None,
                   status: str = "submitted", scope: str = "personal") -> int:
@@ -310,6 +403,8 @@ class KnowledgeStore:
         now = _now()
         with self._lock:
             self._known_contributor(by)
+            if section_id is not None and not self._usable_section(section_id, by):
+                raise BrainError(f"no section {section_id}")
             cur = self._db.execute(
                 "INSERT INTO claims (text, subject, category, origin, status, scope, owner_id, "
                 "section_id, version, created, created_by, updated) "
@@ -319,7 +414,6 @@ class KnowledgeStore:
             cid = cur.lastrowid
             self._index_claim(cid, text.strip(), subject, category)
             self._event(cid, "created", None, status, by, f"origin={origin}")
-            self._db.commit()
             return cid
 
     def _claim(self, claim_id: int) -> Optional[dict]:
@@ -381,6 +475,7 @@ class KnowledgeStore:
         return {"events": ev, "versions": ver}
 
     # -- evidence ------------------------------------------------------------------
+    @_atomic
     def add_evidence(self, claim_id: int, kind: str, source_id: Optional[int] = None,
                      locator: str = "", by: Optional[str] = None) -> int:
         if kind not in EVIDENCE_KINDS:
@@ -393,9 +488,9 @@ class KnowledgeStore:
             c = self._claim(claim_id)
             if c is None or not self.can_see(c, by):
                 raise BrainError(f"no claim {claim_id}")
-            self._require_owner(c, by, "add evidence to")
+            self._require_changer(c, by, "add evidence to")
             if source_id is not None:
-                src = self.source(source_id)
+                src = self._usable_source(source_id, by)
                 if src is None:
                     raise BrainError(f"no source {source_id} (evidence must be traceable)")
                 if src["private"] and c["scope"] != "personal":
@@ -411,7 +506,6 @@ class KnowledgeStore:
                 "VALUES (?,?,?,?,?,?)", (claim_id, source_id, kind, locator, by, _now()))
             self._event(claim_id, "evidence_added", None, None, by,
                         f"{kind}" + (f" from source {source_id}" if source_id else ""))
-            self._db.commit()
             return cur.lastrowid
 
     def evidence(self, claim_id: int) -> List[dict]:
@@ -441,6 +535,7 @@ class KnowledgeStore:
                 "private_sources": sum(1 for e in ev if e["private"])}
 
     # -- review (the only way to 'verified' / 'rejected' / ...) ---------------------
+    @_atomic
     def review(self, claim_id: int, new_status: str, reviewer: Optional[str] = None,
                note: str = "") -> None:
         if new_status not in STATUSES:
@@ -480,9 +575,9 @@ class KnowledgeStore:
             self._db.execute("UPDATE claims SET status=?, updated=? WHERE id=?",
                              (new_status, _now(), claim_id))
             self._event(claim_id, "reviewed", c["status"], new_status, reviewer, note)
-            self._db.commit()
 
     # -- corrections: new version, old wording kept --------------------------------
+    @_atomic
     def correct(self, claim_id: int, new_text: str, by: Optional[str] = None, reason: str = "",
                 subject: Optional[str] = None, category: Optional[str] = None) -> int:
         """Replace the wording; the previous wording is stored as a version.
@@ -515,9 +610,9 @@ class KnowledgeStore:
             self._index_claim(claim_id, n["text"], n["subject"], n["category"])
             self._event(claim_id, "corrected", c["status"], "awaiting_verification", by,
                         reason or f"version {v}")
-            self._db.commit()
             return v
 
+    @_atomic
     def propose_correction(self, claim_id: int, new_text: str, by: Optional[str] = None,
                            reason: str = "") -> int:
         """A correction to knowledge the person doesn't own (e.g. shared): a
@@ -528,17 +623,19 @@ class KnowledgeStore:
             c = self._claim(claim_id)
             if c is None or not self.can_see(c, by):
                 raise BrainError(f"no claim {claim_id}")
-            new = self.add_claim(new_text, "user", by, c["subject"], c["category"], c["section_id"])
+            sec = c["section_id"] if c["section_id"] is not None and \
+                self._usable_section(c["section_id"], by) else None
+            new = self.add_claim(new_text, "user", by, c["subject"], c["category"], sec)
             self._db.execute("INSERT INTO claim_links (from_claim, to_claim, kind, added_by, "
                              "added_at) VALUES (?,?,'supersedes',?,?)", (new, claim_id, by, _now()))
             self._event(new, "correction_proposed", None, None, by,
                         f"for claim {claim_id}: {reason}", related=claim_id)
             self._event(claim_id, "correction_received", None, None, by, f"claim {new}",
                         related=new)
-            self._db.commit()
             return new
 
     # -- relations -------------------------------------------------------------------
+    @_atomic
     def link(self, from_claim: int, to_claim: int, kind: str, by: Optional[str] = None) -> None:
         if kind not in ("supports", "contradicts", "derived_from", "supersedes", "duplicate_of"):
             raise BrainError(f"unknown link kind {kind!r}")
@@ -548,7 +645,7 @@ class KnowledgeStore:
             a, b = self._claim(from_claim), self._claim(to_claim)
             if not (self.can_see(a, by) and self.can_see(b, by)):
                 raise BrainError("both claims must exist and be visible to you")
-            self._require_owner(a, by, "link")
+            self._require_changer(a, by, "link")
             self._db.execute("INSERT OR IGNORE INTO claim_links (from_claim, to_claim, kind, "
                              "added_by, added_at) VALUES (?,?,?,?,?)",
                              (from_claim, to_claim, kind, by, _now()))
@@ -569,7 +666,6 @@ class KnowledgeStore:
                                      "WHERE id=?", (_now(), cid))
                     self._event(cid, "conflict_flagged", c["status"], "conflicting", by,
                                 f"contradicted by claim {oid}", related=oid)
-            self._db.commit()
 
     def _same_audience(self, c: dict, other: dict) -> bool:
         """Can everyone who may see claim c also see claim `other`?
@@ -600,6 +696,7 @@ class KnowledgeStore:
             return out
 
     # -- scope: personal -> shared candidate (explicit, recorded) ----------------
+    @_atomic
     def propose_share(self, claim_id: int, by: Optional[str] = None) -> None:
         by = by or self.local_user
         with self._lock:
@@ -615,8 +712,8 @@ class KnowledgeStore:
                              (_now(), claim_id))
             self._event(claim_id, "share_proposed", c["status"], c["status"], by,
                         f"scope {c['scope']} -> shared_candidate")
-            self._db.commit()
 
+    @_atomic
     def approve_share(self, claim_id: int, moderator: str, note: str = "") -> None:
         """Shared-candidate -> shared. Only a moderator, only for verified
         claims without private evidence (the shared library prefers accuracy)."""
@@ -633,7 +730,6 @@ class KnowledgeStore:
             self._db.execute("UPDATE claims SET scope='shared', updated=? WHERE id=?",
                              (_now(), claim_id))
             self._event(claim_id, "share_approved", c["status"], c["status"], moderator, note)
-            self._db.commit()
 
     def stats(self, viewer: Optional[str] = None) -> dict:
         """Counts of the claims this viewer may see (never other people's)."""

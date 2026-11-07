@@ -27,7 +27,8 @@ INTENT_EVIDENCE = {
 _INTENT_RULES: List[Tuple[str, str]] = [
     ("identifier", r"\b(room id|id|number|numero|identif\w*|codigo|code)\b"),
     ("route", r"\b(how (do|can) i (get|go|reach)|get to|go to|where does .* (lead|go)|lead\w*|"
-              r"route|path|way to|como (llego|voy|se llega)|camino|ruta|conecta)\b"),
+              r"route|path|way to|como (llego|voy|se llega)|camino|ruta|conecta|connect\w*|"
+              r"goes (to|into))\b"),
     ("person", r"\b(who|quien|caretaker|keeper|maintain\w*|cuidador|encargado|owner|"
                r"propietario)\b"),
     ("state", r"\b(disabled|broken|offline|open|closed|working|enabled|apagad\w*|rot[oa]|"

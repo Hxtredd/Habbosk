@@ -19,6 +19,7 @@ the limit). Repeated identical claims are merged and gain nothing.
 from __future__ import annotations
 
 import math
+import re
 from typing import Dict, List, Optional, Set, Tuple
 
 from .lexicon import SYNONYM_WEIGHT, synonyms
@@ -30,6 +31,15 @@ MIN_RELEVANCE = 0.3          # below this a record is not shown at all
 ANSWER_RELEVANCE = 0.5       # needed (with subject + intent fit) to count as matching the question
 TRUST_BONUS = {"verified": 0.06, "awaiting_verification": 0.02}
 _INTENT_STEMS = {k: {stem(w) for w in v} for k, v in INTENT_EVIDENCE.items()}
+
+
+# A different direction is a different answer ("south door" is not the
+# "north door"): if the question names one, a matching record must too.
+_DIRECTIONS = [frozenset({stem(w)} | set(synonyms(stem(w)))) for w in ("north", "south", "east", "west")]
+# Yes/no questions: a negative record ("the taxi does not work there") answers
+# an affirmative yes/no question just as well as a positive one.
+_YES_NO = re.compile(r"^(does|do|did|is|are|was|were|can|could|will|has|have|should|may|"
+                     r"puedo|puede|se puede|funciona|esta|es|hay|tiene)\b")
 
 
 class Doc:
@@ -136,6 +146,14 @@ def search(store, sources, question: str, viewer: Optional[str] = None, limit: i
     known = entities + [e for e in q.entities if e not in entities]
 
     groups: Dict[str, Set[str]] = {t: {t} | set(synonyms(t)) for t in q.terms}
+    # what the question asks beyond the names in it (a record matching only the
+    # name - "closes at midnight" for "what connects to X" - is not an answer)
+    name_terms: Set[str] = set()
+    for e in q.entities:
+        name_terms |= set(terms(e.key))
+    asked = [t for t in q.terms if t not in name_terms]
+    q_dirs = [g for g in _DIRECTIONS if g & set(q.terms)]
+    yes_no = q_positive and bool(_YES_NO.match(normalize(question)))
     every = sorted({w for g in groups.values() for w in g})
 
     lib_rows = store.search_rows(viewer, every, use_fts) if lib_on else []
@@ -200,8 +218,17 @@ def search(store, sources, question: str, viewer: Optional[str] = None, limit: i
                              f"not {', '.join(missing)}")
             else:
                 factor *= 1.15
-        polarity_ok = d.positive == q_positive
-        if not polarity_ok:
+        content_ok = not asked or any(t in matched or groups[t] & d.terms for t in asked)
+        if not content_ok:
+            notes.append("only the name matches; not what was asked about it")
+        direction_ok = all(g & d.terms for g in q_dirs)
+        if not direction_ok:
+            factor *= 0.6
+            notes.append("a different direction than the one asked about")
+        polarity_ok = d.positive == q_positive or (yes_no and not d.positive)
+        if yes_no and not d.positive:
+            notes.append("a 'no' answer to a yes/no question")
+        elif not polarity_ok:
             factor *= 0.5
             notes.append("opposite statement: the question is " +
                          ("affirmative" if q_positive else "negative") + ", this record is " +
@@ -213,7 +240,8 @@ def search(store, sources, question: str, viewer: Optional[str] = None, limit: i
         score = min(1.0, relevance * factor) + TRUST_BONUS.get(d.status, 0.0)
         if d.status in ("outdated", "rejected"):
             score -= 1.0                         # always after current knowledge
-        answers = (entity_ok and intent_ok and polarity_ok and relevance >= ANSWER_RELEVANCE
+        answers = (entity_ok and intent_ok and polarity_ok and content_ok and direction_ok
+                   and relevance >= ANSWER_RELEVANCE
                    and not q.ambiguous and d.status not in ("outdated", "rejected"))
         why = {"matched": matched, "synonyms": syn_used,
                "subjects": [e.name for e in q.entities], "intents": q.intents,

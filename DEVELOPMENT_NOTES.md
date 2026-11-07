@@ -303,6 +303,38 @@ side; stats() counts only the viewer's own sources. Speed (10,005 claims,
 goal 50 ms): FTS5 typical ~17 ms, no-match ~4 ms, worst case ~170 ms;
 fallback 57-185 ms.
 Next (each needs approval): B3 reasoning, B4 corrections workflow, B5 importer, B6 test bench.
+
+B2 final validation (not released). Fixed, each with a regression test that
+was shown to fail without the fix:
+- read-only `file:` URIs are escaped (`brain/sqlite_ro.py`): a folder name
+  with `#`/`?`/`%` used to drop `?mode=ro`, create a stray empty file, read
+  0 rows and make the bench "backup" an empty database;
+- FTS5 failing at open, in search or in a write falls back to the plain
+  search (same results); writes made without FTS5 set `meta.fts_stale` so
+  the next start with FTS5 rebuilds it;
+- writes are all-or-nothing (`@_atomic`): a write failing part-way (file
+  locked by another program at commit, rule check after a nested write) is
+  rolled back instead of being committed by the next write, and no longer
+  keeps other programs locked out; a failed open closes the file;
+- permissions: someone else's private source/section can't be cited (same
+  refusal as a missing one); only a source's owner adds sections; evidence
+  and links: personal -> owner, proposed -> owner or moderator, shared ->
+  moderators only (regular users: propose_correction);
+- retrieval: a direction in the question must be matched; a record matching
+  only the name isn't presented as the answer; "connect"/"goes to" are route
+  questions; a negative record answers an affirmative yes/no question;
+  Spanish frame words (llego/llegar/voy/puedo) are stop words like get/go/can;
+  stemming drops a final -e (close/closes/closed meet); INDEX_VERSION 4.
+Evaluation: `python tests/brain_eval.py` (fictional town SK-BRAIN-EVAL-001,
+31 claims; main + held-out question sets). Windows: `BRAIN_WINDOWS_CHECK.bat`
+(temp folder only; real data files opened read-only, hash-compared).
+Documented, not changed (need approval / architecture): sequential IDs reveal
+how many claims exist; `viewer` is trusted (no authentication yet, None =
+local user); a moderator can verify and approve their own claim; store
+helpers source()/evidence()/evidence_summary() have no viewer check (only
+called behind checked paths); backups and the sandbox temp copy contain all
+contributors' data; `qa/memory.py` merge_from builds the same unescaped
+read-only URI (main app, untouched).
 Stage 1 (engine processing identity) is parked as an unreleased WIP commit.
 
 ## Known limits / ideas

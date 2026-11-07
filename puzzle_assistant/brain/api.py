@@ -62,8 +62,9 @@ class Brain:
     def add_source(self, kind: str, **kw) -> int:
         return self.store.add_source(kind, **kw)
 
-    def add_section(self, source_id: int, text: str, heading_path: str = "", position: int = 0) -> int:
-        return self.store.add_section(source_id, text, heading_path, position)
+    def add_section(self, source_id: int, text: str, heading_path: str = "", position: int = 0,
+                    by: Optional[str] = None) -> int:
+        return self.store.add_section(source_id, text, heading_path, position, by)
 
     def learn(self, text: str, origin: str, subject: str = "", category: str = "",
               section_id: Optional[int] = None, by: Optional[str] = None) -> int:

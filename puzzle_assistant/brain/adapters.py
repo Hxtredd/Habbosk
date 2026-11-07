@@ -26,6 +26,7 @@ import unicodedata
 from typing import Iterable, List, Optional
 
 from .model import Hit
+from .sqlite_ro import connect_readonly
 
 
 def _norm(s: str) -> str:
@@ -59,8 +60,7 @@ class ReadOnlyDB:
         self.path = path
         self.db: Optional[sqlite3.Connection] = None
         if path and os.path.exists(path):
-            uri = "file:" + os.path.abspath(path).replace("\\", "/") + "?mode=ro"
-            self.db = sqlite3.connect(uri, uri=True, check_same_thread=False)
+            self.db = connect_readonly(path, check_same_thread=False)
             self.db.row_factory = sqlite3.Row
 
     def rows(self, sql: str, args: Iterable = ()) -> List[sqlite3.Row]:

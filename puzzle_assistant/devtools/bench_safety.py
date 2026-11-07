@@ -26,6 +26,7 @@ from typing import Callable, Optional
 
 from ..brain import Brain
 from ..brain.schema import SCHEMA_VERSION
+from ..brain.sqlite_ro import connect_readonly
 
 
 class WritesDisabled(RuntimeError):
@@ -57,8 +58,7 @@ def backup_database(db_path: str, now: Optional[_dt.datetime] = None) -> Optiona
     if not os.path.exists(db_path):
         return None
     dst = backup_path_for(db_path, now)
-    src = sqlite3.connect("file:" + os.path.abspath(db_path).replace("\\", "/") + "?mode=ro",
-                          uri=True)
+    src = connect_readonly(db_path)
     try:
         out = sqlite3.connect(dst)
         try:
@@ -81,8 +81,7 @@ def schema_version_of(db_path: str) -> Optional[int]:
     """The schema version of an existing knowledge.db, read without writing."""
     if not os.path.exists(db_path):
         return None
-    con = sqlite3.connect("file:" + os.path.abspath(db_path).replace("\\", "/") + "?mode=ro",
-                          uri=True)
+    con = connect_readonly(db_path)
     try:
         r = con.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
         return int(r[0]) if r else None
@@ -133,8 +132,7 @@ class Session:
             self._tmp = tempfile.mkdtemp(prefix="sk_brain_sandbox_")
             path = os.path.join(self._tmp, "knowledge.db")
             if os.path.exists(real_path):       # copy the real knowledge (read-only access)
-                src = sqlite3.connect("file:" + os.path.abspath(real_path).replace("\\", "/")
-                                      + "?mode=ro", uri=True)
+                src = connect_readonly(real_path)
                 dst = sqlite3.connect(path)
                 try:
                     src.backup(dst)
