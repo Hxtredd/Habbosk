@@ -213,13 +213,74 @@ class KnowledgeStore:
             rows = [r for r in rows if want & set(r["terms"].split())]
         return rows
 
-    def visible_subjects(self, viewer: Optional[str]) -> List[tuple]:
-        """(subject, normalised subject) of the viewer's visible claims."""
+    def visible_keys(self, viewer: Optional[str], match_terms: Optional[List[str]] = None,
+                     use_fts: Optional[bool] = None, ids_only: bool = False):
+        """(id, status, scope, owner_id, version) - or just (id,) with ids_only -
+        of the claims viewer's search may use (same rule as search_rows), and
+        whether they were already
+        narrowed to `match_terms` by FTS5. Without FTS5 all visible claims are
+        returned and the caller narrows them (identical eligibility)."""
+        use_fts = self.fts if use_fts is None else (use_fts and self.fts)
+        with self._lock:
+            vis, args = self._visible_sql(viewer, review=False)
+            cols = "c.id" if ids_only else "c.id, c.status, c.scope, c.owner_id, c.version"
+            q = f"SELECT {cols} FROM claims c WHERE {vis}"
+            if match_terms and use_fts:
+                try:
+                    return [tuple(r) for r in self._db.execute(
+                        q + " AND c.id IN (SELECT rowid FROM claim_fts WHERE claim_fts MATCH ?)",
+                        args + [" OR ".join('"%s"' % t.replace('"', '') for t in match_terms)])], True
+                except sqlite3.Error:        # FTS5 broke while running: same search in Python
+                    self._fts_off()
+                    self._db.commit()
+            return [tuple(r) for r in self._db.execute(q, args)], not match_terms
+
+    def index_rows(self, viewer: Optional[str], ids: List[int]) -> List[dict]:
+        """Search rows (as search_rows) of these claims - only those the viewer's
+        search may use, whatever ids are asked for."""
+        out: List[dict] = []
+        with self._lock:
+            vis, args = self._visible_sql(viewer, review=False)
+            for n in range(0, len(ids), 500):
+                chunk = ids[n:n + 500]
+                out += [dict(r) for r in self._db.execute(
+                    "SELECT c.id, c.text, c.subject, c.category, c.status, c.origin, c.scope, "
+                    "c.owner_id, c.version, i.terms, i.subject_terms, i.norm, i.subject_norm, "
+                    "i.positive FROM claims c JOIN claim_index i ON i.claim_id = c.id "
+                    f"WHERE {vis} AND c.id IN ({','.join('?' * len(chunk))})", args + chunk)]
+        return out
+
+    def visible_subjects(self, viewer: Optional[str], after_id: int = 0) -> List[tuple]:
+        """(subject, normalised subject) pairs of the viewer's visible claims,
+        each once, sorted (with after_id: only from claims newer than it)."""
         with self._lock:
             vis, args = self._visible_sql(viewer, review=False)
             return [tuple(r) for r in self._db.execute(
-                f"SELECT DISTINCT c.subject, i.subject_norm FROM claims c JOIN claim_index i "
-                f"ON i.claim_id = c.id WHERE {vis} AND c.subject != ''", args)]
+                f"SELECT DISTINCT c.subject, i.subject_norm FROM claims c "
+                f"JOIN claim_index i ON i.claim_id = c.id WHERE {vis} AND c.subject != '' "
+                f"AND c.id > ? ORDER BY c.subject, i.subject_norm", args + [after_id])]
+
+    def changed_since(self, mark: int):
+        """(newest event id, ids of claims with an event after `mark`). Every
+        change to a claim - created, reviewed, corrected, flagged, shared -
+        records an event on that claim in the same transaction, so this is
+        exactly the set of claims changed since `mark` (also by another
+        program using the Brain)."""
+        with self._lock:
+            newest = self._db.execute("SELECT COALESCE(MAX(id), 0) FROM claim_events").fetchone()[0]
+            if newest <= mark:
+                return newest, set()
+            return newest, {r[0] for r in self._db.execute(
+                "SELECT DISTINCT claim_id FROM claim_events WHERE id > ?", (mark,))}
+
+    def subjects_stamp(self) -> tuple:
+        """Changes when the subjects someone may see can change: a new claim
+        (newest id), a correction, or a sharing step. Reviews don't move it."""
+        with self._lock:
+            return tuple(self._db.execute(
+                "SELECT (SELECT COALESCE(MAX(id), 0) FROM claims), (SELECT COUNT(*) FROM "
+                "claim_events WHERE event IN ('corrected', 'share_proposed', 'share_approved')), "
+                "(SELECT COUNT(*) FROM contributors)").fetchone())
 
     def change_stamp(self) -> tuple:
         """Changes whenever a claim is added, corrected, reviewed or relinked."""

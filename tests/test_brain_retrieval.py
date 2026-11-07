@@ -14,6 +14,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
 from puzzle_assistant.brain import Brain  # noqa: E402
+from puzzle_assistant.brain import retrieve as _retrieve  # noqa: E402
+_retrieve.VERIFY_FAST = True      # every search here also checks fast == full scoring
 
 # the owner's B1 experiment, exactly (source SK-BRAIN-TEST-001, unverified, direct evidence)
 ORIGINAL = ["The Demo Garden has permanent room ID 900001.",
@@ -468,6 +470,8 @@ class MigrationAndSpeedTests(unittest.TestCase):
         load_original(b, True)
         b.search("x")
         report = []
+        verify, _retrieve.VERIFY_FAST = _retrieve.VERIFY_FAST, False     # time the real path
+        self.addCleanup(setattr, _retrieve, "VERIFY_FAST", verify)
         for label, q in (("typical", QUESTIONS[3]), ("no match", QUESTIONS[8]),
                          ("worst case: common words in every claim", QUESTIONS[1])):
             for fts in (True, False):

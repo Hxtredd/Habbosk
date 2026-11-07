@@ -23,6 +23,8 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from puzzle_assistant.brain import Brain  # noqa: E402
+from puzzle_assistant.brain import retrieve as _retrieve  # noqa: E402
+_retrieve.VERIFY_FAST = True      # every search here also checks fast == full scoring
 from puzzle_assistant.brain import sqlite_ro  # noqa: E402
 from puzzle_assistant.brain.adapters import ReadOnlyDB  # noqa: E402
 from puzzle_assistant.brain.store import BrainError, KnowledgeStore  # noqa: E402

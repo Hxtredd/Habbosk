@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import brain_eval as E  # noqa: E402
+from puzzle_assistant.brain import retrieve as _retrieve  # noqa: E402
+_retrieve.VERIFY_FAST = True      # every search here also checks fast == full scoring
 import brain_eval_city as C  # noqa: E402
 from puzzle_assistant.brain.query import analyze  # noqa: E402
 from puzzle_assistant.brain.text import stem, terms  # noqa: E402

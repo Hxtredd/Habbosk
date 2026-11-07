@@ -12,6 +12,8 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
 from puzzle_assistant.brain import Brain  # noqa: E402
+from puzzle_assistant.brain import retrieve as _retrieve  # noqa: E402
+_retrieve.VERIFY_FAST = True      # every search here also checks fast == full scoring
 from puzzle_assistant.brain.store import BrainError  # noqa: E402
 from puzzle_assistant.qa.memory import Memory  # noqa: E402
 from puzzle_assistant.qa.model import Answer, Question  # noqa: E402

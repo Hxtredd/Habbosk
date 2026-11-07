@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Tuple
+from typing import FrozenSet, Dict, Iterable, List, Tuple
 
 from .text import STOP, normalize, terms
 
@@ -44,6 +44,7 @@ class Entity:
     key: str                  # normalised
     words: Tuple[str, ...]    # normalised tokens
     source: str = ""          # where the name is known from
+    term_set: FrozenSet[str] = frozenset()   # terms(name), computed once per known name
 
 
 @dataclass
@@ -60,6 +61,18 @@ def detect_intents(question: str) -> List[str]:
     return [name for name, rx in _INTENT_RULES if re.search(rx, n)]
 
 
+_NAME_TERMS: Dict[str, frozenset] = {}      # name -> terms(name); names rarely change
+
+
+def _name_terms(name: str) -> frozenset:
+    t = _NAME_TERMS.get(name)
+    if t is None:
+        if len(_NAME_TERMS) > 200000:
+            _NAME_TERMS.clear()
+        t = _NAME_TERMS[name] = frozenset(terms(name))
+    return t
+
+
 def make_entities(names: Iterable[Tuple]) -> List[Entity]:
     """(name, source[, normalised name]) -> entities (multi-word names first)."""
     seen: Dict[str, Entity] = {}
@@ -68,7 +81,7 @@ def make_entities(names: Iterable[Tuple]) -> List[Entity]:
         key = item[2] if len(item) > 2 and item[2] else normalize(name)
         if len(key) < 3 or key in seen:
             continue
-        seen[key] = Entity(name, key, tuple(key.split()), source)
+        seen[key] = Entity(name, key, tuple(key.split()), source, _name_terms(name))
     return sorted(seen.values(), key=lambda e: -len(e.words))
 
 
@@ -141,8 +154,11 @@ def analyze(question: str, entities: List[Entity]) -> Query:
         # a distinctive word of several known names -> ambiguous, never resolved
         content = set(terms(question))
         for e in entities:
-            if len(e.words) >= 2 and set(terms(e.name)) & content and \
-                    len(set(terms(e.name)) & content) < len(set(terms(e.name))):
+            if len(e.words) < 2:
+                continue
+            names = e.term_set or frozenset(terms(e.name))
+            shared = names & content
+            if shared and len(shared) < len(names):
                 q.ambiguous.append(e)
         if len(q.ambiguous) < 2:
             q.ambiguous = []
