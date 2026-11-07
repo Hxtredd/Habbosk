@@ -304,9 +304,20 @@ class Bench:
             return
         h = self._hits[int(sel[0])]
         q = getattr(self, "_last_q", "")
-        shared = sorted(words(q) & words(f"{h.text} {h.category}"))
-        lines = [f"Why: the question's words {', '.join(shared) or '(none)'} also appear in this "
-                 f"record (B1 search = word overlap; score = share of your question's words found).",
+        why = h.detail.get("why")
+        if why:                                    # B2: the Brain's own explanation
+            first = (f"Why: matched {', '.join(why['matched']) or '-'}"
+                     + (f"; synonyms {', '.join(why['synonyms'])}" if why["synonyms"] else "")
+                     + (f"; subject asked: {', '.join(why['subjects'])}" if why["subjects"] else "")
+                     + (f"; kind of question: {', '.join(why['intents'])}" if why["intents"] else "")
+                     + f"; relevance {why['relevance']:.2f}, score {h.score:.2f}."
+                     + ("  ✓ fits the question" if why["matches_question"] else
+                        "  ✗ does not answer the question as asked")
+                     + "".join(f"\n   note: {n}" for n in why["notes"]))
+        else:
+            shared = sorted(words(q) & words(f"{h.text} {h.category}"))
+            first = f"Why: the question's words {', '.join(shared) or '(none)'} also appear."
+        lines = [first,
                  f"Status: {h.label}" + ("" if h.established else
                                          "  - NOT an established fact"),
                  f"From: {h.module} · " + "; ".join(h.sources)]

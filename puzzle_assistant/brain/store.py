@@ -32,6 +32,7 @@ from typing import Dict, List, Optional
 from .model import (AUTOMATIC_KINDS, EVIDENCE_KINDS, MODERATOR_KINDS, ORIGINS, SCOPES,
                     SOURCE_KINDS, STATUSES)
 from .schema import MIGRATIONS, SCHEMA, SCHEMA_VERSION
+from .text import INDEX_VERSION, index_text, normalize
 
 SYSTEM = "system"
 IMPORTER = "importer"
@@ -55,6 +56,7 @@ class KnowledgeStore:
         self._db.execute("PRAGMA foreign_keys = ON")
         self._db.executescript(SCHEMA)
         self._migrate()
+        self.fts = self._setup_fts()
         for cid, name, kind in ((SYSTEM, "SK Assistant", "system"),
                                 (IMPORTER, "Importer", "importer")):
             self._db.execute("INSERT OR IGNORE INTO contributors VALUES (?,?,?,?)",
@@ -65,10 +67,122 @@ class KnowledgeStore:
                              (uid, "Local user", "local_user", _now()))
             self._set_meta("local_user", uid)
         self._db.commit()
+        self._ensure_index()
 
     def close(self) -> None:
         with self._lock:
             self._db.close()
+
+    # -- search index (B2): derived from claims, never the other way round ---------
+    def _setup_fts(self) -> bool:
+        try:
+            self._db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS claim_fts USING fts5(terms)")
+            self._db.commit()
+            return True
+        except sqlite3.OperationalError:
+            return False                     # SQLite without FTS5: plain Python search
+
+    def _index_claim(self, claim_id: int, text: str, subject: str, category: str) -> None:
+        t = index_text(text, subject or "", category or "")
+        self._db.execute("INSERT OR REPLACE INTO claim_index (claim_id, terms, subject_terms, norm, "
+                         "subject_norm) VALUES (?,?,?,?,?)",
+                         (claim_id, t, index_text(subject or ""),
+                          normalize(f"{subject or ''} {text}"), normalize(subject or "")))
+        if self.fts:
+            self._db.execute("DELETE FROM claim_fts WHERE rowid=?", (claim_id,))
+            self._db.execute("INSERT INTO claim_fts (rowid, terms) VALUES (?,?)", (claim_id, t))
+
+    def _ensure_index(self) -> None:
+        """Rebuild the index if it is missing, incomplete or from an older
+        version of the word rules. Only index tables are written."""
+        with self._lock:
+            n_claims = self._db.execute("SELECT COUNT(*) FROM claims").fetchone()[0]
+            n_index = self._db.execute("SELECT COUNT(*) FROM claim_index").fetchone()[0]
+            n_fts = self._db.execute("SELECT COUNT(*) FROM claim_fts").fetchone()[0] \
+                if self.fts else n_claims
+            if (self._meta("index_version") == str(INDEX_VERSION) and n_index == n_claims
+                    and n_fts == n_claims):
+                return
+            self._db.execute("DELETE FROM claim_index")
+            if self.fts:
+                self._db.execute("DELETE FROM claim_fts")
+            for r in self._db.execute("SELECT id, text, subject, category FROM claims").fetchall():
+                self._index_claim(r[0], r[1], r[2], r[3])
+            self._set_meta("index_version", str(INDEX_VERSION))
+            self._db.commit()
+
+    def _visible_sql(self, viewer: Optional[str], alias: str = "c"):
+        """WHERE-clause part that keeps only claims `viewer` may see."""
+        viewer = viewer or self.local_user
+        r = self._db.execute("SELECT kind FROM contributors WHERE id=?", (viewer,)).fetchone()
+        mod = bool(r) and r[0] in MODERATOR_KINDS
+        clause = (f"({alias}.scope='shared' OR {alias}.owner_id=?"
+                  + (f" OR {alias}.scope='shared_candidate'" if mod else "") + ")")
+        return clause, [viewer]
+
+    def search_rows(self, viewer: Optional[str], match_terms: Optional[List[str]] = None,
+                    use_fts: Optional[bool] = None) -> List[dict]:
+        """Index rows of the claims `viewer` may see. With match_terms, only
+        claims containing at least one of them (FTS5 when available, else
+        the same test in Python - identical eligibility)."""
+        use_fts = self.fts if use_fts is None else (use_fts and self.fts)
+        with self._lock:
+            vis, args = self._visible_sql(viewer)
+            q = ("SELECT c.id, c.text, c.subject, c.category, c.status, c.origin, c.scope, "
+                 "c.owner_id, c.version, i.terms, i.subject_terms, i.norm, i.subject_norm "
+                 "FROM claims c "
+                 f"JOIN claim_index i ON i.claim_id = c.id WHERE {vis}")
+            if match_terms and use_fts:
+                q += " AND c.id IN (SELECT rowid FROM claim_fts WHERE claim_fts MATCH ?)"
+                args = args + [" OR ".join('"%s"' % t.replace('"', '') for t in match_terms)]
+            rows = [dict(r) for r in self._db.execute(q, args)]
+        if match_terms and not use_fts:
+            want = set(match_terms)
+            rows = [r for r in rows if want & set(r["terms"].split())]
+        return rows
+
+    def visible_subjects(self, viewer: Optional[str]) -> List[tuple]:
+        """(subject, normalised subject) of the viewer's visible claims."""
+        with self._lock:
+            vis, args = self._visible_sql(viewer)
+            return [tuple(r) for r in self._db.execute(
+                f"SELECT DISTINCT c.subject, i.subject_norm FROM claims c JOIN claim_index i "
+                f"ON i.claim_id = c.id WHERE {vis} AND c.subject != ''", args)]
+
+    def change_stamp(self) -> tuple:
+        """Changes whenever a claim is added, corrected, reviewed or relinked."""
+        with self._lock:
+            return tuple(self._db.execute(
+                "SELECT (SELECT COUNT(*) FROM claims), (SELECT MAX(updated) FROM claims), "
+                "(SELECT COUNT(*) FROM claim_events), (SELECT COUNT(*) FROM contributors)"
+            ).fetchone())
+
+    def visible_count(self, viewer: Optional[str]) -> int:
+        with self._lock:
+            vis, args = self._visible_sql(viewer)
+            return self._db.execute(f"SELECT COUNT(*) FROM claims c WHERE {vis}", args).fetchone()[0]
+
+    def visible_term_counts(self, viewer: Optional[str], words: List[str],
+                            use_fts: Optional[bool] = None) -> Dict[str, int]:
+        """In how many of the viewer's visible claims each word occurs
+        (word rarity is never computed from claims they can't see)."""
+        use_fts = self.fts if use_fts is None else (use_fts and self.fts)
+        out: Dict[str, int] = {}
+        with self._lock:
+            vis, args = self._visible_sql(viewer)
+            if use_fts:
+                for w in words:
+                    out[w] = self._db.execute(
+                        f"SELECT COUNT(*) FROM claims c WHERE {vis} AND c.id IN "
+                        "(SELECT rowid FROM claim_fts WHERE claim_fts MATCH ?)",
+                        args + ['"%s"' % w.replace('"', '')]).fetchone()[0]
+                return out
+            rows = self._db.execute(f"SELECT i.terms FROM claims c JOIN claim_index i "
+                                    f"ON i.claim_id = c.id WHERE {vis}", args).fetchall()
+        sets = [set(r[0].split()) for r in rows]
+        for w in words:
+            out[w] = sum(1 for t in sets if w in t)
+        return out
 
     def _migrate(self) -> None:
         """Bring an older knowledge.db up to SCHEMA_VERSION; nothing is deleted."""
@@ -196,6 +310,7 @@ class KnowledgeStore:
                 (text.strip(), subject, category, origin, status, scope, by, section_id, now, by,
                  now))
             cid = cur.lastrowid
+            self._index_claim(cid, text.strip(), subject, category)
             self._event(cid, "created", None, status, by, f"origin={origin}")
             self._db.commit()
             return cid
@@ -216,14 +331,9 @@ class KnowledgeStore:
                viewer: Optional[str] = None) -> List[dict]:
         """Claims the viewer may see: shared ones + their own (+ candidates
         for moderators). Filtering happens in the database query itself."""
-        viewer = viewer or self.local_user
         with self._lock:
-            mod = self._db.execute("SELECT kind FROM contributors WHERE id=?",
-                                   (viewer,)).fetchone()
-        mod = bool(mod) and mod[0] in MODERATOR_KINDS
-        q = ("SELECT * FROM claims WHERE (scope='shared' OR owner_id=?"
-             + (" OR scope='shared_candidate'" if mod else "") + ")")
-        args: list = [viewer]
+            vis, args = self._visible_sql(viewer, "claims")
+        q = f"SELECT * FROM claims WHERE {vis}"
         if subject is not None:
             q += " AND lower(subject)=lower(?)"
             args.append(subject)
@@ -382,6 +492,8 @@ class KnowledgeStore:
                 "WHERE id=?", (new_text.strip(), c["subject"] if subject is None else subject,
                                c["category"] if category is None else category, v,
                                "awaiting_verification", _now(), claim_id))
+            n = self._claim(claim_id)
+            self._index_claim(claim_id, n["text"], n["subject"], n["category"])
             self._event(claim_id, "corrected", c["status"], "awaiting_verification", by,
                         reason or f"version {v}")
             self._db.commit()

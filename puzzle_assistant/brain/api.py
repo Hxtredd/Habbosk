@@ -113,10 +113,20 @@ class Brain:
                 **self.store.history(claim_id, viewer)}
 
     def search(self, query: str, limit: int = 10, modules: Optional[List[str]] = None,
-               viewer: Optional[str] = None) -> List[Hit]:
-        """Relevant knowledge from the library (only what `viewer` may see)
-        and the other modules. B1: basic word overlap (B2 replaces the
-        ranking, same interface)."""
+               viewer: Optional[str] = None, include_rejected: bool = False,
+               use_fts: Optional[bool] = None) -> List[Hit]:
+        """Relevant knowledge for `query` (B2 retrieval, see retrieve.py):
+        synonyms and word forms, rare words weigh more, subject and kind of
+        question recognised, verified slightly preferred, conflicts shown
+        together, duplicates merged. Only what `viewer` may see is used.
+        Each Hit.detail["why"] explains its match. Same call as in B1."""
+        from .retrieve import search as b2_search
+        return b2_search(self.store, self.sources, query, viewer, limit, modules,
+                         include_rejected, use_fts)
+
+    def search_b1(self, query: str, limit: int = 10, modules: Optional[List[str]] = None,
+                  viewer: Optional[str] = None) -> List[Hit]:
+        """The B1 word-overlap search, kept for comparison / older callers."""
         hits: List[Hit] = []
         if modules is None or "library" in modules:
             for c in self.store.claims(limit=5000, viewer=viewer):

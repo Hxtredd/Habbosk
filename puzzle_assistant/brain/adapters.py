@@ -77,6 +77,18 @@ class ReadOnlyDB:
             self.db = None
 
 
+def _search_records(records: List[dict], query: str, limit: int) -> List[Hit]:
+    """B1 behaviour (kept for older callers): word overlap over records()."""
+    hits = []
+    for r in records:
+        score = overlap_score(query, r["search_text"])
+        if score > 0:
+            hits.append(Hit(r["module"], r["record_id"], r["text"], r["status"], r["origin"],
+                            score, r["category"], r["sources"], r["detail"]))
+    hits.sort(key=lambda h: -h.score)
+    return hits[:limit]
+
+
 class QuizMemoryAdapter:
     module = "quiz_memory"
     _MAP = {"game": ("verified", "observed"), "user": ("awaiting_verification", "user"),
@@ -86,8 +98,9 @@ class QuizMemoryAdapter:
     def __init__(self, path: str):
         self.ro = ReadOnlyDB(path)
 
-    def search(self, query: str, limit: int = 10) -> List[Hit]:
-        hits = []
+    def records(self) -> List[dict]:
+        """Every learned question as a searchable record (read-only)."""
+        out = []
         for r in self.ro.rows("SELECT id, category, text, options, answer, explanation, source, "
                               "verified, times_seen FROM questions"):
             try:
@@ -96,18 +109,23 @@ class QuizMemoryAdapter:
                 ans = {}
             summary = ans.get("choice") or " → ".join(ans.get("order") or []) or \
                 " · ".join(f"{a} = {b}" for a, b in (ans.get("pairs") or {}).items())
-            text = f"{r['text']} -> {summary}" + (f" ({r['explanation']})" if r["explanation"] else "")
-            score = overlap_score(query, f"{r['text']} {summary} {r['explanation'] or ''} "
-                                         f"{r['options'] or ''}")
-            if score <= 0:
-                continue
             status, origin = self._MAP.get(r["source"] or "", ("submitted", "user"))
-            hits.append(Hit(self.module, str(r["id"]), text, status, origin, score,
-                            r["category"] or "",
-                            [f"quiz memory: {r['source']} answer, seen {r['times_seen']}x"],
-                            {"quiz_source": r["source"], "verified_flag": bool(r["verified"])}))
-        hits.sort(key=lambda h: -h.score)
-        return hits[:limit]
+            out.append({
+                "module": self.module, "record_id": str(r["id"]),
+                "text": f"{r['text']} -> {summary}" + (f" ({r['explanation']})"
+                                                       if r["explanation"] else ""),
+                "search_text": f"{r['text']} {summary} {r['explanation'] or ''} {r['options'] or ''}",
+                "subject": "", "status": status, "origin": origin,
+                "category": r["category"] or "",
+                "sources": [f"quiz memory: {r['source']} answer, seen {r['times_seen']}x"],
+                "detail": {"quiz_source": r["source"], "verified_flag": bool(r["verified"])}})
+        return out
+
+    def entity_names(self) -> List[str]:
+        return []
+
+    def search(self, query: str, limit: int = 10) -> List[Hit]:
+        return _search_records(self.records(), query, limit)
 
     def close(self) -> None:
         self.ro.close()
@@ -119,49 +137,64 @@ class AtlasAdapter:
     def __init__(self, path: str):
         self.ro = ReadOnlyDB(path)
 
-    def search(self, query: str, limit: int = 10) -> List[Hit]:
-        hits: List[Hit] = []
+    def records(self) -> List[dict]:
+        out: List[dict] = []
         names = {}
         for r in self.ro.rows("SELECT room_id, name, kind, owner, aliases, status, source, note "
                               "FROM rooms"):
             names[r["room_id"]] = r["name"]
             aliases = ", ".join(json.loads(r["aliases"] or "[]"))
-            text = (f"Room '{r['name']}' (ID {r['room_id']}) is a {r['kind'] or 'room'}"
-                    + (f", owner {r['owner']}" if r["owner"] else "")
-                    + (f"; earlier names: {aliases}" if aliases else "") + ".")
-            score = overlap_score(query, f"{r['name']} {aliases} {r['kind'] or ''} {r['owner'] or ''}")
-            if score <= 0:
-                continue
-            status = "awaiting_verification" if r["status"] == "pending" else "verified"
-            hits.append(Hit(self.module, f"room:{r['room_id']}", text, status, "observed", score,
-                            "lugares", [f"World Atlas: {r['source'] or 'explorer'}"],
-                            {"atlas_status": r["status"], "room_id": r["room_id"]}))
+            out.append({
+                "module": self.module, "record_id": f"room:{r['room_id']}",
+                "text": (f"Room '{r['name']}' (ID {r['room_id']}) is a {r['kind'] or 'room'}"
+                         + (f", owner {r['owner']}" if r["owner"] else "")
+                         + (f"; earlier names: {aliases}" if aliases else "") + "."),
+                "search_text": f"{r['name']} {aliases} {r['kind'] or ''} {r['owner'] or ''} "
+                               f"room id {r['room_id']}",
+                "subject": r["name"],
+                "status": "awaiting_verification" if r["status"] == "pending" else "verified",
+                "origin": "observed", "category": "lugares",
+                "sources": [f"World Atlas: {r['source'] or 'explorer'}"],
+                "detail": {"atlas_status": r["status"], "room_id": r["room_id"]}})
         for r in self.ro.rows("SELECT marker, name, kind, room_id FROM markers"):
             if not r["name"]:
                 continue
-            score = overlap_score(query, r["name"])
-            if score <= 0:
-                continue
-            text = (f"'{r['name']}' is a {r['kind'] or 'place'} on the hotel map"
-                    + (f" (room ID {r['room_id']})" if r["room_id"] else "") + ".")
-            hits.append(Hit(self.module, f"marker:{r['marker']}", text, "verified", "observed",
-                            score, "mapa", ["World Atlas: map hover screenshot"],
-                            {"marker": r["marker"]}))
+            out.append({
+                "module": self.module, "record_id": f"marker:{r['marker']}",
+                "text": (f"'{r['name']}' is a {r['kind'] or 'place'} on the hotel map"
+                         + (f" (room ID {r['room_id']})" if r["room_id"] else "") + "."),
+                "search_text": r["name"], "subject": r["name"], "status": "verified",
+                "origin": "observed", "category": "mapa",
+                "sources": ["World Atlas: map hover screenshot"], "detail": {"marker": r["marker"]}})
         for r in self.ro.rows("SELECT from_room, to_room, method, status, times FROM connections "
                               "WHERE method='walk'"):
             a, b = names.get(r["from_room"]), names.get(r["to_room"])
             if not a or not b:
                 continue
-            score = overlap_score(query, f"{a} {b}")
-            if score <= 0:
-                continue
-            hits.append(Hit(self.module, f"walk:{r['from_room']}-{r['to_room']}",
-                            f"Walking from '{a}' leads to '{b}' (one way as observed).",
-                            "submitted" if r["status"] == "observed" else "awaiting_verification",
-                            "observed", score, "rutas",
-                            [f"World Atlas: walked {r['times']}x"], {"atlas_status": r["status"]}))
-        hits.sort(key=lambda h: -h.score)
-        return hits[:limit]
+            out.append({
+                "module": self.module, "record_id": f"walk:{r['from_room']}-{r['to_room']}",
+                "text": f"Walking from '{a}' leads to '{b}' (one way as observed).",
+                "search_text": f"{a} {b} walk lead route", "subject": b,
+                "status": "submitted" if r["status"] == "observed" else "awaiting_verification",
+                "origin": "observed", "category": "rutas",
+                "sources": [f"World Atlas: walked {r['times']}x"],
+                "detail": {"atlas_status": r["status"]}})
+        return out
+
+    def entity_names(self) -> List[str]:
+        names = [r["name"] for r in self.ro.rows("SELECT name FROM rooms")]
+        names += [r["name"] for r in self.ro.rows("SELECT name FROM markers WHERE name IS NOT NULL")]
+        return [n for n in names if n]
+
+    def search(self, query: str, limit: int = 10) -> List[Hit]:
+        out = []
+        for r in self.records():
+            # B1 matched rooms on name/aliases/kind/owner only (not 'room id')
+            st = r["search_text"].rsplit(" room id ", 1)[0] if r["record_id"].startswith("room:") \
+                else (r["search_text"].replace(" walk lead route", "")
+                      if r["record_id"].startswith("walk:") else r["search_text"])
+            out.append(dict(r, search_text=st))
+        return _search_records(out, query, limit)
 
     def close(self) -> None:
         self.ro.close()

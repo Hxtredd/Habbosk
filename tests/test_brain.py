@@ -119,7 +119,7 @@ class LibraryRulesTests(unittest.TestCase):
 
     def test_contributors_and_schema(self):
         self.assertTrue(self.b.local_user)
-        self.assertEqual(self.b.store.schema_version, 2)
+        self.assertEqual(self.b.store.schema_version, 3)
         with self.assertRaises(BrainError):
             self.b.learn("x", "user", by="nobody")           # unknown contributor
         # reopening keeps the same local user
@@ -300,7 +300,7 @@ class MigrationTests(unittest.TestCase):
         self.assertNotIn("owner_id", cols)                       # really a v1 file
         db.close()
         b = Brain(path)
-        self.assertEqual(b.store.schema_version, 2)
+        self.assertEqual(b.store.schema_version, 3)
         self.assertEqual(b.claim(1)["owner_id"], "u1")
         self.assertEqual(b.claim(1)["text"], "old claim")
         b.close()

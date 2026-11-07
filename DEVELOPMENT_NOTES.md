@@ -276,8 +276,22 @@ opening writes nothing; WriteGuard refuses writes) or Real with changes
 backup API and verified BEFORE the Brain opens it / before the first write;
 never overwrites; a failed backup disables all writes). Coloured banner per
 mode; write buttons marked ✎ and disabled when writes aren't allowed.
-Next (each needs approval): B2 ranked retrieval (FTS5 - check availability on
-Windows), B3 reasoning, B4 corrections workflow, B5 importer, B6 test bench.
+B2 retrieval (done, not released): `brain/text.py` (normalise, light es/en
+stemming, stop words, numbers + 'id' kept), `lexicon.py` (curated synonyms,
+weight 0.7), `query.py` (intent: identifier / route / person / state; known
+subject names matched as whole names, partial -> ambiguous), `retrieve.py`
+(IDF from the viewer's visible claims only; subject and intent factors;
+small verified bonus; outdated last; rejected only with include_rejected;
+duplicates merged with no extra weight; conflicting claims shown with their
+visible counterparts, adjacent, beyond the limit; Hit.detail["why"]).
+Schema v3: `claim_index` (+ `claim_fts` FTS5 if available) - derived data
+rebuilt from claims; FTS5 only pre-selects candidates, scoring identical for
+the fallback. Quiz memory / Atlas results only for the local user.
+`Brain.search()` same call (+ include_rejected, use_fts); `search_b1()` kept.
+Speed: 0.3 ms (6 claims), 2 ms (200), 8 ms (1,000), 30-180 ms (10,000).
+The five regression claims in tests/test_brain_retrieval.py are a
+reconstruction of the owner's B1 experiment.
+Next (each needs approval): B3 reasoning, B4 corrections workflow, B5 importer, B6 test bench.
 Stage 1 (engine processing identity) is parked as an unreleased WIP commit.
 
 ## Known limits / ideas

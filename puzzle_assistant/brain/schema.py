@@ -11,7 +11,7 @@ Design rules (owner's requirements):
     can be added later without redesign (no accounts / sync yet).
 """
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 -- who did something: the local user, the importer, SK itself, later other users
@@ -118,10 +118,25 @@ CREATE TABLE IF NOT EXISTS claim_events (
 CREATE INDEX IF NOT EXISTS idx_events_claim ON claim_events(claim_id);
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+
+-- B2 search index: DERIVED data (pre-processed words of each claim), rebuilt
+-- from `claims` whenever needed; it never changes a claim. An FTS5 copy
+-- (claim_fts, created when SQLite supports it) only speeds up finding
+-- candidates - scoring always uses the viewer's own visible claims.
+CREATE TABLE IF NOT EXISTS claim_index (
+    claim_id INTEGER PRIMARY KEY REFERENCES claims(id),
+    terms TEXT NOT NULL,               -- text + subject + category, normalised / stemmed
+    subject_terms TEXT NOT NULL,
+    norm TEXT NOT NULL DEFAULT '',     -- subject + text, normalised (whole-name matching)
+    subject_norm TEXT NOT NULL DEFAULT ''
+);
 """
 
 # v1 -> v2: owner of each claim (= who created it) and the status of old versions
+# v2 -> v3: the search index (claim_index above, created by SCHEMA; filled by
+#           the store) - additive, no existing row is changed
 MIGRATIONS = {
+    3: [],
     2: [
         "ALTER TABLE claims ADD COLUMN owner_id TEXT REFERENCES contributors(id)",
         "UPDATE claims SET owner_id = created_by WHERE owner_id IS NULL",
