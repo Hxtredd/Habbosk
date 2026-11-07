@@ -178,6 +178,12 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
     * Marks on the game: green = sure, yellow = check first. For ORDENAR the
       step to tap next glows green; steps you tapped get a check (it follows
       the game's "Toca el paso N" line).
+    * "Preguntas express" (the timed general-knowledge quiz, 15 questions,
+      a few times a day): the question and the four answers A-D are read
+      the same way; memory first, then the AI (no internet search here -
+      too slow for the timer). Answers the game confirms are learned.
+    * Only windows with a known quiz label are treated as questions (e.g.
+      the job panel's task list is ignored).
   Settings > "Recognise questions": automatically, or only when you press
   Rescan (F5).
 

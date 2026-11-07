@@ -70,8 +70,15 @@ difficulties: keep the interface simple, plain-worded and calm.
   using a hint gives fewer points.
 - Many questions are about the game world (NPCs, casino, prison, gym,
   fishing) → only learnable from the game itself; questions **repeat**.
-- A **timed general-knowledge task** with questions exists (twice a day);
-  not yet recorded → not yet supported. Speed matters there.
+- **Preguntas express** = the timed general-knowledge task (15 questions,
+  ~20 s each): header "Preguntas express / Pregunta n de 15", question,
+  2x2 answers with badges A-D, countdown top right, "Lee la pregunta… n"
+  line and a leaderboard below. `locate_express` (2x2 boxes, missing one
+  inferred, header OCR cached). How the game reveals the right answer
+  there is not recorded yet (assumed green like the library).
+- Bug fixed (v2.3): the job panel ("Armería · Prescott", task rows) was
+  read as a question and answered by the AI; now a known quiz category is
+  required, and rejected panels are not re-read until they change.
 
 ## Architecture (puzzle_assistant/)
 

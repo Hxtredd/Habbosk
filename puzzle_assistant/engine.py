@@ -25,7 +25,8 @@ from .config import DEBUG_DIR, Config
 from .ocr import OcrError, Tesseract
 from .locate import Locator
 from .money import MoneyPanel, MoneyTracker, locate_money, parse_vistos, read_legend
-from .qa.screen import CATEGORIES, fingerprint, locate_question, read_question
+from .qa.screen import (CATEGORIES, fingerprint, locate_express, locate_question,
+                        read_question)
 from .qa.memory import answers_match
 from .qa.model import ORDER
 from .qa.solvers import solve_question
@@ -238,7 +239,7 @@ class Engine(threading.Thread):
                     # Or a quiz question?
                     qhit = None
                     for b, frame_b in (zip(targets, frames) if self.cfg.questions else ()):
-                        lay = locate_question(frame_b)
+                        lay = locate_question(frame_b) or locate_express(frame_b, analyzer.ocr)
                         if lay is not None:
                             qhit = (b, frame_b, lay)
                             break
@@ -326,6 +327,8 @@ class Engine(threading.Thread):
         st["pending"] = fp
         if st["stable"] < 2 and not force:
             return
+        if fp == st.get("ignored") and not force:
+            return
         if fp == st.get("read") and not force:
             # already read. If nothing was found, the first read may have been
             # taken while the window was still appearing: retry a few times.
@@ -345,8 +348,13 @@ class Engine(threading.Thread):
             return
         screen = read_question(frame, lay, analyzer.ocr, analyzer.pool)
         q = screen.question
-        if q.category not in CATEGORIES and st["stable"] < 4 and not force:
-            return                              # label not readable yet: still appearing
+        if q.category not in CATEGORIES:
+            # no known category label: not a quiz question (e.g. the job
+            # panel's task list looks like a column of options) - ignore it,
+            # and don't read it again until it changes
+            if st["stable"] >= 4:
+                st["ignored"] = fp
+            return
         st["read"] = fp
         st["read_at"] = time.monotonic()
         ox, oy = b["left"], b["top"]
@@ -418,7 +426,10 @@ class Engine(threading.Thread):
                        place=place, ai_note=why if self.cfg.ai_provider != "none" else "")
             return
         st["shown"] = (ident, "thinking")
-        st["ai_job"] = (ident, self._ai_pool.submit(ai.answer, q), q, place)
+        # timed express quiz: no slow internet search, one quick AI request
+        timed = q.category == "PREGUNTAS EXPRESS"
+        st["ai_job"] = (ident, self._ai_pool.submit(ai.answer, q, 6.0 if timed else 8.0,
+                                                    not timed), q, place)
         self._emit(state="question", question=q, answer=None, status="thinking", place=place)
 
     def _poll_ai(self, st: dict) -> None:

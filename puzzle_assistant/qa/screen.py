@@ -37,6 +37,8 @@ class Layout:
     category: Optional[Rect] = None   # yellow label line
     feedback: Optional[Rect] = None   # explanation box after answering
     col: Rect = (0, 0, 0, 0)          # x, y, w, h of the option column(s)
+    express: bool = False             # "Preguntas express": 2x2 grid, A-D badges
+    express_q: str = ""               # its question text (read while locating)
 
     @property
     def pairs(self) -> bool:
@@ -184,6 +186,98 @@ def locate_question(frame: np.ndarray, gray: Optional[np.ndarray] = None) -> Opt
     return None
 
 
+# ---------------------------------------------------------------------------
+# "Preguntas express" (timed general-knowledge task, twice a day): a header
+# "Preguntas express / Pregunta 3 de 15", the question, then four answers
+# in a 2x2 grid with letter badges A B / C D. No yellow category label.
+# ---------------------------------------------------------------------------
+_EXPRESS_CACHE: dict = {}
+
+
+def _grid_boxes(gray: np.ndarray) -> List[Rect]:
+    e = cv2.Canny(gray, 15, 45)
+    cnts, _ = cv2.findContours(e, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    out = []
+    for c in cnts:
+        x, y, w, h = cv2.boundingRect(c)
+        if 26 <= h <= 140 and 2.2 <= w / h <= 4.2:
+            out.append((x, y, w, h))
+    keep: List[Rect] = []
+    for b in sorted(out, key=lambda r: (r[1], r[0])):
+        if not any(abs(b[0] - k[0]) <= 4 and abs(b[1] - k[1]) <= 4 for k in keep):
+            keep.append(b)
+    return keep
+
+
+def locate_express(frame: np.ndarray, ocr, gray: Optional[np.ndarray] = None) -> Optional[Layout]:
+    """Find the Preguntas express window: 2x2 equal answer boxes (one may be
+    missed by edge detection and is inferred), confirmed by its header text."""
+    gray = to_gray(frame) if gray is None else gray
+    boxes = _grid_boxes(gray)
+    for a in boxes:
+        x, y, w, h = a
+        same = lambda b: abs(b[2] - w) <= 0.08 * w and abs(b[3] - h) <= 0.12 * h  # noqa: E731
+        right = [b for b in boxes if same(b) and 0 < b[0] - (x + w) <= 0.25 * w and abs(b[1] - y) <= 6]
+        below = [b for b in boxes if same(b) and 0 < b[1] - (y + h) <= 0.4 * h and abs(b[0] - x) <= 6]
+        if not right and not below:
+            continue
+        bx = right[0][0] if right else None
+        cy = below[0][1] if below else None
+        if bx is None or cy is None:
+            diag = [b for b in boxes if same(b) and b[0] > x + w and b[1] > y + h]
+            if not diag:
+                continue
+            bx = bx if bx is not None else diag[0][0]
+            cy = cy if cy is not None else diag[0][1]
+        grid = [(x, y, w, h), (bx, y, w, h), (x, cy, w, h), (bx, cy, w, h)]
+        X1, Y1 = bx + w, cy + h
+        if X1 > frame.shape[1] or Y1 > frame.shape[0]:
+            continue
+        top = max(0, y - int(2.4 * h))
+        head = frame[top:y - 2, x:X1]
+        key = dhash(frame[top:y - 2, x:bx], 16) if bx > x else 0
+        hit = _EXPRESS_CACHE.get(key)
+        if hit is None:
+            hit = _read_express_header(head, ocr)
+            if len(_EXPRESS_CACHE) > 200:
+                _EXPRESS_CACHE.clear()
+            _EXPRESS_CACHE[key] = hit
+        if not hit:
+            continue
+        q_text, q_top = hit
+        lay = Layout(grid, col=(x, y, X1 - x, Y1 - y), express=True, express_q=q_text)
+        lay.category = (x, top + q_top, X1 - x, max(4, y - 2 - (top + q_top)))
+        return lay
+    return None
+
+
+def _read_express_header(head: np.ndarray, ocr):
+    """('question text', y of the question inside head) if this is the
+    Preguntas express header, else None."""
+    if head.size == 0:
+        return None
+    scale = 2.0
+    words = ocr.words(prep_for_ocr(head, scale=scale, pad=0), psm=6)
+    lines: dict = {}
+    for wd in words:
+        lines.setdefault(wd.line, []).append(wd)
+    rows = sorted((sorted(v, key=lambda w: w.x) for v in lines.values()),
+                  key=lambda r: min(w.y for w in r))
+    texts = [" ".join(w.text for w in r) for r in rows]
+    if not any("express" in normalize(t) for t in texts):
+        return None
+    start = None
+    for i, t in enumerate(texts):
+        if re.search(r"pregunta\s+\d+\s+de\s+\d+", normalize(t)):
+            start = i + 1
+    if start is None or start >= len(texts):
+        return None
+    q_rows = rows[start:]
+    q = " ".join(texts[start:]).strip()
+    q_top = int(min(w.y for w in q_rows[0]) / scale) - 4
+    return q, max(0, q_top)
+
+
 def _feedback_box(rects: List[Rect], lay: Layout, hb: int) -> Optional[Rect]:
     x, y, w, h = lay.col
     bottom = y + h
@@ -305,8 +399,9 @@ def _ocr_option(ocr, img: np.ndarray) -> str:
     return " ".join(_ocr_lines(ocr, crop, 6, 2.5))
 
 
+EXPRESS = "PREGUNTAS EXPRESS"
 CATEGORIES = ["ADIVINANZA", "PREGUNTA", "ORDENAR", "PAREJAS", "ENCUENTRA EL ERROR",
-              "¿QUIÉN SOY?", "VERDADERO O FALSO", "COMPLETA LA FRASE"]
+              "¿QUIÉN SOY?", "VERDADERO O FALSO", "COMPLETA LA FRASE", EXPRESS]
 
 
 def snap_category(raw: str) -> str:
@@ -349,6 +444,8 @@ def split_question(lines: List[str]) -> Tuple[str, List[str]]:
 
 def read_question(frame: np.ndarray, lay: Layout, ocr, pool: Optional[ThreadPoolExecutor] = None,
                   learn_only_if_answered: bool = True) -> Screen:
+    if lay.express:
+        return _read_express(frame, lay, ocr, pool)
     x, y, w, h = lay.col
     own_pool = pool is None
     pool = pool or ThreadPoolExecutor(max_workers=8)
@@ -424,6 +521,33 @@ def read_question(frame: np.ndarray, lay: Layout, ocr, pool: Optional[ThreadPool
                       progress)
     finally:
         if own_pool:
+            pool.shutdown(wait=False)
+
+
+def _read_express(frame, lay: Layout, ocr, pool) -> "Screen":
+    own = pool is None
+    pool = pool or ThreadPoolExecutor(max_workers=4)
+    try:
+        futs = []
+        for bx, by, bw, bh in lay.boxes:
+            left = bx + int(bh * 0.68)               # skip the A/B/C/D badge
+            crop = frame[by + 4:by + bh - 4, left:bx + bw - 6]
+            futs.append((pool.submit(_ocr_option, ocr, crop), pool.submit(read_math, crop, ocr)))
+        options = []
+        for f_txt, f_math in futs:
+            exact = f_math.result()
+            options.append(exact if exact is not None else _clean(f_txt.result()))
+        q = Question(EXPRESS, _clean(lay.express_q), options, CHOICE, [])
+        q.language = guess_language(q.text + " " + " ".join(options))
+        status = [_status(frame, b) for b in lay.boxes]
+        answered = "correct" in status
+        revealed = None
+        if answered:
+            revealed = Answer(CHOICE, choice=options[status.index("correct")], source="game",
+                              verified=True)
+        return Screen(q, answered, status, revealed, layout=lay)
+    finally:
+        if own:
             pool.shutdown(wait=False)
 
 
