@@ -11,14 +11,14 @@ Design rules (owner's requirements):
     can be added later without redesign (no accounts / sync yet).
 """
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 -- who did something: the local user, the importer, SK itself, later other users
 CREATE TABLE IF NOT EXISTS contributors (
     id TEXT PRIMARY KEY,               -- stable id (uuid for people)
     display_name TEXT,
-    kind TEXT NOT NULL,                -- local_user | system | importer | external_user
+    kind TEXT NOT NULL,                -- local_user | external_user | moderator | system | importer
     created TEXT NOT NULL
 );
 
@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS claims (
     origin TEXT NOT NULL,              -- see model.ORIGINS
     status TEXT NOT NULL,              -- see model.STATUSES
     scope TEXT NOT NULL DEFAULT 'personal',   -- see model.SCOPES
+    owner_id TEXT REFERENCES contributors(id),  -- whose knowledge it is (personal = only theirs)
     section_id INTEGER REFERENCES sections(id),   -- context it was taken from
     version INTEGER NOT NULL DEFAULT 1,
     created TEXT NOT NULL,
@@ -96,6 +97,7 @@ CREATE TABLE IF NOT EXISTS claim_versions (
     text TEXT NOT NULL,
     subject TEXT,
     category TEXT,
+    old_status TEXT,                   -- status the replaced wording had
     replaced_by TEXT REFERENCES contributors(id),
     replaced_at TEXT NOT NULL,
     reason TEXT,
@@ -117,3 +119,12 @@ CREATE INDEX IF NOT EXISTS idx_events_claim ON claim_events(claim_id);
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
+
+# v1 -> v2: owner of each claim (= who created it) and the status of old versions
+MIGRATIONS = {
+    2: [
+        "ALTER TABLE claims ADD COLUMN owner_id TEXT REFERENCES contributors(id)",
+        "UPDATE claims SET owner_id = created_by WHERE owner_id IS NULL",
+        "ALTER TABLE claim_versions ADD COLUMN old_status TEXT",
+    ],
+}

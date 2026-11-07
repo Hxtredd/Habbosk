@@ -46,15 +46,20 @@ class LibraryRulesTests(unittest.TestCase):
             self.b.learn("x", "rumour")                      # unknown origin
 
     def test_repeating_a_claim_never_verifies_it(self):
-        c = self.b.learn("La mina está en Avenida Crisol.", "user", "Mina")
+        text = "La mina está en Avenida Crisol."
+        ids = []
         for name in ("Ana", "Luis", "Marta"):                  # three people say it
             who = self.b.store.add_contributor(name)
+            c = self.b.learn(text, "user", "Mina", by=who)
             self.b.add_evidence(c, "assertion", by=who)
-        s = self.b.explain(c)["support"]
-        self.assertEqual((s["direct"], s["assertions"], s["contributors"]), (0, 3, 3))
-        with self.assertRaises(BrainError):
-            self.b.review(c, "verified")
-        self.assertEqual(self.b.claim(c)["status"], "submitted")
+            self.b.add_evidence(c, "assertion", by=who)        # and repeat it
+            ids.append((c, who))
+        for c, who in ids:
+            s = self.b.explain(c, viewer=who)["support"]
+            self.assertEqual((s["direct"], s["assertions"]), (0, 2))
+            with self.assertRaises(BrainError):
+                self.b.review(c, "verified", reviewer=who)
+            self.assertEqual(self.b.claim(c, viewer=who)["status"], "submitted")
 
     def test_same_material_counts_once_and_direct_evidence_allows_verification(self):
         c = self.b.learn("El Gran Casino es la sala 12411.", "observed", "Gran Casino")
@@ -114,7 +119,7 @@ class LibraryRulesTests(unittest.TestCase):
 
     def test_contributors_and_schema(self):
         self.assertTrue(self.b.local_user)
-        self.assertEqual(self.b.store.schema_version, 1)
+        self.assertEqual(self.b.store.schema_version, 2)
         with self.assertRaises(BrainError):
             self.b.learn("x", "user", by="nobody")           # unknown contributor
         # reopening keeps the same local user
@@ -123,6 +128,182 @@ class LibraryRulesTests(unittest.TestCase):
         self.b.close()
         self.b = Brain(path)
         self.assertEqual(self.b.local_user, uid)
+
+
+class IsolationTests(unittest.TestCase):
+    """Personal knowledge belongs to its owner; shared knowledge follows the
+    approval rules (single-user app today, multi-user ready)."""
+
+    def setUp(self):
+        self.b = Brain(tmp("knowledge.db"))
+        self.me = self.b.local_user
+        self.ana = self.b.store.add_contributor("Ana")
+        self.mod = self.b.store.add_contributor("Mod", kind="moderator")
+
+    def tearDown(self):
+        self.b.close()
+
+    def test_personal_claims_are_invisible_to_others(self):
+        mine = self.b.learn("Mi código del casillero es 4411.", "user", "casillero")
+        hers = self.b.learn("El casillero de Ana está en el gimnasio.", "user", "casillero",
+                            by=self.ana)
+        self.assertIsNone(self.b.claim(mine, viewer=self.ana))
+        self.assertIsNone(self.b.claim(hers))                  # default viewer = me
+        self.assertEqual([h.record_id for h in self.b.search("casillero", modules=["library"])],
+                         [str(mine)])
+        self.assertEqual([h.record_id for h in self.b.search("casillero", modules=["library"],
+                                                              viewer=self.ana)], [str(hers)])
+        self.assertIsNone(self.b.explain(mine, viewer=self.ana)["claim"])
+        self.assertEqual(self.b.explain(mine, viewer=self.ana)["events"], [])
+        self.assertEqual(self.b.stats(viewer=self.ana)["claims"], 1)   # no counts leak
+
+    def test_others_cannot_change_my_personal_claims(self):
+        mine = self.b.learn("El taxi es gratis.", "user", "taxi")
+        src = self.b.add_source("screenshot", title="x", by=self.ana)
+        for fn in (lambda: self.b.add_evidence(mine, "direct", src, by=self.ana),
+                   lambda: self.b.review(mine, "rejected", reviewer=self.ana),
+                   lambda: self.b.correct(mine, "El taxi cuesta $5.", by=self.ana),
+                   lambda: self.b.propose_share(mine, by=self.ana)):
+            with self.assertRaises(BrainError):
+                fn()
+        self.assertEqual(self.b.claim(mine)["text"], "El taxi es gratis.")
+
+    def test_sharing_needs_owner_verification_and_a_moderator(self):
+        c = self.b.learn("El Spa está junto al Gran Casino.", "imported", "Spa")
+        self.b.propose_share(c)
+        self.assertIsNone(self.b.claim(c, viewer=self.ana))     # candidate: not public yet
+        self.assertIsNotNone(self.b.claim(c, viewer=self.mod))  # moderators can review it
+        with self.assertRaises(BrainError):
+            self.b.approve_share(c, self.mod)                    # not verified yet
+        with self.assertRaises(BrainError):
+            self.b.review(c, "verified")                         # owner can't self-verify shared
+        shot = self.b.add_source("screenshot", title="map", content_hash="m1")
+        self.b.add_evidence(c, "direct", shot)
+        self.b.review(c, "verified", reviewer=self.mod, note="visible on the map")
+        with self.assertRaises(BrainError):
+            self.b.approve_share(c, self.ana)                    # not a moderator
+        self.b.approve_share(c, self.mod)
+        hit = self.b.search("Spa Gran Casino", modules=["library"], viewer=self.ana)[0]
+        self.assertTrue(hit.established)
+        ev = self.b.explain(c, viewer=self.ana)["events"]
+        self.assertEqual([e["event"] for e in ev],
+                         ["created", "share_proposed", "evidence_added", "reviewed",
+                          "share_approved"])
+        self.assertEqual(ev[3]["by"], self.mod)                  # who reviewed is recorded
+        self.assertEqual(ev[4]["by"], self.mod)
+
+    def test_shared_claims_cannot_get_private_evidence_or_be_edited_in_place(self):
+        c = self.b.learn("La mina tiene 3 niveles.", "imported", "Mina")
+        self.b.propose_share(c)
+        priv = self.b.add_source("screenshot", title="my screen", private=True)
+        with self.assertRaises(BrainError):
+            self.b.add_evidence(c, "direct", priv)
+        with self.assertRaises(BrainError):
+            self.b.correct(c, "La mina tiene 4 niveles.")
+        new = self.b.propose_correction(c, "La mina tiene 4 niveles.", reason="nivel 4 visto")
+        self.assertEqual(self.b.claim(c)["text"], "La mina tiene 3 niveles.")   # unchanged
+        self.assertEqual(self.b.claim(new)["status"], "submitted")
+        self.assertTrue(any(l["kind"] == "supersedes" and l["to_claim"] == c
+                            for l in self.b.explain(new)["links"]))
+
+
+class PresentationTests(unittest.TestCase):
+    """Unverified knowledge is never presented as an established fact."""
+
+    def setUp(self):
+        self.b = Brain(tmp("knowledge.db"))
+
+    def tearDown(self):
+        self.b.close()
+
+    def test_unverified_and_conflicting_are_labelled(self):
+        a = self.b.learn("El taxi cuesta $5.", "user", "taxi")
+        b = self.b.learn("El taxi es gratis.", "user", "taxi")
+        c = self.b.learn("El taxi tarda 3 segundos.", "ai", "taxi")
+        self.b.link(b, a, "contradicts")
+        hits = {h.record_id: h for h in self.b.search("taxi", modules=["library"])}
+        for h in hits.values():
+            self.assertFalse(h.established)
+            self.assertTrue(h.display().startswith("["), h.display())
+        self.assertIn("Conflicting", hits[str(a)].display())
+        self.assertIn("Unverified", hits[str(c)].display())
+        self.assertFalse(self.b.ask("¿Cuánto cuesta el taxi?").answered)
+
+    def test_conflict_must_be_resolved_before_verifying(self):
+        a = self.b.learn("El taxi cuesta $5.", "user", "taxi")
+        b = self.b.learn("El taxi es gratis.", "user", "taxi")
+        self.b.link(b, a, "contradicts")
+        src = self.b.add_source("game_observation", title="taxi trip, no charge")
+        self.b.add_evidence(b, "direct", src)
+        with self.assertRaises(BrainError):
+            self.b.review(b, "verified")                         # 'a' is still open
+        self.b.review(a, "rejected", note="the trip was free")
+        self.b.review(b, "verified")
+        self.assertEqual(self.b.claim(a)["status"], "rejected")  # kept, not deleted
+        self.assertEqual(len(self.b.store.claims(subject="taxi")), 2)
+
+    def test_no_automatic_verification(self):
+        sysid = "system"
+        c = self.b.learn("Leo es el asistente NPC.", "ai", "Leo", by=sysid)
+        src = self.b.add_source("game_observation", title="quiz reveal", by=sysid)
+        self.b.add_evidence(c, "direct", src, by=sysid)
+        with self.assertRaises(BrainError):
+            self.b.review(c, "verified", reviewer=sysid)        # AI origin: never automatic
+        obs = self.b.learn("Leo cubre el gimnasio.", "observed", "Leo", by=sysid)
+        self.b.add_evidence(obs, "direct", src, by=sysid)
+        self.b.review(obs, "verified", reviewer=sysid)           # SK's own game observation
+        imp = self.b.learn("El banco abre a las 9.", "imported", "Banco", by="importer")
+        page = self.b.add_source("guide_page", title="Guía", by="importer")
+        self.b.add_evidence(imp, "direct", page, by="importer")
+        with self.assertRaises(BrainError):
+            self.b.review(imp, "verified", reviewer="importer")  # importer can't verify
+
+    def test_evidence_is_traceable(self):
+        c = self.b.learn("El Spa está cerca del casino.", "derived", "Spa")
+        with self.assertRaises(BrainError):
+            self.b.add_evidence(c, "derived")                    # no derived_from link
+        with self.assertRaises(BrainError):
+            self.b.add_evidence(c, "direct", 999)                # unknown source
+        base = self.b.learn("El Spa está en Avenida Espumia.", "imported", "Spa")
+        self.b.link(c, base, "derived_from")
+        self.b.add_evidence(c, "derived")
+        self.assertEqual(self.b.explain(c)["support"]["derived"], 1)
+
+    def test_versions_keep_their_status(self):
+        c = self.b.learn("El banco abre a las 8.", "imported", "Banco")
+        page = self.b.add_source("guide_page", title="Guía v1")
+        self.b.add_evidence(c, "direct", page)
+        self.b.review(c, "verified")
+        self.b.correct(c, "El banco abre a las 9.", reason="guía nueva")
+        v = self.b.explain(c)["versions"][0]
+        self.assertEqual((v["text"], v["old_status"]), ("El banco abre a las 8.", "verified"))
+        self.assertEqual(self.b.claim(c)["status"], "awaiting_verification")
+
+
+class MigrationTests(unittest.TestCase):
+    def test_v1_database_is_upgraded_without_loss(self):
+        path = tmp("knowledge.db")
+        db = sqlite3.connect(path)
+        from puzzle_assistant.brain import schema
+        v1 = schema.SCHEMA.replace("    owner_id TEXT REFERENCES contributors(id),  -- whose "
+                                   "knowledge it is (personal = only theirs)\n", "")
+        v1 = v1.replace("    old_status TEXT,                   -- status the replaced wording "
+                        "had\n", "")
+        db.executescript(v1)
+        db.execute("INSERT INTO contributors VALUES ('u1','Local','local_user','t')")
+        db.execute("INSERT INTO meta VALUES ('local_user','u1'), ('schema_version','1')")
+        db.execute("INSERT INTO claims (text, origin, status, scope, version, created, "
+                   "created_by, updated) VALUES ('old claim','user','submitted','personal',1,"
+                   "'t','u1','t')")
+        db.commit()
+        cols = [r[1] for r in db.execute("PRAGMA table_info(claims)")]
+        self.assertNotIn("owner_id", cols)                       # really a v1 file
+        db.close()
+        b = Brain(path)
+        self.assertEqual(b.store.schema_version, 2)
+        self.assertEqual(b.claim(1)["owner_id"], "u1")
+        self.assertEqual(b.claim(1)["text"], "old claim")
+        b.close()
 
 
 class AdapterTests(unittest.TestCase):

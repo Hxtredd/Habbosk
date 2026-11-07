@@ -11,6 +11,11 @@
 All calls are synchronous and UI-free: the application decides whether to
 run them in a background thread. Nothing here imports Tkinter.
 
+Isolation: every reading call takes `viewer` (default: the local user).
+People only ever see shared knowledge plus their own. Results carry their
+status; `Hit.display()` never shows unverified knowledge without saying so,
+and `Hit.established` is True only for verified knowledge.
+
 Stage status: B1 = storage, provenance, statuses, versions, adapters and a
 basic word-overlap search. Ranked retrieval (B2), the reasoning that turns
 hits into an answer (B3), the page importer (B5) and the test bench (B6) are
@@ -80,27 +85,41 @@ class Brain:
     def correct(self, claim_id: int, new_text: str, reason: str = "", by: Optional[str] = None) -> int:
         return self.store.correct(claim_id, new_text, by, reason)
 
+    def propose_correction(self, claim_id: int, new_text: str, reason: str = "",
+                           by: Optional[str] = None) -> int:
+        return self.store.propose_correction(claim_id, new_text, by, reason)
+
     def propose_share(self, claim_id: int, by: Optional[str] = None) -> None:
         self.store.propose_share(claim_id, by)
 
-    # -- reading -------------------------------------------------------------------------
-    def claim(self, claim_id: int) -> Optional[dict]:
-        return self.store.claim(claim_id)
+    def approve_share(self, claim_id: int, moderator: str, note: str = "") -> None:
+        self.store.approve_share(claim_id, moderator, note)
 
-    def explain(self, claim_id: int) -> Dict[str, object]:
-        """Everything behind one claim: evidence, its summary, links, history."""
-        return {"claim": self.store.claim(claim_id),
+    # -- reading (always for a viewer) -------------------------------------------------
+    def claim(self, claim_id: int, viewer: Optional[str] = None) -> Optional[dict]:
+        return self.store.claim(claim_id, viewer)
+
+    def explain(self, claim_id: int, viewer: Optional[str] = None) -> Dict[str, object]:
+        """Everything behind one claim: evidence, its summary, links, history.
+        Empty if the viewer may not see the claim."""
+        c = self.store.claim(claim_id, viewer)
+        if c is None:
+            return {"claim": None, "evidence": [], "support": {}, "links": [],
+                    "events": [], "versions": []}
+        return {"claim": c,
                 "evidence": self.store.evidence(claim_id),
                 "support": self.store.evidence_summary(claim_id),
-                "links": self.store.links(claim_id),
-                **self.store.history(claim_id)}
+                "links": self.store.links(claim_id, viewer),
+                **self.store.history(claim_id, viewer)}
 
-    def search(self, query: str, limit: int = 10, modules: Optional[List[str]] = None) -> List[Hit]:
-        """Relevant knowledge from the library and the other modules.
-        B1: basic word overlap (B2 replaces the ranking, same interface)."""
+    def search(self, query: str, limit: int = 10, modules: Optional[List[str]] = None,
+               viewer: Optional[str] = None) -> List[Hit]:
+        """Relevant knowledge from the library (only what `viewer` may see)
+        and the other modules. B1: basic word overlap (B2 replaces the
+        ranking, same interface)."""
         hits: List[Hit] = []
         if modules is None or "library" in modules:
-            for c in self.store.claims(limit=5000):
+            for c in self.store.claims(limit=5000, viewer=viewer):
                 score = overlap_score(query, f"{c['text']} {c['subject'] or ''} {c['category'] or ''}")
                 if score > 0 and c["status"] != "rejected":
                     s = self.store.evidence_summary(c["id"])
@@ -115,13 +134,13 @@ class Brain:
         hits.sort(key=lambda h: -h.score)
         return hits[:limit]
 
-    def ask(self, question: str) -> BrainAnswer:
+    def ask(self, question: str, viewer: Optional[str] = None) -> BrainAnswer:
         """Placeholder until the reasoning layer (B3): reports what was found
         and never invents an answer."""
-        hits = self.search(question)
+        hits = self.search(question, viewer=viewer)
         return BrainAnswer(question, answered=False, basis="insufficient", confidence="none",
                            hits=hits, trace=[f"found {len(hits)} related records",
                                              "reasoning layer not built yet (stage B3): no answer given"])
 
-    def stats(self) -> dict:
-        return self.store.stats()
+    def stats(self, viewer: Optional[str] = None) -> dict:
+        return self.store.stats(viewer)

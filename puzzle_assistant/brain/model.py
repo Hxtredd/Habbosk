@@ -35,9 +35,35 @@ EVIDENCE_KINDS = (
 SOURCE_KINDS = ("guide_page", "document", "webpage", "screenshot", "video", "game_observation",
                 "user_statement", "quiz_memory", "world_atlas", "import_file", "other")
 
-# Who may see a claim. Personal is the default; nothing becomes shareable
-# without an explicit, recorded action, and never when its evidence is private.
+# Who may see a claim:
+#   personal          - only its owner, in every API call;
+#   shared_candidate  - proposed for the shared library: still only its owner
+#                       (and moderators reviewing it) until approved;
+#   shared            - everyone, after a moderator approved it. Its status
+#                       still says whether it is verified.
+# Nothing becomes shareable without an explicit, recorded action, and never
+# when its evidence comes from a private source.
 SCOPES = ("personal", "shared_candidate", "shared")
+
+# People who may approve shared knowledge (future community library).
+MODERATOR_KINDS = ("moderator",)
+# Automatic contributors: may record, never verify on their own - except a
+# direct game observation recorded by SK itself (see store.review).
+AUTOMATIC_KINDS = ("system", "importer")
+
+STATUS_LABELS = {
+    "verified": "Verified",
+    "submitted": "Unverified (not checked yet)",
+    "awaiting_verification": "Unverified (waiting for review)",
+    "conflicting": "Conflicting information - unresolved",
+    "rejected": "Rejected",
+    "outdated": "Outdated (no longer true)",
+}
+
+
+def is_established(status: str) -> bool:
+    """Only verified knowledge may be presented as an established fact."""
+    return status == "verified"
 
 
 @dataclass
@@ -52,6 +78,21 @@ class Hit:
     category: str = ""
     sources: List[str] = field(default_factory=list)   # human-readable source references
     detail: dict = field(default_factory=dict)
+
+    @property
+    def established(self) -> bool:
+        """True only for verified knowledge (everything else must be shown
+        as unverified, conflicting, outdated...)."""
+        return is_established(self.status)
+
+    @property
+    def label(self) -> str:
+        return STATUS_LABELS.get(self.status, self.status)
+
+    def display(self) -> str:
+        """Text safe to show to a person: unverified knowledge is never
+        shown without its status."""
+        return self.text if self.established else f"[{self.label}] {self.text}"
 
 
 @dataclass

@@ -245,6 +245,19 @@ verified and only with direct/confirmation evidence (same material counts
 once, assertions never); corrections add versions; contradictions flag both;
 private evidence blocks sharing. Quiz memory and World Atlas are read through
 `adapters.py` (SQLite `mode=ro`, never created/modified), statuses mapped.
+B1 hardening (schema v2, auto-migrated from v1): `claims.owner_id`,
+`claim_versions.old_status`. Isolation: every read takes `viewer`; personal
+and shared-candidate claims are visible only to their owner (candidates also
+to moderators), only `shared` to everyone; stats per viewer. Others cannot
+add evidence / review / correct / link / share someone's personal claim.
+Sharing: owner proposes -> moderator verifies -> moderator `approve_share`
+(verified only, no private evidence). Shared claims are corrected through
+`propose_correction` (new claim, `supersedes` link; original unchanged).
+No automatic verification (system/importer cannot verify, except SK's own
+direct game observation of an `observed` claim); open contradictions block
+verification; derived evidence needs a `derived_from` link; evidence sources
+must exist. `Hit.established` (verified only) and `Hit.display()` (labels
+unverified/conflicting/outdated) - nothing unverified is shown as fact.
 `Brain` API: learn, add_source, add_section, add_evidence, link, review,
 correct, propose_share, claim, explain, search (B1: word overlap), ask (B1:
 reports hits, never answers). Not wired into the app yet.
