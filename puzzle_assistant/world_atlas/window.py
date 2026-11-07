@@ -21,9 +21,13 @@ KIND = {"place": "Place", "street": "Street", "player": "Player room", "generate
 
 
 class ExplorerWindow:
-    def __init__(self, root: tk.Tk, atlas, explorer, font):
+    def __init__(self, root: tk.Tk, atlas, explorer, font, topmost: bool = True):
         self.atlas, self.explorer, self.font = atlas, explorer, font
         w = self.win = tk.Toplevel(root)
+        # stay above the browser like the main window (it vanished behind
+        # Chrome when the game was clicked)
+        w.attributes("-topmost", bool(topmost))
+        w.after(200, lambda: _hide_from_capture(w))
         w.title("SK Assistant – Live Explorer")
         w.configure(bg=BG)
         w.geometry("560x680")
@@ -230,6 +234,20 @@ class ExplorerWindow:
         messagebox.showinfo("World Atlas", f"Saved: {c['rooms']} rooms, {c['connections']} "
                             f"connections, {c['visits']} visits.\nSend this file to Claude to "
                             "add it to the world knowledge.", parent=self.win)
+
+
+def _hide_from_capture(win) -> None:
+    """Like the main window: invisible to screen capture, so SK never reads
+    its own Explorer window as part of the game."""
+    import sys
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
+        ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, 0x11)
+    except Exception:
+        pass
 
 
 def open_explorer(existing: Optional[ExplorerWindow], *args) -> ExplorerWindow:

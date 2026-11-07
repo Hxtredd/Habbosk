@@ -243,10 +243,11 @@ class Engine(threading.Thread):
                         if lay is not None:
                             qhit = (b, frame_b, lay)
                             break
-                    if qhit is not None:
+                    # a window ruled out as "not a quiz" (e.g. the job panel)
+                    # counts as nothing on screen, so old marks are cleared
+                    if qhit is not None and self._question_tick(qhit, analyzer, force, qstate):
                         last_target = _key(qhit[0])
                         locked, tried, placed = None, None, None
-                        self._question_tick(qhit, analyzer, force, qstate)
                         active, last_seen = True, tick
                         self._sleep(tick)
                         continue
@@ -316,9 +317,10 @@ class Engine(threading.Thread):
         grabber.close()
 
     # -- quiz questions ----------------------------------------------------
-    def _question_tick(self, qhit, analyzer, force: bool, st: dict) -> None:
+    def _question_tick(self, qhit, analyzer, force: bool, st: dict) -> bool:
         """Read a question once it stops moving; answer it from memory; learn
-        the correct answer when the game reveals it."""
+        the correct answer when the game reveals it. Returns False when the
+        window was ruled out as not being a quiz question."""
         b, frame, lay = qhit
         self._poll_ai(st)
         fp = fingerprint(frame, lay)
@@ -326,9 +328,9 @@ class Engine(threading.Thread):
         st["stable"] = st.get("stable", 0) + 1 if fp == st.get("pending") else 0
         st["pending"] = fp
         if st["stable"] < 2 and not force:
-            return
+            return True
         if fp == st.get("ignored") and not force:
-            return
+            return False
         if fp == st.get("read") and not force:
             # already read. If nothing was found, the first read may have been
             # taken while the window was still appearing: retry a few times.
@@ -337,7 +339,7 @@ class Engine(threading.Thread):
                      and st.get("retries", 0) < 3
                      and time.monotonic() - st.get("read_at", 0.0) >= 0.9)
             if not retry:
-                return
+                return True
             st["retries"] = st.get("retries", 0) + 1
         else:
             st["retries"] = 0
@@ -345,7 +347,7 @@ class Engine(threading.Thread):
             if st.get("announced") != fp:
                 st["announced"] = fp
                 self._emit(state="question_wait")
-            return
+            return True
         screen = read_question(frame, lay, analyzer.ocr, analyzer.pool)
         q = screen.question
         if q.category not in CATEGORIES:
@@ -354,7 +356,8 @@ class Engine(threading.Thread):
             # and don't read it again until it changes
             if st["stable"] >= 4:
                 st["ignored"] = fp
-            return
+                return False
+            return True
         st["read"] = fp
         st["read_at"] = time.monotonic()
         ox, oy = b["left"], b["top"]
@@ -373,9 +376,9 @@ class Engine(threading.Thread):
                 if q.kind == ORDER and screen.progress != st.get("progress", 0):
                     st["progress"] = screen.progress
                     self._emit(state="question_progress", progress=screen.progress)
-                return
+                return True
             if screen.answered and shown[1] == "game":
-                return
+                return True
         if screen.answered and screen.revealed is not None:
             learned = mem.save(q, screen.revealed) if mem else ""
             if mem:
@@ -415,6 +418,7 @@ class Engine(threading.Thread):
                                place=place, progress=screen.progress)
                 elif not (shown and shown[0] == ident and shown[1] in ("unknown", "thinking")):
                     self._ask_ai(q, ident, place, st)
+        return True
 
     # -- AI (runs in the background; the screen keeps being watched) --------
     def _ask_ai(self, q, ident, place, st: dict) -> None:

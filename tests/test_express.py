@@ -40,7 +40,7 @@ class ExpressTests(unittest.TestCase):
         for name in ("adivinanza_open", "ordenar_sumas_answered", "parejas_animales_open"):
             self.assertIsNone(locate_express(cv2.imread(os.path.join(QF, name + ".png")), self.ocr), name)
 
-    def run_engine(self, img, ticks=6):
+    def run_engine(self, img, ticks=6, results=None):
         from puzzle_assistant import engine as E
         from puzzle_assistant.analyzer import Analyzer
         from puzzle_assistant.qa.screen import locate_express, locate_question
@@ -49,7 +49,9 @@ class ExpressTests(unittest.TestCase):
         an, st = Analyzer(cfg, self.ocr), {}
         lay = locate_question(img) or locate_express(img, self.ocr)
         for _ in range(ticks):
-            eng._question_tick(({"left": 0, "top": 0}, img, lay), an, False, st)
+            r = eng._question_tick(({"left": 0, "top": 0}, img, lay), an, False, st)
+            if results is not None:
+                results.append(r)
         out = []
         while not eng.out.empty():
             out.append(eng.out.get())
@@ -63,8 +65,16 @@ class ExpressTests(unittest.TestCase):
 
     def test_panel_without_a_quiz_label_is_ignored(self):
         # a column of boxes under some yellow text that is not a quiz category
-        msgs = self.run_engine(cv2.imread(os.path.join(QF, "no_label_panel.png")), ticks=10)
+        res = []
+        msgs = self.run_engine(cv2.imread(os.path.join(QF, "no_label_panel.png")), ticks=10,
+                               results=res)
         self.assertEqual(msgs, [])
+        # it is then reported as "no question here", so the engine goes back
+        # to "waiting" and the marks of a finished puzzle are cleared
+        self.assertEqual(res[-1], False)
+        res = []
+        self.run_engine(cv2.imread(os.path.join(QF, "express_open.png")), results=res)
+        self.assertTrue(all(res))
 
 
 if __name__ == "__main__":

@@ -300,7 +300,8 @@ class App:
             return
         from .world_atlas.window import open_explorer
         self._explorer_win = open_explorer(self._explorer_win, self.root, self.atlas,
-                                           self.explorer, self._ui_font)
+                                           self.explorer, self._ui_font,
+                                           bool(self.cfg.always_on_top))
 
     def _ui_font(self, size: int, bold: bool = False):
         return self._font(FONT_SEMI if bold else FONT, size)
@@ -329,6 +330,11 @@ class App:
             self._update_power()
         elif name == "always_on_top":
             self.root.attributes("-topmost", bool(self.cfg.always_on_top))
+            try:
+                if self._explorer_win is not None and self._explorer_win.win.winfo_exists():
+                    self._explorer_win.win.attributes("-topmost", bool(self.cfg.always_on_top))
+            except tk.TclError:
+                pass
         elif name == "text_scale":
             self._apply_text_scale()
             self._rerender()

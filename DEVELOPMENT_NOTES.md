@@ -79,6 +79,10 @@ difficulties: keep the interface simple, plain-worded and calm.
 - Bug fixed (v2.3): the job panel ("Armería · Prescott", task rows) was
   read as a question and answered by the AI; now a known quiz category is
   required, and rejected panels are not re-read until they change.
+- v2.4: a rejected panel also counts as "nothing on screen" (the job panel
+  kept the engine 'active', so weapon marks stayed after the puzzle closed);
+  the Explorer window is always-on-top (like the main window) and hidden
+  from capture.
 
 ## Architecture (puzzle_assistant/)
 
