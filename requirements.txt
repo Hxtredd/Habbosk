@@ -1,6 +1,7 @@
-# Python 3.9 - 3.13 (64-bit) on Windows 10/11.
+# Python 3.9 or newer (64-bit) on Windows 10/11.
 # Tkinter ships with the standard python.org installer.
 # The Tesseract OCR engine itself is a separate program: INSTALL.bat sets it up.
 numpy>=1.24
 opencv-python-headless>=4.8
 mss>=9.0
+pillow>=10.0

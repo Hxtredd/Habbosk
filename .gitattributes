@@ -6,3 +6,4 @@ README.txt text eol=crlf
 *.ico binary
 *.npz binary
 *.png binary
+*.otf binary

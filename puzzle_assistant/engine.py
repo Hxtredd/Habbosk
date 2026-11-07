@@ -13,13 +13,13 @@ import queue
 import threading
 import time
 import traceback
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import cv2
 
 from .analyzer import Analysis, Analyzer, describe
 from .overlay import badge_mask_rect
-from .capture import ScreenGrabber
+from .capture import ScreenGrabber, display_info
 from .config import DEBUG_DIR, Config
 from .ocr import OcrError, Tesseract
 from .locate import Locator
@@ -82,6 +82,10 @@ def fingerprints(panel, cards) -> List[int]:
     return out
 
 
+def _key(b: dict) -> tuple:
+    return (b["left"], b["top"], b["width"], b["height"])
+
+
 class Engine(threading.Thread):
     def __init__(self, cfg: Config, out: "queue.Queue[dict]"):
         super().__init__(daemon=True, name="puzzle-engine")
@@ -121,7 +125,8 @@ class Engine(threading.Thread):
             return
         grabber = ScreenGrabber(self.cfg.monitor)
         analyzer = Analyzer(self.cfg, ocr)
-        locator = Locator(self.cfg)
+        locators: Dict[tuple, Locator] = {}      # one per screen area
+        last_target: Optional[tuple] = None    # screen the puzzle was last seen on
         self._emit(state="waiting", msg="Waiting for puzzle…")
 
         active = False
@@ -148,18 +153,30 @@ class Engine(threading.Thread):
                 self._rescan.clear()
                 if self.region_changed.is_set():
                     self.region_changed.clear()
-                    locator.reset()
+                    locators.clear()
+                    last_target = None
                 if force:
-                    locator.reset()
+                    for loc in locators.values():
+                        loc.reset()
                     locked = None
 
-                frame, bounds = grabber.grab(self.cfg.region)
-                gray = to_gray(frame)
-                hit = locator.find(frame, gray)
+                # Search every screen (or the region), the last known one first.
+                targets = grabber.targets(self.cfg.region)
+                targets.sort(key=lambda b: _key(b) != last_target)
+                hit, frames = None, []
+                for b in targets:
+                    frame, bounds = grabber.grab_bounds(b)
+                    frames.append(frame)
+                    gray = to_gray(frame)
+                    loc = locators.setdefault(_key(b), Locator(self.cfg))
+                    hit = loc.find(frame, gray)
+                    if hit is not None:
+                        last_target = _key(b)
+                        break
 
                 if self._snapshot.is_set():
                     self._snapshot.clear()
-                    self._save_snapshot(frame, last_analysis)
+                    self._save_snapshot(frames, last_analysis)
 
                 if hit is None:
                     if active and tick - last_seen > self.cfg.disappear_after_ms / 1000.0:
@@ -232,12 +249,15 @@ class Engine(threading.Thread):
         if delay > 0:
             self._stop.wait(delay)
 
-    def _save_snapshot(self, frame, analysis: Optional[Analysis]) -> None:
+    def _save_snapshot(self, frames, analysis: Optional[Analysis]) -> None:
         os.makedirs(DEBUG_DIR, exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        path = os.path.join(DEBUG_DIR, f"snapshot-{stamp}.png")
-        cv2.imwrite(path, frame)
-        if analysis is not None:
-            with open(os.path.join(DEBUG_DIR, f"snapshot-{stamp}.txt"), "w", encoding="utf-8") as fh:
+        for i, frame in enumerate(frames):
+            suffix = "" if i == 0 else f"-screen{i + 1}"
+            cv2.imwrite(os.path.join(DEBUG_DIR, f"snapshot-{stamp}{suffix}.png"), frame)
+        with open(os.path.join(DEBUG_DIR, f"snapshot-{stamp}.txt"), "w", encoding="utf-8") as fh:
+            fh.write(display_info())
+            fh.write(f"overlay hidden from capture: {not self.overlay_in_capture}\n\n")
+            if analysis is not None:
                 fh.write(describe(analysis))
         self._emit(state="info", msg=f"Snapshot saved to debug\\snapshot-{stamp}.png")

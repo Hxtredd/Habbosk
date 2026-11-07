@@ -22,7 +22,7 @@ DEBUG_DIR = os.path.join(app_dir(), "debug")
 @dataclass
 class Config:
     # --- capture ---------------------------------------------------------
-    monitor: int = 1                    # 1 = primary monitor, 0 = all monitors
+    monitor: int = 0                    # 0 = all monitors, 1 / 2 ... = only that one
     region: Optional[List[int]] = None  # [left, top, width, height] screen px, or None = auto
     poll_interval_ms: int = 100         # screen check interval while a puzzle is visible
     idle_poll_ms: int = 150             # screen check interval while waiting
@@ -42,11 +42,11 @@ class Config:
     disappear_after_ms: int = 700       # puzzle gone this long -> reset display
 
     # --- UI --------------------------------------------------------------
-    window_geometry: str = "380x300+40+40"
+    window_geometry: str = "440x360+40+40"
     opacity: float = 0.95
     overlay: bool = True                # draw step numbers on the puzzle cards
     debug_save: bool = False            # save every analysed frame to ./debug
-    config_version: int = 2
+    config_version: int = 3
 
     @classmethod
     def load(cls) -> "Config":
@@ -55,10 +55,14 @@ class Config:
             try:
                 with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
                     data = json.load(fh)
-                if int(data.get("config_version", 1)) < 2:
+                version = int(data.get("config_version", 1))
+                if version < 2:
                     # v1 forced exactly 8 pieces; the game also uses 7
                     data.pop("expected_pieces", None)
-                    data["config_version"] = 2
+                if version < 3:
+                    # v1/v2 only watched the first monitor: search all of them
+                    data["monitor"] = 0
+                data["config_version"] = cls.config_version
                 for k, v in data.items():
                     if hasattr(cfg, k):
                         setattr(cfg, k, v)

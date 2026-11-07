@@ -1,4 +1,4 @@
-PUZZLE ANSWER ASSISTANT  (v1.4, Windows prototype)
+PUZZLE ANSWER ASSISTANT  (v1.5, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -22,7 +22,7 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   b) Unzip this folder somewhere, e.g.  C:\PuzzleAssistant
   c) Double-click INSTALL.bat
        - creates a private Python environment (.venv)
-       - installs numpy, opencv-python-headless and mss
+       - installs numpy, opencv-python-headless, mss and pillow
        - installs Tesseract OCR with winget if it is missing
          (if winget is not available it tells you where to download it:
           https://github.com/UB-Mannheim/tesseract/wiki , 64-bit installer)
@@ -41,30 +41,30 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
     Clicking the icon while it is already running brings the window forward.
   * Open the game and play normally. When the puzzle appears the window shows:
 
-        PUZZLE ANSWER ASSISTANT
-        Status: Verified ✓
-        Target caliber: 38 · Pistola
-        ORDER:
-        C → B → A → D → E → G
-        Don't click (other caliber): F(9)
-        Then press PROBAR
+        Puzzle Assistant                      ● Verified
+        Pistola · calibre 38
+        ORDER   [1 C] [2 B] [3 A] [4 D] [5 E] [6 G]
+        Next: C · Armazón
+        Don't click  (F · 9)
 
   * Numbers on the puzzle (Windows): the step numbers are drawn directly on
-    the puzzle cards, wherever the puzzle is on screen - no need to move any
-    window. Click the cards in number order:
-        (1) green, with a ring = the piece to click next
-        (2) (3) ... blue       = the following steps (any piece whose
+    the puzzle cards, on whichever screen the game is - no window to move.
+    Click the cards in number order:
+        (1) green, glowing     = the piece to click next
+        (2) (3) ... blue ring  = the following steps (any piece whose
                                  prerequisites are mounted may go next;
                                  the numbers are one valid order)
-        ✓                      = already mounted
+        ✓ green                = already mounted
         ✕ red                  = other caliber: don't click
         ? orange               = card not read clearly: NO numbers are shown
-        PROBAR (yellow)        = all mounted, press Probar
+        PROBAR ▶ (yellow)      = all mounted, press Probar
     The numbers are click-through: your clicks go to the game underneath.
     The program itself still never clicks. The numbers stay fixed while you
     mount pieces and disappear the moment the puzzle closes or changes.
-    "Numbers: on/off" button switches them. They need Windows 10 (2004) or
-    newer, so the numbers are invisible to the program's own screen reading.
+    "Numbers: on/off" switches them. Needs Windows 10 (2004) or newer, so the
+    numbers stay invisible to the program's own screen reading.
+  * Several screens: every screen is searched (setting "monitor": 0). Set it
+    to 1, 2 ... to watch only one screen.
   * Progress: as you mount pieces (they turn green with a ✓ in the game) the
     window shows "Done ✓ C B" and "NEXT → A → D → E → G", and finally
     "PROBAR ✓". The answer is locked once verified: green cards never change
@@ -168,6 +168,8 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   puzzle_assistant\engine.py    background monitoring loop
   puzzle_assistant\ui.py        floating window
   puzzle_assistant\overlay.py   click-through step numbers drawn on the cards
+  puzzle_assistant\render.py    anti-aliased badges, step chips (Pillow)
+  assets\fonts\                 Inter font (SIL Open Font License, see OFL.txt)
   tests\                     unit tests (incl. two real puzzle panels in tests\fixtures)
   tools\build_glyph_templates.py  regenerates glyph_templates.npz
   tessdata\spa.traineddata   Spanish OCR model (Apache-2.0, tesseract-ocr/tessdata_fast)

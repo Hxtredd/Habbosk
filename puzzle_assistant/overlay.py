@@ -94,92 +94,159 @@ def overlay_items(a: Optional[Analysis], cards: Sequence[Rect]) -> List[Item]:
 
 
 # ---------------------------------------------------------------------------
-# Tk window (Windows only: needs a transparent colour key + click-through)
+# Windows layered window (per-pixel alpha, positioned in screen pixels)
 # ---------------------------------------------------------------------------
-KEY = "#010203"            # transparent colour key
-COLOURS = {
-    "next": ("#16a34a", "#ffffff", "#bbf7d0"),   # fill, text, ring
-    "step": ("#1d4ed8", "#ffffff", "#1e3a8a"),
-    "done": ("#14532d", "#86efac", "#14532d"),
-    "skip": ("#7f1d1d", "#fecaca", "#7f1d1d"),
-    "doubt": ("#a16207", "#ffffff", "#713f12"),
-    "probar": ("#ca8a04", "#111111", "#fde68a"),
-}
-FONT = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
-
-
 class Overlay:
-    """Transparent, click-through, capture-excluded drawing layer."""
+    """Transparent, click-through, capture-excluded layer for the badges.
+
+    The badges are rendered into one RGBA image and handed to Windows with
+    UpdateLayeredWindow, together with the exact screen position of that
+    image. Windows places it there directly (any monitor, any scaling), so
+    the badges land on the cards whatever the screen layout is.
+    """
 
     def __init__(self, root):
-        import tkinter as tk
         self.available = sys.platform == "win32"
         self.hidden_from_capture = False
+        self.error = ""
         self.win = None
-        self.bounds: Optional[Rect] = None
+        self.hwnd = None
         if not self.available:
             return
-        self.win = tk.Toplevel(root)
-        self.win.overrideredirect(True)
-        self.win.attributes("-topmost", True)
-        self.win.configure(bg=KEY)
         try:
-            self.win.attributes("-transparentcolor", KEY)
-        except tk.TclError:
+            import tkinter as tk
+            self.win = tk.Toplevel(root)
+            self.win.overrideredirect(True)
+            self.win.geometry("1x1+0+0")
+            self.win.update_idletasks()
+            self._api = _Win32()
+            self.hwnd = self._api.toplevel_hwnd(self.win)
+            self.hidden_from_capture = self._api.make_overlay_window(self.hwnd)
+            self.clear()
+        except Exception as exc:  # never let the overlay break the app
             self.available = False
-            self.win.destroy()
-            self.win = None
-            return
-        self.canvas = tk.Canvas(self.win, bg=KEY, highlightthickness=0, bd=0)
-        self.canvas.pack(fill="both", expand=True)
-        self.win.geometry("1x1+0+0")
-        self.win.update_idletasks()
-        self._make_click_through()
-        # The window stays mapped (an empty canvas is fully transparent).
-        # Hiding/showing it would steal keyboard focus from the browser.
-
-    def _make_click_through(self) -> None:
-        import ctypes
-        user32 = ctypes.windll.user32
-        hwnd = user32.GetParent(self.win.winfo_id()) or self.win.winfo_id()
-        GWL_EXSTYLE = -20
-        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-        style |= 0x00080000 | 0x00000020 | 0x00000080 | 0x08000000
-        #        LAYERED      TRANSPARENT  TOOLWINDOW   NOACTIVATE
-        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
-        try:  # WDA_EXCLUDEFROMCAPTURE (Windows 10 2004+)
-            self.hidden_from_capture = bool(user32.SetWindowDisplayAffinity(hwnd, 0x11))
-        except Exception:
-            self.hidden_from_capture = False
+            self.error = f"{type(exc).__name__}: {exc}"
 
     def clear(self) -> None:
-        if self.win is not None:
-            self.canvas.delete("all")
+        if self.hwnd:
+            self._api.blit(self.hwnd, None, 0, 0)
 
-    def show(self, items: List[Item], bounds: Rect) -> None:
-        if self.win is None:
+    def show(self, items: List[Item]) -> None:
+        if not self.hwnd:
             return
-        if not items:
-            self.clear()
-            return
-        if bounds != self.bounds:
-            l, t, w, h = bounds
-            self.win.geometry(f"{w}x{h}+{l}+{t}")
-            self.bounds = bounds
-        ox, oy = bounds[0], bounds[1]
-        c = self.canvas
-        c.delete("all")
-        for it in items:
-            fill, text_col, ring = COLOURS[it.kind]
-            x, y, r = it.x - ox, it.y - oy, it.r
-            if it.kind == "probar":
-                w2 = int(r * 3.4)
-                c.create_rectangle(x - w2, y - r, x + w2, y + r, fill=fill, outline=ring, width=3)
-                c.create_text(x, y, text=it.text, fill=text_col, font=(FONT, -int(r * 1.1), "bold"))
-                continue
-            if it.kind == "next":
-                c.create_oval(x - r - 5, y - r - 5, x + r + 5, y + r + 5, outline=ring, width=3)
-            c.create_oval(x - r, y - r, x + r, y + r, fill=fill, outline=ring, width=2)
-            size = int(r * (1.25 if len(it.text) == 1 else 1.0))
-            c.create_text(x, y, text=it.text, fill=text_col, font=(FONT, -size, "bold"))
-        self.win.attributes("-topmost", True)   # stay above the browser
+        from .render import compose_overlay
+        img, x, y = compose_overlay(items)
+        self._api.blit(self.hwnd, img, x, y)
+
+
+class _Win32:
+    """Minimal ctypes bindings (64-bit safe: every handle is a c_void_p)."""
+
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes as wt
+        self.ct, self.wt = ctypes, wt
+        u, g = ctypes.windll.user32, ctypes.windll.gdi32
+        self.u, self.g = u, g
+        H = ctypes.c_void_p
+        u.GetParent.restype, u.GetParent.argtypes = H, [H]
+        u.GetDC.restype, u.GetDC.argtypes = H, [H]
+        u.ReleaseDC.argtypes = [H, H]
+        # 32-bit Windows has no *LongPtr* exports (they are macros there)
+        self.get_long = getattr(u, "GetWindowLongPtrW", u.GetWindowLongW)
+        self.set_long = getattr(u, "SetWindowLongPtrW", u.SetWindowLongW)
+        self.get_long.restype = ctypes.c_ssize_t
+        self.get_long.argtypes = [H, ctypes.c_int]
+        self.set_long.restype = ctypes.c_ssize_t
+        self.set_long.argtypes = [H, ctypes.c_int, ctypes.c_ssize_t]
+        u.SetWindowDisplayAffinity.argtypes = [H, wt.DWORD]
+        u.SetWindowPos.argtypes = [H, H, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                   ctypes.c_int, ctypes.c_uint]
+        u.ShowWindow.argtypes = [H, ctypes.c_int]
+        u.UpdateLayeredWindow.argtypes = [H, H, ctypes.c_void_p, ctypes.c_void_p, H,
+                                          ctypes.c_void_p, wt.DWORD, ctypes.c_void_p, wt.DWORD]
+        g.CreateCompatibleDC.restype, g.CreateCompatibleDC.argtypes = H, [H]
+        g.CreateDIBSection.restype = H
+        g.CreateDIBSection.argtypes = [H, ctypes.c_void_p, ctypes.c_uint,
+                                       ctypes.POINTER(ctypes.c_void_p), H, wt.DWORD]
+        g.SelectObject.restype, g.SelectObject.argtypes = H, [H, H]
+        g.DeleteObject.argtypes = [H]
+        g.DeleteDC.argtypes = [H]
+
+        class BLEND(ctypes.Structure):
+            _fields_ = [("BlendOp", ctypes.c_ubyte), ("BlendFlags", ctypes.c_ubyte),
+                        ("SourceConstantAlpha", ctypes.c_ubyte), ("AlphaFormat", ctypes.c_ubyte)]
+
+        class BIH(ctypes.Structure):
+            _fields_ = [("biSize", wt.DWORD), ("biWidth", wt.LONG), ("biHeight", wt.LONG),
+                        ("biPlanes", wt.WORD), ("biBitCount", wt.WORD),
+                        ("biCompression", wt.DWORD), ("biSizeImage", wt.DWORD),
+                        ("biXPelsPerMeter", wt.LONG), ("biYPelsPerMeter", wt.LONG),
+                        ("biClrUsed", wt.DWORD), ("biClrImportant", wt.DWORD)]
+
+        class BMI(ctypes.Structure):
+            _fields_ = [("bmiHeader", BIH), ("bmiColors", wt.DWORD * 3)]
+
+        self.BLEND, self.BIH, self.BMI = BLEND, BIH, BMI
+
+    def toplevel_hwnd(self, win):
+        try:  # Tk's own handle of the outer window
+            h = int(win.wm_frame(), 16)
+            if h:
+                return h
+        except Exception:
+            pass
+        return self.u.GetParent(win.winfo_id()) or win.winfo_id()
+
+    def make_overlay_window(self, hwnd) -> bool:
+        GWL_EXSTYLE = -20
+        style = self.get_long(hwnd, GWL_EXSTYLE)
+        style |= (0x00080000 | 0x00000020 | 0x00000080 | 0x08000000 | 0x00000008)
+        #         LAYERED      TRANSPARENT  TOOLWINDOW   NOACTIVATE   TOPMOST
+        self.set_long(hwnd, GWL_EXSTYLE, style)
+        HWND_TOPMOST = self.ct.c_void_p(-1)
+        # SWP_NOMOVE|NOSIZE|NOACTIVATE|FRAMECHANGED|SHOWWINDOW
+        self.u.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, 0x0002 | 0x0001 | 0x0010 | 0x0020 | 0x0040)
+        try:  # WDA_EXCLUDEFROMCAPTURE (Windows 10 2004+)
+            return bool(self.u.SetWindowDisplayAffinity(hwnd, 0x11))
+        except Exception:
+            return False
+
+    def blit(self, hwnd, img, x: int, y: int) -> None:
+        """Show `img` (PIL RGBA) with its top-left at screen pixel (x, y)."""
+        import numpy as np
+        ct, wt = self.ct, self.wt
+        if img is None:
+            arr = np.zeros((1, 1, 4), np.uint8)
+        else:
+            a = np.asarray(img.convert("RGBA"), dtype=np.uint16)
+            alpha = a[..., 3:4]
+            rgb = (a[..., :3] * alpha + 127) // 255      # premultiplied alpha
+            arr = np.empty(a.shape, np.uint8)
+            arr[..., 0] = rgb[..., 2]                     # BGRA
+            arr[..., 1] = rgb[..., 1]
+            arr[..., 2] = rgb[..., 0]
+            arr[..., 3] = a[..., 3]
+            arr = np.ascontiguousarray(arr)
+        h, w = arr.shape[:2]
+        screen = self.u.GetDC(None)
+        mem = self.g.CreateCompatibleDC(screen)
+        bmi = self.BMI()
+        bmi.bmiHeader.biSize = ct.sizeof(self.BIH)
+        bmi.bmiHeader.biWidth, bmi.bmiHeader.biHeight = w, -h   # top-down
+        bmi.bmiHeader.biPlanes, bmi.bmiHeader.biBitCount = 1, 32
+        bits = ct.c_void_p()
+        hbmp = self.g.CreateDIBSection(screen, ct.byref(bmi), 0, ct.byref(bits), None, 0)
+        old = self.g.SelectObject(mem, hbmp)
+        try:
+            ct.memmove(bits, arr.ctypes.data, w * h * 4)
+            dst, size, src = wt.POINT(int(x), int(y)), wt.SIZE(w, h), wt.POINT(0, 0)
+            blend = self.BLEND(0, 0, 255, 1)              # AC_SRC_OVER, AC_SRC_ALPHA
+            self.u.UpdateLayeredWindow(hwnd, screen, ct.byref(dst), ct.byref(size), mem,
+                                       ct.byref(src), 0, ct.byref(blend), 2)  # ULW_ALPHA
+            self.u.ShowWindow(hwnd, 4)                    # SW_SHOWNOACTIVATE
+        finally:
+            self.g.SelectObject(mem, old)
+            self.g.DeleteObject(hbmp)
+            self.g.DeleteDC(mem)
+            self.u.ReleaseDC(None, screen)
