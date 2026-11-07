@@ -111,12 +111,21 @@ def money_overlay_items(st, place: Optional[dict]) -> List[Item]:
     return [Item(kind, x + int(w * 0.2), y + h // 2, r, text)]
 
 
-def question_overlay_items(q, ans, status: str, place: Optional[dict]) -> List[Item]:
-    """A known answer drawn on the question window: a green check on the
-    correct option, step numbers for ORDENAR, matching numbers for PAREJAS.
+SURE = ("memory", "solver", "ai")          # green marks
+UNSURE = ("unsure", "likely")              # yellow marks: check before clicking
+
+
+def question_overlay_items(q, ans, status: str, place: Optional[dict],
+                           progress: int = 0) -> List[Item]:
+    """The answer drawn on the question window: a mark on the right option,
+    step numbers for ORDENAR (the step to tap next is highlighted; tapped
+    steps get a check), the same number on both items of each PAREJAS pair.
+    Green = sure, yellow = not sure. AI answers carry 'AI' in their mark.
     Nothing is drawn for unknown questions or once the game shows the result."""
-    if ans is None or not place or status not in ("memory", "solver"):
+    if ans is None or not place or status not in SURE + UNSURE:
         return []
+    sure = status in SURE
+    is_ai = status in ("ai", "unsure")
     boxes = place["boxes"]
     nl = place.get("n_left", 0)
     items: List[Item] = []
@@ -128,16 +137,28 @@ def question_overlay_items(q, ans, status: str, place: Optional[dict]) -> List[I
 
     if q.kind == "choice":
         if ans.choice in q.options:
-            at(boxes[q.options.index(ans.choice)], "answer", "")
+            box = boxes[q.options.index(ans.choice)]
+            if is_ai:
+                at(box, "next" if sure else "doubt", "AI")
+            else:
+                at(box, "answer" if sure else "doubt", "" if sure else "?")
     elif q.kind == "order":
         for i, opt in enumerate(ans.order):
-            if opt in q.options:
-                at(boxes[q.options.index(opt)], "next" if i == 0 else "step", str(i + 1))
+            if opt not in q.options:
+                continue
+            box = boxes[q.options.index(opt)]
+            if i < progress:
+                at(box, "done", "")
+            elif i == progress:
+                at(box, "next" if sure else "doubt", str(i + 1))
+            else:
+                at(box, "step", str(i + 1))
     elif q.kind == "pairs" and nl:
+        kind = "step" if sure else "doubt"
         for i, (a, b) in enumerate(ans.pairs.items()):
             if a in q.options and b in q.right:
-                at(boxes[q.options.index(a)], "step", str(i + 1))
-                at(boxes[nl + q.right.index(b)], "step", str(i + 1))
+                at(boxes[q.options.index(a)], kind, str(i + 1))
+                at(boxes[nl + q.right.index(b)], kind, str(i + 1))
     return items
 
 

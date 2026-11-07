@@ -339,7 +339,8 @@ class App:
             self.overlay.clear()
             return
         if qn is not None:
-            self.overlay.show(question_overlay_items(*qn, p))
+            self.overlay.show(question_overlay_items(*qn, p,
+                                                     progress=getattr(self, "_q_progress", 0)))
         elif money is not None:
             self.overlay.show(money_overlay_items(money, p))
         else:
@@ -443,9 +444,15 @@ class App:
             self.l_next.config(text="Questions are read only when you ask (Settings).", fg=DIM)
             self.l_hint.config(text="")
             return
+        if st == "question_progress":
+            if getattr(self, "_last_question", None) is not None:
+                self._q_progress = int(m.get("progress", 0))
+                self._draw_overlay()
+            return
         if st == "question":
             self._last_analysis = self._last_money = None
             self._last_place = m.get("place")
+            self._q_progress = int(m.get("progress", 0) or 0)
             self._last_question = (m.get("question"), m.get("answer"), m.get("status"))
             self._render_question(*self._last_question, extra=m)
             self._draw_overlay()
@@ -628,7 +635,7 @@ class App:
                 size = 13
             else:
                 main = ans.summary()
-            sure = status in ("memory", "game", "solver")
+            sure = status in ("memory", "game", "solver", "ai")
             self.l_main.config(text=main, fg=GOOD if sure else WARN, font=self._font(FONT_SEMI, size))
         clues = ("\n" + "  ·  ".join(q.clues)) if q.clues else ""
         self.l_next.config(text=q.text + clues, fg=FG)

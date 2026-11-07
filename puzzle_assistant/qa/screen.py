@@ -58,6 +58,8 @@ class Screen:
     # an option looked like a number / sum but couldn't be read with
     # certainty: the built-in solvers must not answer from this reading
     text_unsure: bool = False
+    # ORDENAR while answering: how many steps the player has already tapped
+    progress: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -202,8 +204,25 @@ def fingerprint(frame: np.ndarray, lay: Layout) -> tuple:
     for bx, by, bw, bh in lay.all_boxes():
         inner = frame[by + 6:by + bh - 6, bx + 8:bx + bw - 8]
         parts.append(dhash(inner) if inner.size else 0)
+    # the line under the options ("Toca el paso 2.") changes with each correct tap
+    st = _step_region(frame, lay)
+    parts.append(dhash(st) if st.size else 0)
     return tuple(parts) + (lay.feedback is not None, tuple(_status(frame, b) for b in
                                                             lay.all_boxes()))
+
+
+def _step_region(frame: np.ndarray, lay: Layout) -> np.ndarray:
+    x, y, w, h = lay.col
+    return frame[y + h + 4:y + h + 30, max(0, x - 12):x + int(w * 0.7)]
+
+
+_STEP_RE = re.compile(r"paso\s*(\d{1,2})", re.I)
+
+
+def _read_step(ocr, frame: np.ndarray, lay: Layout) -> Optional[int]:
+    """'Toca el paso 2.' under ORDENAR options -> 2 (the step to tap next)."""
+    m = _STEP_RE.search(" ".join(_ocr_lines(ocr, _step_region(frame, lay), 7, 2.5)))
+    return int(m.group(1)) if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +372,8 @@ def read_question(frame: np.ndarray, lay: Layout, ocr, pool: Optional[ThreadPool
             f_math.append(None if lay.pairs else pool.submit(read_math, crop, ocr))
             if order_like:
                 f_nums.append(_badge_number(frame[by:by + bh, bx:bx + bw], bh))
+        f_step = (pool.submit(_read_step, ocr, frame, lay)
+                  if order_like and lay.feedback is None else None)
         f_fb = None
         if lay.feedback is not None:
             fx, fy, fw, fh = lay.feedback
@@ -392,7 +413,15 @@ def read_question(frame: np.ndarray, lay: Layout, ocr, pool: Optional[ThreadPool
         revealed = _revealed(frame, lay, q, status, numbers) if answered else None
         if revealed is not None:
             revealed.explanation = explanation
-        return Screen(q, answered, status, revealed, verdict, explanation, lay, text_unsure)
+        progress = 0
+        if f_step is not None and not answered:
+            step = f_step.result()
+            if step is not None and 1 <= step <= len(q.options) + 1:
+                progress = step - 1
+            else:                       # fall back to the numbers shown in tapped options
+                progress = sum(1 for n in numbers if n is not None)
+        return Screen(q, answered, status, revealed, verdict, explanation, lay, text_unsure,
+                      progress)
     finally:
         if own_pool:
             pool.shutdown(wait=False)

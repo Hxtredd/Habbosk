@@ -154,6 +154,12 @@ option. Old memory entries with possibly misread sums are forgotten once
 Text size: named Tk fonts resized in place (`tk scaling` did not redraw on
 Windows); the window grows when the bigger text no longer fits.
 
+Question marks: green for memory/solver/AI-sure, yellow ("doubt") for
+AI-unsure and "likely" (owner's request); AI marks carry "AI". ORDENAR
+progress = "Toca el paso N" (OCR under the options, also in the
+fingerprint) -> engine emits `question_progress`. Not yet checked against a
+real mid-ordering screenshot (fallback: count of numbered badges).
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the

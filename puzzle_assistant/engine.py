@@ -27,6 +27,7 @@ from .locate import Locator
 from .money import MoneyPanel, MoneyTracker, locate_money, parse_vistos, read_legend
 from .qa.screen import CATEGORIES, fingerprint, locate_question, read_question
 from .qa.memory import answers_match
+from .qa.model import ORDER
 from .qa.solvers import solve_question
 from .qa.text import normalize
 from .cardreader import is_mounted
@@ -356,8 +357,14 @@ class Engine(threading.Thread):
         # never downgrade a shown answer and don't repeat the same result.
         ident = (normalize(q.category), normalize(q.text))
         shown = st.get("shown")
+        if not shown or shown[0] != ident:
+            st["progress"] = screen.progress
         if shown and shown[0] == ident and not force:
             if not screen.answered and shown[1] not in ("unknown", "thinking"):
+                # ORDENAR: the player is tapping the steps: move the highlight
+                if q.kind == ORDER and screen.progress != st.get("progress", 0):
+                    st["progress"] = screen.progress
+                    self._emit(state="question_progress", progress=screen.progress)
                 return
             if screen.answered and shown[1] == "game":
                 return
@@ -387,7 +394,7 @@ class Engine(threading.Thread):
                 st["shown"] = (ident, "memory")
                 st["ai_job"] = None
                 self._emit(state="question", question=q, answer=m.answer, status="memory",
-                           how=m.how, display=m.stored, place=place)
+                           how=m.how, display=m.stored, place=place, progress=screen.progress)
             else:
                 # never solve from a doubtful reading of numbers / signs
                 sol = None if screen.text_unsure else solve_question(q)
@@ -397,7 +404,7 @@ class Engine(threading.Thread):
                     st["check"] = (ident, sol, "solver")
                     st["ai_job"] = None
                     self._emit(state="question", question=q, answer=sol, status=status,
-                               place=place)
+                               place=place, progress=screen.progress)
                 elif not (shown and shown[0] == ident and shown[1] in ("unknown", "thinking")):
                     self._ask_ai(q, ident, place, st)
 
@@ -440,7 +447,7 @@ class Engine(threading.Thread):
         st["shown"] = (ident, status)
         st["check"] = (ident, ans, ans.source)
         self._emit(state="question", question=q, answer=ans, status=status, place=place,
-                   ai_info=f"{res.provider} · {res.ms / 1000:.1f} s"
+                   progress=st.get("progress", 0), ai_info=f"{res.provider} · {res.ms / 1000:.1f} s"
                            + (f" · used {res.facts} learned facts" if res.facts else "")
                            + (" · searched the web" if res.used_search else ""))
 

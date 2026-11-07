@@ -172,8 +172,12 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
       what the game reveals: Settings > Memory shows how many were right.
     * Questions repeat, so the memory fills up quickly.
     * Still unknown and an AI is set up (2d): "Thinking...", then the AI's
-      answer in orange, "AI - unverified", with no mark on the game. If the
-      AI itself is not sure it says "Not sure". Check before clicking.
+      answer, "AI - unverified", also marked on the game with "AI" in the
+      mark: green when the AI is sure, yellow when it is not ("Not sure").
+      AI answers can be wrong: check before clicking.
+    * Marks on the game: green = sure, yellow = check first. For ORDENAR the
+      step to tap next glows green; steps you tapped get a check (it follows
+      the game's "Toca el paso N" line).
   Settings > "Recognise questions": automatically, or only when you press
   Rescan (F5).
 
