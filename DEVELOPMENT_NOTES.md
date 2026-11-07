@@ -267,7 +267,15 @@ search, why + source + evidence per result, "ask as" a test contributor),
 Add material (add_source + one whole section, raw text kept), Claims (learn
 + evidence + review / contradiction / correct, Brain rules apply), Checks
 (`devtools/brain_checks.py`: scenario checks on a throwaway DB + read-only
-check of the real quiz/Atlas files). Uses the real knowledge.db. Not the chat.
+check of the real quiz/Atlas files). Not the chat.
+Safety (`devtools/bench_safety.py`): at launch choose Sandbox (disposable
+copy via SQLite backup API, deleted on close; test contributors only here),
+Real read-only (only if knowledge.db exists at the current schema, so
+opening writes nothing; WriteGuard refuses writes) or Real with changes
+(confirmed twice; `knowledge.db.backup-YYYYMMDD-HHMMSS[-N]` made with the
+backup API and verified BEFORE the Brain opens it / before the first write;
+never overwrites; a failed backup disables all writes). Coloured banner per
+mode; write buttons marked ✎ and disabled when writes aren't allowed.
 Next (each needs approval): B2 ranked retrieval (FTS5 - check availability on
 Windows), B3 reasoning, B4 corrections workflow, B5 importer, B6 test bench.
 Stage 1 (engine processing identity) is parked as an unreleased WIP commit.

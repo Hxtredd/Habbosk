@@ -2,9 +2,14 @@
 
 Launch:  BRAIN_TEST_BENCH.bat   or   python -m puzzle_assistant.devtools.brain_bench
 
-It talks to the real SK Brain (knowledge.db in the SK data folder, plus the
-quiz memory and World Atlas read-only) through the Brain API only, so all
-Brain rules apply: new claims are unverified, privacy/isolation is kept,
+At launch you choose (see bench_safety.py):
+  * SANDBOX - a disposable copy of the real knowledge.db (deleted on close);
+  * REAL, read-only - nothing can be written;
+  * REAL, changes allowed - after confirmation; a timestamped backup is made
+    first, and if it fails nothing can be written.
+A coloured banner always shows which one is open; buttons that write are
+marked ✎. Test contributors exist only in the sandbox. It uses the Brain
+API only (quiz memory and World Atlas read-only), so all Brain rules apply: new claims are unverified, privacy/isolation is kept,
 nothing is verified without evidence and a review. Brain.ask() is still the
 B1 placeholder: the bench shows what was FOUND and why, and never invents
 an answer. Removing this file (and devtools/brain_checks.py, the .bat)
@@ -19,15 +24,16 @@ import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from typing import Optional
 
 if __package__ in (None, ""):                           # run as a plain script
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     __package__ = "puzzle_assistant.devtools"
 
-from ..brain import Brain                               # noqa: E402
 from ..brain.adapters import words                      # noqa: E402
 from ..brain.model import STATUS_LABELS                 # noqa: E402
 from ..brain.store import BrainError                    # noqa: E402
+from .bench_safety import Session, WritesDisabled  # noqa: E402
 from .brain_checks import readonly_check, scenario_checks  # noqa: E402
 
 BG, PANEL, FG, DIM = "#14161c", "#1d2029", "#e8eaf0", "#8b93a7"
@@ -37,11 +43,23 @@ STATUS_COLOUR = {"verified": GOOD, "submitted": WARN, "awaiting_verification": W
 FONT = ("Segoe UI", 10) if sys.platform == "win32" else ("DejaVu Sans", 10)
 
 
+MODES = {
+    "sandbox": ("SANDBOX - disposable copy of your Brain. Nothing here changes your real "
+                "knowledge; it is deleted when you close the bench.", "#1e3a5f", "#bfdbfe"),
+    "real_readonly": ("REAL Brain database - READ-ONLY. Nothing can be changed.", "#14532d",
+                      "#bbf7d0"),
+    "real_write": ("REAL Brain database - CHANGES ARE SAVED to your real knowledge.", "#7c2d12",
+                   "#fed7aa"),
+}
+
+
 class Bench:
-    def __init__(self, brain: Brain):
-        self.b = brain
+    def __init__(self, session: Session, root: Optional[tk.Tk] = None):
+        self.session = session
+        self.b = session.brain
+        self.guard = session.guard
         self.jobs: "queue.Queue" = queue.Queue()
-        self.root = r = tk.Tk()
+        self.root = r = root or tk.Tk()
         r.title("SK Brain – TEMPORARY test bench")
         r.geometry("1000x720")
         r.configure(bg=BG)
@@ -72,8 +90,21 @@ class Bench:
     def run(self, fn, done) -> None:
         self.jobs.put((fn, done))
 
+    def write(self, fn, done) -> None:
+        """A change to the Brain: only through the guard (refused in read-only
+        mode or if the backup failed)."""
+        self.jobs.put((lambda: self.guard.run_write(fn), done))
+
     # -- layout --------------------------------------------------------------------
     def _build(self) -> None:
+        self.banner = tk.Frame(self.root)
+        self.banner.pack(fill="x")
+        self.l_mode = tk.Label(self.banner, font=FONT, anchor="w", justify="left", padx=10,
+                               pady=6, wraplength=760)
+        self.l_mode.pack(side="left", fill="x", expand=True)
+        self.b_allow = tk.Button(self.banner, text="Allow changes to the real Brain…",
+                                 command=self._allow_changes, relief="flat", font=FONT)
+        self._show_mode()
         top = tk.Frame(self.root, bg=BG)
         top.pack(fill="x", padx=10, pady=(8, 4))
         tk.Label(top, text="TEMPORARY TEST BENCH – not the SK chat. Reasoning (B3) is not built: "
@@ -97,6 +128,48 @@ class Bench:
     def _btn(self, parent, text, cmd):
         return tk.Button(parent, text=text, command=cmd, bg=PANEL, fg=FG, relief="flat",
                          activebackground="#2a2f3c", activeforeground=FG, font=FONT, padx=10)
+
+    def _show_mode(self) -> None:
+        mode = self.session.mode
+        if mode == "real_readonly" and self.guard.enabled:
+            mode = "real_write"
+        text, bg, fg = MODES[mode]
+        if mode == "real_write" and self.guard.backup_file:
+            text += f"\nBackup made first: {self.guard.backup_file}"
+        elif mode == "real_write":
+            text += "\n(No backup needed: there was no Brain database yet.)"
+        self.banner.config(bg=bg)
+        self.l_mode.config(text=text, bg=bg, fg=fg)
+        if self.session.mode == "real_readonly" and not self.guard.enabled:
+            self.b_allow.config(bg=bg, fg=fg, activebackground=bg)
+            self.b_allow.pack(side="right", padx=8)
+        else:
+            self.b_allow.pack_forget()
+        for b in getattr(self, "_write_buttons", []):
+            b.config(state="normal" if self.guard.enabled else "disabled")
+        if hasattr(self, "b_tester"):
+            self.b_tester.config(state="normal" if self.session.mode == "sandbox" else "disabled")
+
+    def _allow_changes(self) -> None:
+        if not messagebox.askyesno(
+                "Allow changes to the REAL Brain?",
+                f"This bench will be able to change your real Brain database:\n\n"
+                f"{self.session.real_path}\n\nA timestamped backup is made first (existing "
+                "backups are never overwritten). If the backup fails, no change is allowed.\n\n"
+                "Allow changes?", parent=self.root):
+            return
+        ok = self.guard.enable()
+        if not ok:
+            messagebox.showerror("Backup failed", self.guard.error, parent=self.root)
+        self._show_mode()
+
+    def _wbtn(self, parent, text, cmd):
+        """A button that changes the Brain: marked ✎, disabled when changes
+        aren't allowed."""
+        b = self._btn(parent, "✎ " + text, cmd)
+        self._write_buttons = getattr(self, "_write_buttons", []) + [b]
+        b.config(state="normal" if self.guard.enabled else "disabled")
+        return b
 
     def _status(self) -> None:
         def get():
@@ -127,7 +200,9 @@ class Bench:
         self.viewer = ttk.Combobox(row, values=list(self.viewers), state="readonly", width=26)
         self.viewer.current(0)
         self.viewer.pack(side="left", padx=4)
-        self._btn(row, "+ test contributor", self._add_tester).pack(side="left", padx=4)
+        self.b_tester = self._btn(row, "+ test contributor (sandbox only)", self._add_tester)
+        self.b_tester.pack(side="left", padx=4)
+        self.b_tester.config(state="normal" if self.session.mode == "sandbox" else "disabled")
         self._btn(row, "Clear conversation", self._clear).pack(side="right")
         tk.Label(row, text="(only clears this view)", bg=BG, fg=DIM, font=FONT).pack(side="right",
                                                                                  padx=6)
@@ -174,6 +249,8 @@ class Bench:
         self.why.config(text="")
 
     def _add_tester(self) -> None:
+        if self.session.mode != "sandbox":
+            return                                   # never in the real database
         n = len(self.viewers)
         name = f"Test contributor {n}"
         cid = self.b.store.add_contributor(name, "external_user")
@@ -268,7 +345,7 @@ class Bench:
         row = tk.Frame(f, bg=BG)
         row.pack(fill="x", padx=6, pady=(0, 6))
         self._btn(row, "Load text file…", self._load_file).pack(side="left")
-        self._btn(row, "Save as source", self._save_source).pack(side="left", padx=6)
+        self._wbtn(row, "Save as source", self._save_source).pack(side="left", padx=6)
         self.m_msg = tk.Label(row, text="", bg=BG, fg=DIM, font=FONT, anchor="w")
         self.m_msg.pack(side="left", padx=6)
 
@@ -322,7 +399,7 @@ class Bench:
                                    "kept). Now add claims from it in 'Claims'.", fg=GOOD)
             self._refresh_sources()
             self._status()
-        self.run(save, done)
+        self.write(save, done)
 
     # -- Claims ---------------------------------------------------------------------------
     def _tab_claims(self, nb) -> None:
@@ -352,7 +429,7 @@ class Bench:
         row = tk.Frame(f, bg=BG)
         row.pack(fill="x", padx=6, pady=2)
         self.c_loc = self._field(row, "Where in the source (quote / paragraph)", 40)
-        self._btn(row, "Add claim", self._add_claim).pack(side="left", padx=6)
+        self._wbtn(row, "Add claim", self._add_claim).pack(side="left", padx=6)
         self.c_msg = tk.Label(f, text="", bg=BG, fg=DIM, font=FONT, anchor="w")
         self.c_msg.pack(fill="x", padx=6)
 
@@ -368,11 +445,11 @@ class Bench:
         row.pack(fill="x", padx=6, pady=6)
         for label, st in (("Mark verified", "verified"), ("Reject", "rejected"),
                           ("Outdated", "outdated")):
-            self._btn(row, label, lambda s=st: self._review(s)).pack(side="left", padx=2)
+            self._wbtn(row, label, lambda s=st: self._review(s)).pack(side="left", padx=2)
         self.c_other = self._field(row, "  contradicts claim id", 6)
-        self._btn(row, "Link as contradiction", self._contradict).pack(side="left", padx=2)
+        self._wbtn(row, "Link as contradiction", self._contradict).pack(side="left", padx=2)
         self.c_new = self._field(row, "  corrected text", 30)
-        self._btn(row, "Correct", self._correct).pack(side="left", padx=2)
+        self._wbtn(row, "Correct", self._correct).pack(side="left", padx=2)
         self._refresh_sources()
         self._refresh_claims()
 
@@ -433,7 +510,7 @@ class Bench:
             self.c_text.delete(0, "end")
             self._refresh_claims()
             self._status()
-        self.run(add, done)
+        self.write(add, done)
 
     def _selected_claim(self):
         sel = self.ctree.selection()
@@ -444,13 +521,15 @@ class Bench:
 
     def _brain_action(self, fn, ok_text) -> None:
         def done(res, err):
-            if err:
+            if isinstance(err, WritesDisabled):
+                self.c_msg.config(text=f"Not allowed in this mode: {err}", fg=BAD)
+            elif err:
                 self.c_msg.config(text=f"Refused by the Brain: {err}", fg=BAD)
             else:
                 self.c_msg.config(text=ok_text, fg=GOOD)
             self._refresh_claims()
             self._status()
-        self.run(fn, done)
+        self.write(fn, done)
 
     def _review(self, status) -> None:
         cid = self._selected_claim()
@@ -479,9 +558,10 @@ class Bench:
     # -- Checks ----------------------------------------------------------------------------
     def _tab_checks(self, nb) -> None:
         f = self._frame(nb, "Checks")
-        tk.Label(f, text="Automatic checks. The scenario checks use a THROWAWAY database (your "
-                 "knowledge is not touched); the read-only check reads your real quiz memory and "
-                 "World Atlas and compares their files before and after.", bg=BG, fg=DIM,
+        tk.Label(f, text="Automatic checks - DISPOSABLE TEST DATA ONLY. The scenario checks "
+                 "create and delete their own temporary database; the read-only checks only read "
+                 "your real quiz memory, World Atlas and Brain files and compare them before and "
+                 "after.", bg=BG, fg="#93c5fd",
                  font=FONT, anchor="w", justify="left", wraplength=950).pack(fill="x", padx=6,
                                                                              pady=6)
         self._btn(f, "Run all checks", self._run_checks).pack(anchor="w", padx=6)
@@ -498,7 +578,8 @@ class Bench:
                   " 4. Claims: add an opposite statement, select it, type the first claim's id, "
                   "Link as contradiction -> both show as Conflicting.\n"
                   " 5. Ask something unrelated -> 'I found nothing'.\n"
-                  " 6. Ask: '+ test contributor', ask as them -> your personal claims are not shown.\n"
+                  " 6. (Sandbox) Ask: '+ test contributor', ask as them -> your personal claims "
+                  "are not shown.\n"
                   " 7. Claims: 'Mark verified' on a claim with 'direct' evidence works; on one with "
                   "only an assertion the Brain refuses.\n")
         self._chk(manual, "dim")
@@ -518,22 +599,73 @@ class Bench:
             for name, ok, detail in res:
                 self._chk(f"{'PASS' if ok else 'FAIL'}  {name}  –  {detail}",
                           "pass" if ok else "fail")
-        self.run(lambda: scenario_checks() + readonly_check(self.b), done)
+        real = self.session.real_path
+
+        def checks():
+            from .brain_checks import file_unchanged
+            return file_unchanged(real, lambda: scenario_checks() + readonly_check(self.b))
+        self.run(checks, done)
 
     def mainloop(self) -> None:
         self.root.mainloop()
 
 
+def choose_mode(root: tk.Tk, real_path: str) -> Optional[str]:
+    """Launch question: which database, and may it be changed?"""
+    win = tk.Toplevel(root)
+    win.title("SK Brain test bench")
+    win.configure(bg=BG)
+    win.resizable(False, False)
+    choice = {"mode": None}
+    tk.Label(win, text="TEMPORARY SK Brain test bench", bg=BG, fg=FG,
+             font=(FONT[0], 12, "bold")).pack(anchor="w", padx=16, pady=(14, 4))
+    tk.Label(win, text=f"Your real Brain database:\n{real_path}\n\nThe bench can connect to it and "
+             "MODIFY it. Choose how to open it:", bg=BG, fg=FG, font=FONT, justify="left",
+             wraplength=560).pack(anchor="w", padx=16)
+    for mode, label, colour in (
+            ("sandbox", "Sandbox - a disposable copy (recommended). Experiment freely; nothing "
+                        "reaches your real Brain.", "#bfdbfe"),
+            ("real_readonly", "Real database, read-only - look and search only.", "#bbf7d0"),
+            ("real_write", "Real database, allow changes - a timestamped backup is made first.",
+             "#fed7aa")):
+        tk.Button(win, text=label, bg=PANEL, fg=colour, font=FONT, relief="flat", anchor="w",
+                  justify="left", wraplength=540, padx=10, pady=6,
+                  command=lambda m=mode: (choice.update(mode=m), win.destroy())
+                  ).pack(fill="x", padx=16, pady=3)
+    tk.Button(win, text="Cancel", bg=PANEL, fg=DIM, font=FONT, relief="flat",
+              command=win.destroy).pack(anchor="e", padx=16, pady=(6, 14))
+    win.grab_set()
+    root.wait_window(win)
+    mode = choice["mode"]
+    if mode == "real_write" and not messagebox.askyesno(
+            "Allow changes to the REAL Brain?",
+            f"The bench will be able to change:\n{real_path}\n\nA timestamped backup is made "
+            "first; if it fails, no change is allowed. Continue?", parent=root):
+        return None
+    return mode
+
+
 def main() -> None:
-    try:
-        brain = Brain()
-    except BrainError as exc:
-        messagebox.showerror("SK Brain", str(exc))
+    from ..config import DATA_DIR
+    real = os.path.join(DATA_DIR, "knowledge.db")
+    quiz, atlas = os.path.join(DATA_DIR, "habbosk.db"), os.path.join(DATA_DIR, "atlas.db")
+    root = tk.Tk()
+    root.withdraw()
+    mode = choose_mode(root, real)
+    if mode is None:
+        root.destroy()
         return
     try:
-        Bench(brain).mainloop()
+        session = Session(mode, real, quiz, atlas)
+    except (WritesDisabled, BrainError, OSError) as exc:
+        messagebox.showerror("SK Brain test bench", str(exc), parent=root)
+        root.destroy()
+        return
+    root.deiconify()
+    try:
+        Bench(session, root).mainloop()
     finally:
-        brain.close()
+        session.close()
 
 
 if __name__ == "__main__":

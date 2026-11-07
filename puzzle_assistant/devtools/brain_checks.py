@@ -103,3 +103,18 @@ def readonly_check(brain: Brain) -> List[Result]:
             out.append((f"{m} stays read-only", h == before[m],
                         "unchanged after searching" if h == before[m] else "FILE CHANGED"))
     return out
+
+
+def file_unchanged(path: str, fn) -> List[Result]:
+    """Run fn() (a list of results) and add a check that `path` (the real
+    knowledge.db) was not modified - or created - by it."""
+    before = _hash(path)
+    res = fn()
+    after = _hash(path)
+    if before is None:
+        detail = "no real Brain database yet - none was created" if after is None \
+            else "A FILE WAS CREATED"
+    else:
+        detail = "unchanged" if after == before else "THE FILE CHANGED"
+    res.append(("Your real Brain database is untouched by these checks", before == after, detail))
+    return res
