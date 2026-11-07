@@ -238,10 +238,15 @@ class Memory:
 
     def log_solver(self, q: Question, solver_answer: Answer, correct: bool) -> None:
         """How the built-in solver did, once the game revealed the answer."""
+        self.log_check(q, solver_answer, correct, "solver")
+
+    def log_check(self, q: Question, answer: Answer, correct: bool, who: str) -> None:
+        """How a solver / the AI did, once the game revealed the answer."""
         key = question_key(q)
+        event = "ai_check" if who in ("ai", "search") else "solver_check"
         with self._lock:
             row = self._db.execute("SELECT id FROM questions WHERE key=?", (key,)).fetchone()
-            self._log(row["id"] if row else None, "solver_check", None, solver_answer, "solver",
+            self._log(row["id"] if row else None, event, None, answer, who,
                       "right" if correct else "wrong")
             self._db.commit()
 
@@ -272,8 +277,12 @@ class Memory:
                                   "AND detail='right'").fetchone()[0]
             sw = self._db.execute("SELECT COUNT(*) FROM history WHERE event='solver_check' "
                                   "AND detail='wrong'").fetchone()[0]
+            ar = self._db.execute("SELECT COUNT(*) FROM history WHERE event='ai_check' "
+                                  "AND detail='right'").fetchone()[0]
+            aw = self._db.execute("SELECT COUNT(*) FROM history WHERE event='ai_check' "
+                                  "AND detail='wrong'").fetchone()[0]
         return {"questions": n, "verified": v, "corrections": c, "solver_right": sr,
-                "solver_wrong": sw}
+                "solver_wrong": sw, "ai_right": ar, "ai_wrong": aw}
 
     def recent(self, limit: int = 50) -> List[dict]:
         with self._lock:

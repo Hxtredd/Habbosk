@@ -15,6 +15,7 @@ from .analyzer import Analysis
 from .config import Config
 from .engine import Engine
 from .overlay import Overlay, money_overlay_items, overlay_items, question_overlay_items
+from .qa.ai import AIAnswerer
 from .qa.memory import Memory
 from .settings_ui import open_settings
 from .storage import add_seed, migrate_legacy
@@ -129,6 +130,7 @@ class App:
         except Exception as exc:
             self._startup_notes.append(f"could not import old memory: {exc}")
         self.engine.memory = self.memory
+        self.engine.ai = AIAnswerer(self.cfg, self.memory)
         self._settings = None
         r = self.root = tk.Tk()
         r.title("SK Assistant")
@@ -572,7 +574,7 @@ class App:
         status: 'memory' | 'solver' | 'game' | 'ai' | 'unsure' | 'thinking' |
                 'unknown' (not learned yet) | 'answered' (result not readable)"""
         extra = extra or {}
-        self._view = {"question": (q, ans, status)}
+        self._view = {"question": (q, ans, status, extra)}
         self._set_image(self.l_main, "main", None)
         self._tags([], 0)
         label = {"memory": ("From memory", R.GREEN_SOFT), "game": ("Learned ✓", R.GREEN_SOFT),
@@ -585,14 +587,19 @@ class App:
         self.l_target.config(text=(q.category or "Pregunta").upper())
         self.l_section.config(text="CORRECT ANSWER" if status == "game" else "ANSWER")
         if ans is None:
-            msg = {"unknown": "Not learned yet", "answered": "Result not readable"}.get(status, "…")
+            msg = {"unknown": "Not learned yet", "answered": "Result not readable",
+                   "thinking": "Asking the AI…"}.get(status, "…")
             self.l_main.config(text=msg, fg=WARN if status == "unknown" else DIM,
                                font=(FONT_SEMI, 16))
             self.l_next.config(text=q.text + (("\n" + "  ·  ".join(q.clues)) if q.clues else ""),
                                fg=FG)
-            self.l_hint.config(text="Answer it in the game: SK Assistant remembers the correct "
-                                    "answer for next time." if status == "unknown" else "",
-                               fg=DIM)
+            hint = ""
+            if status == "unknown":
+                hint = ("Answer it in the game: SK Assistant remembers the correct "
+                        "answer for next time.")
+                if extra.get("ai_note"):
+                    hint += f"\nAI: {extra['ai_note']}."
+            self.l_hint.config(text=hint, fg=DIM)
             self.l_warn.config(text="")
             return
         else:
@@ -616,7 +623,14 @@ class App:
         expl = ans.explanation if ans and ans.explanation else ""
         if status == "likely":
             expl = ("Check before clicking: " + expl) if expl else "Check before clicking."
-        self.l_hint.config(text=expl, fg=WARN if status == "likely" else DIM)
+        elif status == "ai":
+            expl = "The AI thinks so; it can be wrong. " + expl
+        elif status == "unsure":
+            expl = "The AI is NOT sure: only a guess. " + expl
+        if status in ("ai", "unsure") and extra.get("ai_info"):
+            expl += f"\n({extra['ai_info']})"
+        self.l_hint.config(text=expl.strip(), fg=WARN if status in ("likely", "ai", "unsure")
+                           else DIM)
         self.l_warn.config(text="")
 
     def _tags(self, items, width: int) -> None:

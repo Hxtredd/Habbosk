@@ -74,6 +74,10 @@ class Config:
     monthly_limit: float = 0.0          # USD per month for paid use (0 = nothing)
     web_search: bool = False
     search_provider: str = "none"       # none | tavily | brave
+    ai_model: str = ""                  # empty = choose automatically
+    ai_daily_limit: int = 200           # max AI requests per day while paid use is off
+    ai_price_in: float = 0.0            # USD / million tokens for the estimate (0 = built-in)
+    ai_price_out: float = 0.0
 
     # --- UI --------------------------------------------------------------
     always_on_top: bool = True

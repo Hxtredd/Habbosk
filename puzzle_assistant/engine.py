@@ -13,6 +13,7 @@ import queue
 import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
 
 import cv2
@@ -123,10 +124,13 @@ class Engine(threading.Thread):
         # then the engine waits for the overlay to clear before reading.
         self.overlay_in_capture = False
         self.memory = None                     # qa.memory.Memory, set by the UI
+        self.ai = None                         # qa.ai.AIAnswerer, set by the UI
+        self._ai_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ai")
 
     # -- commands from the UI (thread-safe) ---------------------------------
     def stop(self) -> None:
         self._stop.set()
+        self._ai_pool.shutdown(wait=False)
 
     def rescan(self) -> None:
         self._rescan.set()
@@ -314,6 +318,7 @@ class Engine(threading.Thread):
         """Read a question once it stops moving; answer it from memory; learn
         the correct answer when the game reveals it."""
         b, frame, lay = qhit
+        self._poll_ai(st)
         fp = fingerprint(frame, lay)
         # The window slides / fades in: wait until it looks the same for a few checks.
         st["stable"] = st.get("stable", 0) + 1 if fp == st.get("pending") else 0
@@ -324,7 +329,7 @@ class Engine(threading.Thread):
             # already read. If nothing was found, the first read may have been
             # taken while the window was still appearing: retry a few times.
             shown = st.get("shown")
-            retry = (shown is not None and shown[1] == "unknown"
+            retry = (shown is not None and shown[1] in ("unknown", "thinking")
                      and st.get("retries", 0) < 3
                      and time.monotonic() - st.get("read_at", 0.0) >= 0.9)
             if not retry:
@@ -352,7 +357,7 @@ class Engine(threading.Thread):
         ident = (normalize(q.category), normalize(q.text))
         shown = st.get("shown")
         if shown and shown[0] == ident and not force:
-            if not screen.answered and shown[1] != "unknown":
+            if not screen.answered and shown[1] not in ("unknown", "thinking"):
                 return
             if screen.answered and shown[1] == "game":
                 return
@@ -361,12 +366,12 @@ class Engine(threading.Thread):
             if mem:
                 picked, ok = _picked(screen)
                 mem.record_feedback(q, picked, ok)
-                solved = st.get("solver")
-                if solved and solved[0] == ident:      # how did the built-in solver do?
-                    mine = solved[1]
-                    right = answers_match(mine, screen.revealed)
-                    mem.log_solver(q, mine, right)
-                    st["solver"] = None
+                check = st.get("check")
+                if check and check[0] == ident:        # how did the solver / AI do?
+                    mine, who = check[1], check[2]
+                    mem.log_check(q, mine, answers_match(mine, screen.revealed), who)
+                    st["check"] = None
+            st["ai_job"] = None                        # too late for the AI now
             st["shown"] = (ident, "game")
             self._emit(state="overlay_clear")
             self._emit(state="question", question=q, answer=screen.revealed, status="game",
@@ -380,6 +385,7 @@ class Engine(threading.Thread):
             m = mem.lookup(q) if mem else None
             if m is not None:
                 st["shown"] = (ident, "memory")
+                st["ai_job"] = None
                 self._emit(state="question", question=q, answer=m.answer, status="memory",
                            how=m.how, display=m.stored, place=place)
             else:
@@ -387,13 +393,54 @@ class Engine(threading.Thread):
                 if sol is not None:
                     status = "solver" if sol.confidence >= 1.0 else "likely"
                     st["shown"] = (ident, status)
-                    st["solver"] = (ident, sol)
+                    st["check"] = (ident, sol, "solver")
+                    st["ai_job"] = None
                     self._emit(state="question", question=q, answer=sol, status=status,
                                place=place)
-                elif not (shown and shown[0] == ident and shown[1] == "unknown"):
-                    st["shown"] = (ident, "unknown")
-                    self._emit(state="question", question=q, answer=None, status="unknown",
-                               place=place)
+                elif not (shown and shown[0] == ident and shown[1] in ("unknown", "thinking")):
+                    self._ask_ai(q, ident, place, st)
+
+    # -- AI (runs in the background; the screen keeps being watched) --------
+    def _ask_ai(self, q, ident, place, st: dict) -> None:
+        ai = self.ai
+        ok, why = ai.status() if ai is not None else (False, "")
+        if not ok or not q.options:
+            st["shown"] = (ident, "unknown")
+            self._emit(state="question", question=q, answer=None, status="unknown",
+                       place=place, ai_note=why if self.cfg.ai_provider != "none" else "")
+            return
+        st["shown"] = (ident, "thinking")
+        st["ai_job"] = (ident, self._ai_pool.submit(ai.answer, q), q, place)
+        self._emit(state="question", question=q, answer=None, status="thinking", place=place)
+
+    def _poll_ai(self, st: dict) -> None:
+        job = st.get("ai_job")
+        if not job or not job[1].done():
+            return
+        st["ai_job"] = None
+        ident, fut, q, place = job
+        shown = st.get("shown")
+        if not shown or shown[0] != ident or shown[1] != "thinking":
+            return                              # the question changed or was answered
+        try:
+            res = fut.result()
+        except Exception as exc:                # never let the AI stop the assistant
+            res = None
+            note = f"AI failed ({exc.__class__.__name__})"
+        else:
+            note = res.error
+        ans = res.answer if res is not None else None
+        if ans is None:
+            st["shown"] = (ident, "unknown")
+            self._emit(state="question", question=q, answer=None, status="unknown",
+                       place=place, ai_note=note)
+            return
+        status = "ai" if ans.confidence >= 0.6 else "unsure"
+        st["shown"] = (ident, status)
+        st["check"] = (ident, ans, ans.source)
+        self._emit(state="question", question=q, answer=ans, status=status, place=place,
+                   ai_info=f"{res.provider} · {res.ms / 1000:.1f} s"
+                           + (" · searched the web" if res.used_search else ""))
 
     # -- money puzzle ------------------------------------------------------
     def _money_loop(self, grabber, analyzer, b: dict, panel: MoneyPanel) -> None:

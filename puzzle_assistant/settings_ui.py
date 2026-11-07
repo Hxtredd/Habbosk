@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from typing import Callable, Optional
@@ -172,7 +173,9 @@ class SettingsWindow:
         f = self._section(
             "AI and internet",
             "Used only for new questions the memory and built-in solvers can't answer. "
-            "AI answers are connected in a coming update; your choices are saved now.")
+            "AI answers are marked “AI · unverified”: check them before clicking. "
+            "Gemini has a free tier (keep billing off in your Google project to never pay). "
+            "Claude and OpenAI always cost money and need “Allow paid AI use”.")
         self._radio(f, "ai_provider", PROVIDERS)
         self._key_row(f, "ai:" + "gemini", "Gemini key")
         self._key_row(f, "ai:" + "anthropic", "Claude key")
@@ -201,6 +204,25 @@ class SettingsWindow:
         self._radio(f, "search_provider", SEARCH)
         self._key_row(f, "search:tavily", "Tavily key")
         self._key_row(f, "search:brave", "Brave key")
+        row = tk.Frame(f, bg=PANEL)
+        row.pack(fill="x", padx=12, pady=(4, 0))
+        l_test = tk.Label(f, text="", bg=PANEL, fg=DIM, font=(FONT, 9), anchor="w",
+                          justify="left", wraplength=380)
+
+        def test_ai():
+            from .qa.ai import AIAnswerer
+            l_test.config(text="Testing… (one small question)", fg=DIM)
+
+            def work():
+                msg = AIAnswerer(cfg, self.memory).test()
+                try:
+                    self.win.after(0, lambda: l_test.config(
+                        text=msg, fg=GOOD if msg.startswith("Working") else WARN))
+                except tk.TclError:
+                    pass                      # settings window closed meanwhile
+            threading.Thread(target=work, daemon=True).start()
+        self._button(row, "Test AI", test_ai).pack(side="left")
+        l_test.pack(fill="x", padx=12, pady=(2, 0))
         req, cost = self.memory.month_usage()
         tk.Label(f, text=f"This month: {req} AI/search requests · estimated ${cost:.2f}",
                  bg=PANEL, fg=DIM, font=(FONT, 9), anchor="w").pack(fill="x", padx=12, pady=(4, 10))
@@ -234,7 +256,9 @@ class SettingsWindow:
                                f"{st['corrections']} corrections\n"
                                f"Built-in solving checked by the game: {st.get('solver_right', 0)} "
                                f"right, {st.get('solver_wrong', 0)} wrong"
-                               + ("" if solved else " (none yet)"), justify="left")
+                               + ("" if solved else " (none yet)")
+                               + f"\nAI answers checked by the game: {st.get('ai_right', 0)} right, "
+                               f"{st.get('ai_wrong', 0)} wrong", justify="left")
 
     def _export(self) -> None:
         path = filedialog.asksaveasfilename(parent=self.win, defaultextension=".json",
