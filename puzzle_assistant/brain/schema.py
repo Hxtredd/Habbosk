@@ -113,7 +113,8 @@ CREATE TABLE IF NOT EXISTS claim_events (
     new_status TEXT,
     by TEXT NOT NULL REFERENCES contributors(id),
     at TEXT NOT NULL,
-    note TEXT
+    note TEXT,
+    related_claim INTEGER              -- the other claim an event refers to (privacy filtering)
 );
 CREATE INDEX IF NOT EXISTS idx_events_claim ON claim_events(claim_id);
 
@@ -128,15 +129,17 @@ CREATE TABLE IF NOT EXISTS claim_index (
     terms TEXT NOT NULL,               -- text + subject + category, normalised / stemmed
     subject_terms TEXT NOT NULL,
     norm TEXT NOT NULL DEFAULT '',     -- subject + text, normalised (whole-name matching)
-    subject_norm TEXT NOT NULL DEFAULT ''
+    subject_norm TEXT NOT NULL DEFAULT '',
+    positive INTEGER NOT NULL DEFAULT 1   -- 0 = negated statement ("is not", "no está")
 );
 """
 
 # v1 -> v2: owner of each claim (= who created it) and the status of old versions
 # v2 -> v3: the search index (claim_index above, created by SCHEMA; filled by
-#           the store) - additive, no existing row is changed
+#           the store) and claim_events.related_claim - additive, no existing
+#           row is changed
 MIGRATIONS = {
-    3: [],
+    3: ["ALTER TABLE claim_events ADD COLUMN related_claim INTEGER"],
     2: [
         "ALTER TABLE claims ADD COLUMN owner_id TEXT REFERENCES contributors(id)",
         "UPDATE claims SET owner_id = created_by WHERE owner_id IS NULL",

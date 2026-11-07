@@ -289,8 +289,19 @@ rebuilt from claims; FTS5 only pre-selects candidates, scoring identical for
 the fallback. Quiz memory / Atlas results only for the local user.
 `Brain.search()` same call (+ include_rejected, use_fts); `search_b1()` kept.
 Speed: 0.3 ms (6 claims), 2 ms (200), 8 ms (1,000), 30-180 ms (10,000).
-The five regression claims in tests/test_brain_retrieval.py are a
-reconstruction of the owner's B1 experiment.
+Regression set = the owner's exact five Demo Garden claims (source
+SK-BRAIN-TEST-001), tested with and without subjects.
+B2 corrections (owner review): negation kept as polarity (text.polarity:
+not/no/never/nunca/jamás/contractions; opposite statements never match);
+every question requirement must be met (partial fit noted, never a match);
+named (capitalised) phrases in a question are required subjects even when
+unknown; "about" != "mentions" (subject field, else first name; route
+questions accept "... to <place>"); links() filters both ends, events about
+invisible claims are dropped (claim_events.related_claim, v3 migration),
+a contradiction only flags a claim whose whole audience can see the other
+side; stats() counts only the viewer's own sources. Speed (10,005 claims,
+goal 50 ms): FTS5 typical ~17 ms, no-match ~4 ms, worst case ~170 ms;
+fallback 57-185 ms.
 Next (each needs approval): B3 reasoning, B4 corrections workflow, B5 importer, B6 test bench.
 Stage 1 (engine processing identity) is parked as an unreleased WIP commit.
 

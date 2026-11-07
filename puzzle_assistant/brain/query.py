@@ -8,17 +8,18 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Tuple
 
-from .text import normalize, terms
+from .text import STOP, normalize, terms
 
 # intent -> words in a claim that show it gives that kind of information
 INTENT_EVIDENCE = {
     "identifier": {"id", "identifier", "identify", "number", "numero", "codigo", "code"},
     "route": {"lead", "go", "connect", "connection", "reach", "route", "way", "path", "archway",
-              "arch", "gate", "exit", "entrance", "door", "conecta", "lleva", "llega", "camino",
+              "arch", "gate", "doorway", "exit", "entrance", "door", "through", "conecta", "lleva",
+              "llega", "camino",
               "ruta", "arco", "puerta", "salida", "entrada", "walk", "taxi"},
     "person": {"caretaker", "keeper", "maintainer", "custodian", "warden", "maintain",
                "maintenance", "cuidador", "encargado", "owner", "propietario", "npc", "manage",
-               "run", "work"},
+               "run", "work", "responsible", "responsable"},
     "state": {"disabled", "disabl", "broken", "offline", "inactive", "enabled", "enabl",
               "working", "active", "open", "closed", "apagado", "apagada", "roto", "rota",
               "averiado", "averiada", "abierto", "abierta", "cerrado", "cerrada"},
@@ -70,6 +71,38 @@ def make_entities(names: Iterable[Tuple]) -> List[Entity]:
     return sorted(seen.values(), key=lambda e: -len(e.words))
 
 
+_CONNECT = {"of", "the", "de", "del", "la", "el", "los", "las"}
+
+
+def named_phrases(question: str) -> List[str]:
+    """Names written with capitals in the question ("Crystal Courtyard",
+    "Welcome Hall", "Mira") - required subjects even if SK doesn't know them
+    yet. Ignores the question word at the start, all-caps abbreviations
+    ("ID") and connecting words at the edges."""
+    raw = re.findall(r"[A-Za-zÀ-ÿ0-9']+", question)
+    out, cur = [], []
+
+    def flush():
+        while cur and cur[-1].lower() in _CONNECT:
+            cur.pop()
+        if cur:
+            out.append(" ".join(cur))
+        cur.clear()
+    for i, w in enumerate(raw):
+        lw = normalize(w)
+        capital = w[:1].isupper() and not (w.isupper() and len(w) <= 3)
+        starter = i == 0 and (lw in STOP or lw in ("which", "what", "who", "where", "how",
+                                                    "que", "cual", "quien", "donde", "como"))
+        if capital and not starter and lw not in STOP:
+            cur.append(w)
+        elif cur and lw in _CONNECT:
+            cur.append(w)
+        else:
+            flush()
+    flush()
+    return [p for p in out if len(normalize(p)) >= 3]
+
+
 def analyze(question: str, entities: List[Entity]) -> Query:
     q = Query(question, [t for t in terms(question) if t not in INTENT_ONLY],
               detect_intents(question))
@@ -82,6 +115,11 @@ def analyze(question: str, entities: List[Entity]) -> Query:
         if f" {e.key} " in padded and not any(e.key in u for u in used):
             q.entities.append(e)
             used.add(e.key)
+    # capitalised names in the question that SK doesn't know yet: still required
+    for phrase in named_phrases(question):
+        key = normalize(phrase)
+        if not any(key in e.key or e.key in key for e in q.entities):
+            q.entities.append(Entity(phrase, key, tuple(key.split()), "question"))
     if not q.entities:
         # a distinctive word of several known names -> ambiguous, never resolved
         content = set(terms(question))

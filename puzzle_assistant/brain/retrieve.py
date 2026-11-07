@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from .lexicon import SYNONYM_WEIGHT, synonyms
 from .model import Hit
 from .query import INTENT_EVIDENCE, Entity, Query, analyze, make_entities
-from .text import index_text, normalize, stem, terms
+from .text import index_text, normalize, polarity, stem, terms
 
 MIN_RELEVANCE = 0.3          # below this a record is not shown at all
 ANSWER_RELEVANCE = 0.5       # needed (with subject + intent fit) to count as matching the question
@@ -34,7 +34,7 @@ _INTENT_STEMS = {k: {stem(w) for w in v} for k, v in INTENT_EVIDENCE.items()}
 
 class Doc:
     __slots__ = ("module", "record_id", "text", "subject", "status", "origin", "category",
-                 "sources", "detail", "terms", "norm", "owner")
+                 "sources", "detail", "terms", "norm", "owner", "positive", "subject_norm")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -49,7 +49,8 @@ def _library_docs(store, rows: List[dict]) -> List[Doc]:
                        category=r["category"] or "", sources=None,
                        detail={"version": r["version"], "scope": r["scope"]},
                        terms=set(r["terms"].split()), norm=" " + r["norm"] + " ",
-                       owner=r["owner_id"]))
+                       owner=r["owner_id"], positive=bool(r["positive"]),
+                       subject_norm=r["subject_norm"]))
     return out
 
 
@@ -59,7 +60,7 @@ def _adapter_docs(records: List[dict]) -> List[Doc]:
                 category=r["category"], sources=r["sources"], detail=dict(r["detail"]),
                 terms=set(index_text(r["search_text"], r.get("subject") or "").split()),
                 norm=" " + normalize(f"{r.get('subject') or ''} {r['search_text']}") + " ",
-                owner=None)
+                owner=None, positive=polarity(r["text"]), subject_norm=normalize(r.get("subject") or ""))
             for r in records]
 
 
@@ -75,6 +76,33 @@ def _mentions(doc: Doc, e: Entity, entities: List[Entity]) -> bool:
     for o in longer:
         rest = rest.replace(f" {o.key} ", " ")
     return f" {e.key} " in rest
+
+
+_TO = (" to ", " to the ", " into ", " into the ", " a ", " al ", " a la ", " hacia ", " hacia el ",
+       " hacia la ")
+
+
+def _about(doc: Doc, e: Entity, entities: List[Entity], intents: List[str]) -> bool:
+    """The record is ABOUT entity e - not merely mentioning it as a
+    destination or comparison ("The Welcome Hall is larger than the Demo
+    Garden"). With a subject set, e must be that subject; without one, e must
+    be the first known name in the sentence. Exception for route questions:
+    a record leading TO e ("... leads to the Crystal Courtyard") answers how
+    to get there."""
+    if "route" in intents and any(f"{t}{e.key} " in doc.norm for t in _TO):
+        return True
+    if doc.subject_norm:
+        subj = " " + doc.subject_norm + " "
+        if f" {e.key} " not in subj:
+            return False
+        return not any(o.key != e.key and e.key in o.key and f" {o.key} " in subj
+                       for o in entities)
+    first, pos = None, None
+    for o in entities:
+        i = doc.norm.find(f" {o.key} ")
+        if i >= 0 and _mentions(doc, o, entities) and (pos is None or i < pos):
+            first, pos = o, i
+    return first is not None and first.key == e.key
 
 
 def _intent_fit(doc: Doc, intent: str) -> bool:
@@ -103,6 +131,9 @@ def search(store, sources, question: str, viewer: Optional[str] = None, limit: i
     q: Query = analyze(question, entities)
     if not q.terms:
         return []
+    q_positive = polarity(question)
+    # known names + names written in the question that SK doesn't know yet
+    known = entities + [e for e in q.entities if e not in entities]
 
     groups: Dict[str, Set[str]] = {t: {t} | set(synonyms(t)) for t in q.terms}
     every = sorted({w for g in groups.values() for w in g})
@@ -141,11 +172,15 @@ def search(store, sources, question: str, viewer: Optional[str] = None, limit: i
         factor, notes = 1.0, []
         entity_ok = True
         if q.entities:
-            hits_e = [e for e in q.entities if _mentions(d, e, entities)]
-            entity_ok = len(hits_e) == len(q.entities)
-            if not hits_e:
-                other = normalize(d.subject)
-                if other and other not in {e.key for e in q.entities}:
+            about = [e for e in q.entities if _about(d, e, known, q.intents)]
+            mentioned = [e for e in q.entities if _mentions(d, e, known)]
+            entity_ok = len(about) == len(q.entities)
+            if not entity_ok:
+                if mentioned:
+                    factor *= 0.6
+                    notes.append(f"mentions {', '.join(e.name for e in mentioned)} but is about "
+                                 f"{d.subject or 'something else'}")
+                elif d.subject_norm and d.subject_norm not in {e.key for e in q.entities}:
                     factor *= 0.45
                     notes.append(f"different subject: {d.subject}")
                 else:
@@ -153,11 +188,24 @@ def search(store, sources, question: str, viewer: Optional[str] = None, limit: i
                     notes.append("the subject you asked about is not mentioned")
         intent_ok = True
         if q.intents:
+            # every requirement of the question must be met (conservative)
             fits = [i for i in q.intents if _intent_fit(d, i)]
-            intent_ok = bool(fits)
-            factor *= 1.15 if fits else 0.85
+            missing = [i for i in q.intents if i not in fits]
+            intent_ok = not missing
             if not fits:
+                factor *= 0.85
                 notes.append(f"doesn't give the kind of information asked ({', '.join(q.intents)})")
+            elif missing:
+                notes.append(f"answers only part of the question: gives {', '.join(fits)}, "
+                             f"not {', '.join(missing)}")
+            else:
+                factor *= 1.15
+        polarity_ok = d.positive == q_positive
+        if not polarity_ok:
+            factor *= 0.5
+            notes.append("opposite statement: the question is " +
+                         ("affirmative" if q_positive else "negative") + ", this record is " +
+                         ("affirmative" if d.positive else "negative"))
         if q.ambiguous:
             notes.append("ambiguous name: " + " / ".join(e.name for e in q.ambiguous))
         if d.status == "rejected" and not include_rejected:
@@ -165,11 +213,12 @@ def search(store, sources, question: str, viewer: Optional[str] = None, limit: i
         score = min(1.0, relevance * factor) + TRUST_BONUS.get(d.status, 0.0)
         if d.status in ("outdated", "rejected"):
             score -= 1.0                         # always after current knowledge
-        answers = (entity_ok and intent_ok and relevance >= ANSWER_RELEVANCE
+        answers = (entity_ok and intent_ok and polarity_ok and relevance >= ANSWER_RELEVANCE
                    and not q.ambiguous and d.status not in ("outdated", "rejected"))
         why = {"matched": matched, "synonyms": syn_used,
                "subjects": [e.name for e in q.entities], "intents": q.intents,
                "relevance": round(relevance, 3), "factor": round(factor, 3),
+               "polarity": "affirmative" if d.positive else "negative",
                "matches_question": answers, "notes": notes}
         scored.append((score, d, why))
 
@@ -277,7 +326,8 @@ def _partner_hit(store, claim_id: int, viewer: str) -> Optional[Hit]:
     d = Doc(module="library", record_id=str(c["id"]), text=c["text"], subject=c["subject"] or "",
             status=c["status"], origin=c["origin"], category=c["category"] or "",
             detail={"version": c["version"], "scope": c["scope"]}, terms=set(terms(c["text"])),
-            norm=" " + normalize(c["text"]) + " ", owner=c["owner_id"])
+            norm=" " + normalize(c["text"]) + " ", owner=c["owner_id"],
+            positive=polarity(c["text"]), subject_norm=normalize(c["subject"] or ""))
     return _hit(store, d, 0.0, {"matched": [], "synonyms": [], "subjects": [], "intents": [],
                                 "relevance": 0.0, "factor": 0.0, "matches_question": False,
                                 "notes": ["shown because it contradicts a result"]}, viewer)

@@ -16,7 +16,8 @@ _GROUPS: List[List[str]] = [
     ["id", "identifier", "identify", "number", "numero", "codigo", "code", "num"],
     # people who look after something
     ["caretaker", "keeper", "maintainer", "custodian", "warden", "cuidador", "cuidadora",
-     "encargado", "encargada", "conserje", "guardian", "maintain", "maintenance", "mantiene",
+     "encargado", "encargada", "conserje", "guardian", "responsible", "responsable",
+     "maintain", "maintenance", "mantiene",
      "mantener", "mantenimiento", "cuida", "cuidar", "care"],
     # working / not working
     ["disabled", "disabl", "broken", "offline", "inactive", "apagado", "apagada", "roto", "rota",
@@ -33,7 +34,7 @@ _GROUPS: List[List[str]] = [
     # navigation
     ["lead", "go", "connect", "connection", "reach", "conecta", "lleva", "llega", "conduce"],
     ["route", "way", "path", "camino", "ruta"],
-    ["archway", "arch", "arco", "gate", "gateway", "puerta"],
+    ["archway", "arch", "arco", "gate", "gateway", "doorway", "puerta"],
     ["exit", "salida", "door"],
     ["entrance", "entrada"],
     # places

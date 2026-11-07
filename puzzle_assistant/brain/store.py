@@ -24,6 +24,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import re
 import sqlite3
 import threading
 import uuid
@@ -32,7 +33,7 @@ from typing import Dict, List, Optional
 from .model import (AUTOMATIC_KINDS, EVIDENCE_KINDS, MODERATOR_KINDS, ORIGINS, SCOPES,
                     SOURCE_KINDS, STATUSES)
 from .schema import MIGRATIONS, SCHEMA, SCHEMA_VERSION
-from .text import INDEX_VERSION, index_text, normalize
+from .text import INDEX_VERSION, index_text, normalize, polarity
 
 SYSTEM = "system"
 IMPORTER = "importer"
@@ -85,9 +86,10 @@ class KnowledgeStore:
     def _index_claim(self, claim_id: int, text: str, subject: str, category: str) -> None:
         t = index_text(text, subject or "", category or "")
         self._db.execute("INSERT OR REPLACE INTO claim_index (claim_id, terms, subject_terms, norm, "
-                         "subject_norm) VALUES (?,?,?,?,?)",
+                         "subject_norm, positive) VALUES (?,?,?,?,?,?)",
                          (claim_id, t, index_text(subject or ""),
-                          normalize(f"{subject or ''} {text}"), normalize(subject or "")))
+                          normalize(f"{subject or ''} {text}"), normalize(subject or ""),
+                          int(polarity(text))))
         if self.fts:
             self._db.execute("DELETE FROM claim_fts WHERE rowid=?", (claim_id,))
             self._db.execute("INSERT INTO claim_fts (rowid, terms) VALUES (?,?)", (claim_id, t))
@@ -96,6 +98,10 @@ class KnowledgeStore:
         """Rebuild the index if it is missing, incomplete or from an older
         version of the word rules. Only index tables are written."""
         with self._lock:
+            cols = {r[1] for r in self._db.execute("PRAGMA table_info(claim_index)")}
+            if "positive" not in cols:       # index from an earlier development build:
+                self._db.execute("DROP TABLE claim_index")      # derived data, rebuilt below
+                self._db.executescript(SCHEMA)
             n_claims = self._db.execute("SELECT COUNT(*) FROM claims").fetchone()[0]
             n_index = self._db.execute("SELECT COUNT(*) FROM claim_index").fetchone()[0]
             n_fts = self._db.execute("SELECT COUNT(*) FROM claim_fts").fetchone()[0] \
@@ -129,7 +135,8 @@ class KnowledgeStore:
         with self._lock:
             vis, args = self._visible_sql(viewer)
             q = ("SELECT c.id, c.text, c.subject, c.category, c.status, c.origin, c.scope, "
-                 "c.owner_id, c.version, i.terms, i.subject_terms, i.norm, i.subject_norm "
+                 "c.owner_id, c.version, i.terms, i.subject_terms, i.norm, i.subject_norm, "
+                 "i.positive "
                  "FROM claims c "
                  f"JOIN claim_index i ON i.claim_id = c.id WHERE {vis}")
             if match_terms and use_fts:
@@ -349,17 +356,26 @@ class KnowledgeStore:
             return [dict(r) for r in self._db.execute(q, args)]
 
     def _event(self, claim_id: int, event: str, old: Optional[str], new: Optional[str],
-               by: str, note: str = "") -> None:
+               by: str, note: str = "", related: Optional[int] = None) -> None:
         self._db.execute("INSERT INTO claim_events (claim_id, event, old_status, new_status, by, "
-                         "at, note) VALUES (?,?,?,?,?,?,?)",
-                         (claim_id, event, old, new, by, _now(), note))
+                         "at, note, related_claim) VALUES (?,?,?,?,?,?,?,?)",
+                         (claim_id, event, old, new, by, _now(), note, related))
 
     def history(self, claim_id: int, viewer: Optional[str] = None) -> Dict[str, list]:
         with self._lock:
             if not self.can_see(self._claim(claim_id), viewer):
                 return {"events": [], "versions": []}
-            ev = [dict(r) for r in self._db.execute(
-                "SELECT * FROM claim_events WHERE claim_id=? ORDER BY id", (claim_id,))]
+            ev = []
+            for r in self._db.execute("SELECT * FROM claim_events WHERE claim_id=? ORDER BY id",
+                                      (claim_id,)).fetchall():
+                e = dict(r)
+                # events about another claim are shown only if that claim is
+                # visible too (never its id, wording, relation or author)
+                rel = e.get("related_claim")
+                refs = [rel] if rel is not None else \
+                    [int(x) for x in re.findall(r"claim (\d+)", e.get("note") or "")]
+                if all(self.can_see(self._claim(x), viewer) for x in refs):
+                    ev.append(e)
             ver = [dict(r) for r in self._db.execute(
                 "SELECT * FROM claim_versions WHERE claim_id=? ORDER BY version", (claim_id,))]
         return {"events": ev, "versions": ver}
@@ -513,8 +529,9 @@ class KnowledgeStore:
             self._db.execute("INSERT INTO claim_links (from_claim, to_claim, kind, added_by, "
                              "added_at) VALUES (?,?,'supersedes',?,?)", (new, claim_id, by, _now()))
             self._event(new, "correction_proposed", None, None, by,
-                        f"for claim {claim_id}: {reason}")
-            self._event(claim_id, "correction_received", None, None, by, f"claim {new}")
+                        f"for claim {claim_id}: {reason}", related=claim_id)
+            self._event(claim_id, "correction_received", None, None, by, f"claim {new}",
+                        related=new)
             self._db.commit()
             return new
 
@@ -532,25 +549,46 @@ class KnowledgeStore:
             self._db.execute("INSERT OR IGNORE INTO claim_links (from_claim, to_claim, kind, "
                              "added_by, added_at) VALUES (?,?,?,?,?)",
                              (from_claim, to_claim, kind, by, _now()))
-            self._event(from_claim, f"link_{kind}", None, None, by, f"-> claim {to_claim}")
+            self._event(from_claim, f"link_{kind}", None, None, by, f"-> claim {to_claim}",
+                        related=to_claim)
             if kind == "contradicts":
-                # both sides become 'conflicting' (unless already rejected / outdated)
-                for cid in (from_claim, to_claim):
-                    c = self._claim(cid)
-                    if c and c["status"] not in ("rejected", "outdated", "conflicting"):
-                        self._db.execute("UPDATE claims SET status='conflicting', updated=? "
-                                         "WHERE id=?", (_now(), cid))
-                        self._event(cid, "conflict_flagged", c["status"], "conflicting", by,
-                                    f"contradicted by claim {to_claim if cid == from_claim else from_claim}")
+                # both sides become 'conflicting' (unless already rejected / outdated) -
+                # but a claim is only flagged if everyone who can see it can also
+                # see the claim contradicting it (otherwise its status alone would
+                # reveal that someone's private claim exists)
+                for cid, oid in ((from_claim, to_claim), (to_claim, from_claim)):
+                    c, o = self._claim(cid), self._claim(oid)
+                    if not c or c["status"] in ("rejected", "outdated", "conflicting"):
+                        continue
+                    if not self._same_audience(c, o):
+                        continue
+                    self._db.execute("UPDATE claims SET status='conflicting', updated=? "
+                                     "WHERE id=?", (_now(), cid))
+                    self._event(cid, "conflict_flagged", c["status"], "conflicting", by,
+                                f"contradicted by claim {oid}", related=oid)
             self._db.commit()
 
+    def _same_audience(self, c: dict, other: dict) -> bool:
+        """Can everyone who may see claim c also see claim `other`?"""
+        if other is None:
+            return False
+        if c["scope"] == "shared":
+            return other["scope"] == "shared"
+        return self.can_see(other, c["owner_id"])
+
     def links(self, claim_id: int, viewer: Optional[str] = None) -> List[dict]:
+        """Links of a claim - only those whose BOTH ends the viewer may see."""
         with self._lock:
             if not self.can_see(self._claim(claim_id), viewer):
                 return []
-            return [dict(r) for r in self._db.execute(
-                "SELECT * FROM claim_links WHERE from_claim=? OR to_claim=? ORDER BY id",
-                (claim_id, claim_id))]
+            out = []
+            for r in self._db.execute(
+                    "SELECT * FROM claim_links WHERE from_claim=? OR to_claim=? ORDER BY id",
+                    (claim_id, claim_id)).fetchall():
+                other = r["to_claim"] if r["from_claim"] == claim_id else r["from_claim"]
+                if self.can_see(self._claim(other), viewer):
+                    out.append(dict(r))
+            return out
 
     # -- scope: personal -> shared candidate (explicit, recorded) ----------------
     def propose_share(self, claim_id: int, by: Optional[str] = None) -> None:
@@ -594,7 +632,9 @@ class KnowledgeStore:
             out = {s: 0 for s in STATUSES}
             for c in self.claims(limit=10 ** 9, viewer=viewer):
                 out[c["status"]] += 1
-            out["sources"] = self._db.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+            # only the viewer's own sources (never other people's activity)
+            out["sources"] = self._db.execute("SELECT COUNT(*) FROM sources WHERE added_by=?",
+                                              (viewer or self.local_user,)).fetchone()[0]
             out["claims"] = sum(out[s] for s in STATUSES)
         return out
 
