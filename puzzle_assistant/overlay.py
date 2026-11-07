@@ -93,6 +93,24 @@ def overlay_items(a: Optional[Analysis], cards: Sequence[Rect]) -> List[Item]:
     return items
 
 
+def money_overlay_items(st, place: Optional[dict]) -> List[Item]:
+    """The money total as a badge on the left of the input box (the typed
+    digits appear on the right)."""
+    if st is None or not place or "input" not in place:
+        return []
+    x, y, w, h = place["input"]
+    if st.done and st.verified:
+        kind, text = "total_ok", f"= {st.total}"
+    elif st.done:
+        kind, text = "total_unsure", f"? {st.total}"
+    elif st.counted:
+        kind, text = "total_count", f"{st.total} …"
+    else:
+        return []
+    r = max(9, int(h * 0.42))
+    return [Item(kind, x + int(w * 0.2), y + h // 2, r, text)]
+
+
 # ---------------------------------------------------------------------------
 # Windows layered window (per-pixel alpha, positioned in screen pixels)
 # ---------------------------------------------------------------------------

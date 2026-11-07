@@ -1,4 +1,4 @@
-PUZZLE ANSWER ASSISTANT  (v1.5, Windows prototype)
+PUZZLE ANSWER ASSISTANT  (v1.6, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -97,6 +97,21 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   safely overlap the game.
 
 
+2b. MONEY PUZZLE ("Cuenta el dinero")
+------------------------------------
+  Coins and bills slide across a strip; you type their total. The program
+  recognises this puzzle by its keypad and then watches only the strip, about
+  40 times a second:
+    * every coin / bill is followed as it crosses and counted exactly once;
+      its printed value is read many times and the majority wins;
+    * the legend ("5 · 10 · 25") must contain every value read;
+    * the game's own "Vistos 7/7" counter must match the number counted.
+  While items are passing, the window shows the running total (blue
+  "290 …"). When the strip is empty and everything checks out it shows the
+  total in green ("Verified", and "= 390" on the left of the input box).
+  You type it yourself. If the count does not match the game it shows
+  "Not sure" ("? 390") - check before typing.
+
 3. HOW DETECTION WORKS
 ----------------------
   * The puzzle is found by its grid of piece cards (7 or 8 cards, each with a
@@ -169,7 +184,9 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   puzzle_assistant\ui.py        floating window
   puzzle_assistant\overlay.py   click-through step numbers drawn on the cards
   puzzle_assistant\render.py    anti-aliased badges, step chips (Pillow)
+  puzzle_assistant\money.py     money puzzle: strip tracking, value reading, checks
   assets\fonts\                 Inter font (SIL Open Font License, see OFL.txt)
-  tests\                     unit tests (incl. two real puzzle panels in tests\fixtures)
+  tests\                     unit tests; tests\fixtures holds real puzzle panels and
+                             two recorded money rounds (coins = 125, bills = 390)
   tools\build_glyph_templates.py  regenerates glyph_templates.npz
   tessdata\spa.traineddata   Spanish OCR model (Apache-2.0, tesseract-ocr/tessdata_fast)

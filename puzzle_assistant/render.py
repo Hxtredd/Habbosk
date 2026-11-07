@@ -223,12 +223,49 @@ def status_pill(text: str, colour, height: int = 22, bg=BG) -> Image.Image:
     return img.resize((W // SS, H // SS), Image.LANCZOS)
 
 
+TOTAL_STYLE = {
+    #                fill                  ring                  text
+    "total_ok":     ((16, 185, 129, 245), (167, 243, 208, 255), (255, 255, 255, 255)),
+    "total_count":  ((17, 24, 39, 235),   (96, 165, 250, 255),  (191, 219, 254, 255)),
+    "total_unsure": ((217, 119, 6, 240),  (253, 230, 138, 255), (255, 255, 255, 255)),
+}
+
+
+@lru_cache(maxsize=64)
+def total_badge(kind: str, text: str, h: int) -> Image.Image:
+    """Rounded badge for the money total, e.g. '= 390'."""
+    fill, ring, tcol = TOTAL_STYLE[kind]
+    f = font(h * 0.55 * SS, "Bold")
+    H = h * SS
+    W = int(f.getlength(text)) + int(H * 0.9)
+    pad = int(H * 0.5)
+    img = Image.new("RGBA", (W + 2 * pad, H + 2 * pad), (0, 0, 0, 0))
+
+    def body(d, off, col):
+        d.rounded_rectangle([pad + off[0], pad + off[1], pad + W + off[0], pad + H + off[1]],
+                            radius=H // 2, fill=col)
+
+    if kind == "total_ok":
+        glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        body(ImageDraw.Draw(glow), (0, 0), (16, 185, 129, 140))
+        img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(H * 0.22)))
+    _shadow(img, body, (0, int(H * 0.08)), H * 0.12, 150)
+    d = ImageDraw.Draw(img)
+    body(d, (0, 0), fill)
+    d.rounded_rectangle([pad, pad, pad + W, pad + H], radius=H // 2, outline=ring,
+                        width=max(SS, int(H * 0.06)))
+    d.text((pad + W / 2, pad + H / 2), text, font=f, fill=tcol, anchor="mm")
+    return img.resize((img.width // SS, img.height // SS), Image.LANCZOS)
+
+
 def compose_overlay(items, scale: float = 1.0) -> Tuple[Optional[Image.Image], int, int]:
     """All overlay items in one transparent image + its screen position."""
     sprites: List[Tuple[Image.Image, int, int]] = []
     for it in items:
         if it.kind == "probar":
             im = pill("PROBAR", max(18, int(it.r * 2.0)))
+        elif it.kind.startswith("total"):
+            im = total_badge(it.kind, it.text, max(16, int(it.r * 2)))
         else:
             im = badge(it.kind, it.text, it.r)
         sprites.append((im, it.x - im.width // 2, it.y - im.height // 2))

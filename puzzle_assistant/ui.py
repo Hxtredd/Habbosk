@@ -14,7 +14,7 @@ from typing import Optional
 from .analyzer import Analysis
 from .config import Config
 from .engine import Engine
-from .overlay import Overlay, overlay_items
+from .overlay import Overlay, money_overlay_items, overlay_items
 
 from . import render as R
 
@@ -197,6 +197,7 @@ class App:
         self._resize_job = None
         self._last_analysis: Optional[Analysis] = None
         self._last_place: Optional[dict] = None
+        self._last_money = None
         # Step numbers drawn on the cards (click-through, hidden from capture)
         self.overlay = Overlay(r)
         self.engine.overlay_in_capture = self.overlay.available and not self.overlay.hidden_from_capture
@@ -235,11 +236,14 @@ class App:
             self.b_overlay.config(text="Numbers: on" if self.cfg.overlay else "Numbers: off")
 
     def _draw_overlay(self) -> None:
-        p, a = self._last_place, self._last_analysis
-        if not self.cfg.overlay or p is None or a is None:
+        p, a, money = self._last_place, self._last_analysis, self._last_money
+        if not self.cfg.overlay or p is None or (a is None and money is None):
             self.overlay.clear()
             return
-        self.overlay.show(overlay_items(a, p["cards"]))
+        if money is not None:
+            self.overlay.show(money_overlay_items(money, p))
+        else:
+            self.overlay.show(overlay_items(a, p["cards"]))
 
     def pick_region(self) -> None:
         self.engine.set_paused(True)
@@ -286,6 +290,8 @@ class App:
         self._resize_job = None
         if self._view and self._view.get("analysis") is not None:
             self._render(self._view["analysis"])
+        elif self._view and self._view.get("money") is not None:
+            self._render_money(self._view["money"])
 
     # -- engine messages -----------------------------------------------------
     def _poll(self) -> None:
@@ -309,7 +315,7 @@ class App:
     def _show(self, m: dict) -> None:
         st = m.get("state")
         if st in ("waiting", "searching", "analyzing"):
-            self._last_place = self._last_analysis = None
+            self._last_place = self._last_analysis = self._last_money = None
             self.overlay.clear()
             if st == "waiting":
                 self._waiting(m.get("msg", "Waiting for puzzle…"))
@@ -320,9 +326,16 @@ class App:
             self._pill("Error", R.RED)
             self.l_warn.config(text=m.get("msg", ""), fg=BAD)
             return
+        if st == "money":
+            self._last_analysis, self._last_money = None, m.get("money")
+            self._last_place = m.get("place")
+            self._render_money(self._last_money)
+            self._draw_overlay()
+            return
         a: Optional[Analysis] = m.get("analysis")
         if a is None:
             return
+        self._last_money = None
         self._render(a)
         self._last_analysis, self._last_place = a, m.get("place")
         self._draw_overlay()
@@ -330,7 +343,7 @@ class App:
     def _waiting(self, msg: str) -> None:
         self._view = None
         self._pill("Waiting", R.MUTED)
-        self.l_target.config(text="Open the weapon puzzle in the game")
+        self.l_target.config(text="Open a puzzle in the game")
         self.l_section.config(text="")
         self._set_image(self.l_main, "main", None)
         self.l_main.config(text="Waiting for puzzle…" if "No puzzle" not in msg else msg,
@@ -338,7 +351,8 @@ class App:
         self.l_next.config(text="")
         self.l_tag_title.config(text="")
         self._set_image(self.l_tags, "tags", None)
-        self.l_hint.config(text="The numbers appear on the cards as soon as it opens.", fg=DIM)
+        self.l_hint.config(text="Weapon assembly or money counting: detected automatically.",
+                           fg=DIM)
         err = getattr(getattr(self, "overlay", None), "error", "")
         self.l_warn.config(text=f"Numbers on cards unavailable: {err}" if err else "", fg=WARN)
 
@@ -406,6 +420,38 @@ class App:
         msgs = [f"✖  {x}" for x in s.problems] + [f"⚠  {x}" for x in s.warnings]
         self.l_warn.config(text="\n".join(msgs[:4]) + ("\n…" if len(msgs) > 4 else ""),
                            fg=BAD if s.problems else WARN)
+
+    def _render_money(self, st) -> None:
+        """'Cuenta el dinero': running total, then the verified total."""
+        self._view = {"money": st}
+        self._set_image(self.l_main, "main", None)
+        self._tags([], 0)
+        legend = "  ·  ".join(str(v) for v in st.legend)
+        self.l_target.config(text="Cuenta el dinero" + (f"   ·   {legend}" if legend else ""))
+        values = " + ".join(f"{v}" if sure else f"{v if v is not None else '?'}?"
+                            for v, sure in st.items)
+        seen = f"{st.counted}/{st.expected}" if st.expected else f"{st.counted}"
+        if st.done and st.verified:
+            self._pill("Verified", R.GREEN_SOFT)
+            self.l_section.config(text=f"TOTAL  ·  {st.counted} ITEMS")
+            self.l_main.config(text=f"{st.total}", fg=GOOD, font=(FONT_SEMI, 34))
+            self.l_hint.config(text="Type it in yourself, then press ✓.", fg=DIM)
+            self.l_warn.config(text="")
+        elif st.done:
+            self._pill("Not sure", R.AMBER)
+            self.l_section.config(text="DON'T TRUST YET")
+            self.l_main.config(text=f"{st.total} ?", fg=WARN, font=(FONT_SEMI, 30))
+            self.l_hint.config(text="The count doesn't match the game. Check before typing.",
+                               fg=DIM)
+            self.l_warn.config(text="\n".join(f"⚠  {p}" for p in st.problems[:4]), fg=WARN)
+        else:
+            self._pill("Counting", R.BLUE)
+            self.l_section.config(text=f"RUNNING TOTAL  ·  SEEN {seen}")
+            self.l_main.config(text=f"{st.total}" if st.counted else "…", fg=FG,
+                               font=(FONT_SEMI, 30))
+            self.l_hint.config(text="Wait until the strip is empty.", fg=DIM)
+            self.l_warn.config(text="")
+        self.l_next.config(text=values, fg=DIM if not st.done else FG)
 
     def _tags(self, items, width: int) -> None:
         img = R.tags(items, 22, R.RED, R.SURFACE) if items else None

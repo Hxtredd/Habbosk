@@ -23,9 +23,10 @@ from .capture import ScreenGrabber, display_info
 from .config import DEBUG_DIR, Config
 from .ocr import OcrError, Tesseract
 from .locate import Locator
+from .money import MoneyPanel, MoneyTracker, locate_money, parse_vistos, read_legend
 from .cardreader import is_mounted
 from .solver import solve
-from .vision import dhash, hamming, to_gray
+from .vision import dhash, find_grids, hamming, prep_for_ocr, to_gray
 
 CARD_CHANGED_BITS = 10   # dhash distance meaning "this card looks different"
 BAND_CHANGED_BITS = 24   # same for the "Pistola · calibre 38" line
@@ -141,6 +142,7 @@ class Engine(threading.Thread):
         tried: Optional[tuple] = None
         placed: Optional[dict] = None          # card positions last sent to the overlay
         settle_until = 0.0
+        money_pending = None                   # money puzzle seen once, not yet stable
         last_analysis: Optional[Analysis] = None
 
         while not self._stop.is_set():
@@ -179,6 +181,29 @@ class Engine(threading.Thread):
                     self._save_snapshot(frames, last_analysis)
 
                 if hit is None:
+                    # No weapon puzzle: is it the money puzzle?
+                    money = None
+                    for b, frame_b in zip(targets, frames):
+                        mp = locate_money(to_gray(frame_b))
+                        if mp is not None:
+                            money = (b, mp)
+                            break
+                    if money is not None:
+                        # The puzzle window slides in when it opens: only start
+                        # once two checks in a row agree on where it is.
+                        key = (_key(money[0]), money[1].strip, money[1].input)
+                        if key != money_pending:
+                            money_pending = key
+                            self._sleep(tick)
+                            continue
+                    money_pending = None
+                    if money is not None:
+                        last_target = _key(money[0])
+                        active, locked, tried, placed = False, None, None, None
+                        self._emit(state="overlay_clear")
+                        self._money_loop(grabber, analyzer, money[0], money[1])
+                        self._emit(state="waiting", msg="Waiting for puzzle…")
+                        continue
                     if active and tick - last_seen > self.cfg.disappear_after_ms / 1000.0:
                         active, locked, tried, placed = False, None, None, None
                         self._emit(state="waiting", msg="Waiting for puzzle…")
@@ -242,6 +267,74 @@ class Engine(threading.Thread):
                 time.sleep(1.0)
             self._sleep(tick)
         grabber.close()
+
+    # -- money puzzle ------------------------------------------------------
+    def _money_loop(self, grabber, analyzer, b: dict, panel: MoneyPanel) -> None:
+        """Watch only the money puzzle's strip (about 40 times a second) until
+        the puzzle closes. Every coin / bill is tracked and read while it
+        crosses; the game's 'Vistos N/M' counter verifies the count."""
+        tracker = MoneyTracker()
+        ax, ay, aw, ah = panel.area()
+        region = {"left": b["left"] + ax, "top": b["top"] + ay, "width": aw, "height": ah}
+
+        def rel(r):
+            return (r[0] - ax, r[1] - ay, r[2], r[3])
+
+        def scr(r):
+            return (b["left"] + r[0], b["top"] + r[1], r[2], r[3])
+
+        sx, sy, sw, sh = rel(panel.strip)
+        bx, by, bw, bh = rel(panel.band)
+        place = {"input": scr(panel.input), "strip": scr(panel.strip)}
+        kx, ky, kw, kh = panel.keypad
+        pad = max(10, kh // 6)
+        keypad_region = {"left": b["left"] + kx - pad, "top": b["top"] + ky - pad,
+                         "width": kw + 2 * pad, "height": kh + 2 * pad}
+        ocr_job = None
+        next_ocr = next_check = 0.0
+        missing_since: Optional[float] = None
+        last_sig = None
+        while not self._stop.is_set():
+            t = time.monotonic()
+            if self._paused.is_set():
+                time.sleep(0.2)
+                continue
+            self._rescan.clear()
+            img, _ = grabber.grab_bounds(region)
+            tracker.update(img[sy:sy + sh, sx:sx + sw], t)
+            if ocr_job is not None and ocr_job.done():
+                try:
+                    tracker.set_vistos(parse_vistos(ocr_job.result()))
+                except Exception:
+                    pass
+                ocr_job = None
+            if ocr_job is None and t >= next_ocr:
+                band = img[by:by + bh, bx:bx + bw]
+                tracker.set_legend(read_legend(band))
+                left = prep_for_ocr(band[:, :int(bw * 0.45)], 3.0)
+                ocr_job = analyzer.pool.submit(analyzer.ocr.text, left, 7)
+                next_ocr = t + 0.3
+            if t >= next_check:            # still open? (keypad still there)
+                next_check = t + 0.2
+                kimg, _ = grabber.grab_bounds(keypad_region)
+                if find_grids(to_gray(kimg), min_n=9, max_n=12):
+                    missing_since = None
+                elif missing_since is None:
+                    missing_since = t
+                elif t - missing_since > 0.3:
+                    return
+            if self._snapshot.is_set():
+                self._snapshot.clear()
+                self._save_snapshot([img], None)
+            st = tracker.state(t)
+            sig = (st.total, st.counted, st.seen, st.expected, st.done, st.verified,
+                   st.on_strip, tuple(st.items))
+            if sig != last_sig:
+                last_sig = sig
+                self._emit(state="money", money=st, place=place)
+            delay = 0.025 - (time.monotonic() - t)
+            if delay > 0:
+                self._stop.wait(delay)
 
     def _sleep(self, tick: float, idle: bool = False) -> None:
         ms = self.cfg.idle_poll_ms if idle else self.cfg.poll_interval_ms
