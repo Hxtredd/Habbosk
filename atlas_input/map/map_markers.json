@@ -63,33 +63,39 @@
    "kind": "place",
    "x": 1086,
    "y": 126,
-   "name": null,
+   "name": "Spa",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "ce63bfc5-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P6",
    "kind": "place",
    "x": 1127,
    "y": 126,
-   "name": null,
+   "name": "Gran Casino",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "f76f4252-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P7",
    "kind": "place",
    "x": 868,
    "y": 128,
-   "name": null,
+   "name": "Academia SK FC",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "9cba2c08-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P8",
@@ -107,11 +113,13 @@
    "kind": "place",
    "x": 951,
    "y": 153,
-   "name": null,
+   "name": "Joyería Aurora",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "73725581-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P10",
@@ -129,22 +137,26 @@
    "kind": "place",
    "x": 995,
    "y": 179,
-   "name": null,
+   "name": "Club Neón",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "23c50724-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P12",
    "kind": "place",
    "x": 954,
    "y": 200,
-   "name": null,
+   "name": "Tienda Apple",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "c5322023-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P13",
@@ -184,33 +196,39 @@
    "kind": "place",
    "x": 798,
    "y": 208,
-   "name": null,
+   "name": "Cementerio",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "da173224-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P17",
    "kind": "place",
    "x": 914,
    "y": 216,
-   "name": null,
+   "name": "Ropa",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "84395662-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P18",
    "kind": "place",
    "x": 848,
    "y": 233,
-   "name": null,
+   "name": "Gimnasio",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "37d1b2e2-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P19",
@@ -228,11 +246,13 @@
    "kind": "place",
    "x": 807,
    "y": 253,
-   "name": null,
+   "name": "Corte Suprema",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "f8371b0c-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "P21",
@@ -435,11 +455,13 @@
    "kind": "street",
    "x": 984,
    "y": 117,
-   "name": null,
+   "name": "Avenida Noctalia",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "cc9a6e6f-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S3",
@@ -457,22 +479,26 @@
    "kind": "street",
    "x": 861,
    "y": 179,
-   "name": null,
+   "name": "Avenida Gambetia",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "339a25ad-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S5",
    "kind": "street",
    "x": 1107,
    "y": 179,
-   "name": null,
+   "name": "Avenida Espumia",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "ad0aa767-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S6",
@@ -512,11 +538,13 @@
    "kind": "street",
    "x": 861,
    "y": 302,
-   "name": null,
+   "name": "Avenida Soleia",
    "room_id": null,
-   "name_source": null,
-   "evidence": [],
-   "status": "unnamed"
+   "name_source": "map hover label",
+   "evidence": [
+    "0b09db01-image.png"
+   ],
+   "status": "named"
   },
   {
    "marker": "S10",
@@ -601,6 +629,20 @@
    "name_source": null,
    "evidence": [],
    "status": "unnamed"
+  },
+  {
+   "marker": "S17",
+   "kind": "street",
+   "x": 976,
+   "y": 240,
+   "name": "Avenida Arenia",
+   "room_id": null,
+   "name_source": "map hover label",
+   "evidence": [
+    "e4e5626c-image.png"
+   ],
+   "status": "named",
+   "note": "hidden under the 'Estás aquí' badge in the reference map"
   }
  ]
 }
