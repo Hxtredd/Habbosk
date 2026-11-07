@@ -109,6 +109,10 @@ def read_component(ink: np.ndarray, box: Box, charset: str, pitch: float
         ch, sc, mg = classify(_segment(ink, box, 0, w), charset)
         return [(ch, sc, mg, box)]
     n = max(2, int(round(w / pitch)))
+    if n > 6:
+        # far too wide for a caliber / letter group: not text this reader is for
+        ch, sc, mg = classify(_segment(ink, box, 0, w), charset)
+        return [(ch, 0.0, 0.0, box)]
     lo, hi = max(2, int(0.55 * pitch)), int(1.6 * pitch) + 1
     cache = {}
 
@@ -117,25 +121,32 @@ def read_component(ink: np.ndarray, box: Box, charset: str, pitch: float
             cache[(a, b)] = classify(_segment(ink, box, a, b), charset)
         return cache[(a, b)]
 
-    best: Tuple[float, List[Tuple[int, int]]] = (-1e9, [])
+    # Dynamic programming: best(start, left) = best way to cut [start, w) into
+    # `left` characters. Memoised, so the cost is polynomial (no blow-up).
+    memo = {}
 
-    def search(start: int, left: int, acc: float, cuts: List[Tuple[int, int]]):
-        nonlocal best
+    def best(start: int, left: int):
+        key = (start, left)
+        if key in memo:
+            return memo[key]
         if left == 1:
-            if lo <= w - start <= hi:
-                total = acc + seg(start, w)[1]
-                if total > best[0]:
-                    best = (total, cuts + [(start, w)])
-            return
-        for end in range(start + lo, min(w, start + hi) + 1):
-            search(end, left - 1, acc + seg(start, end)[1], cuts + [(start, end)])
+            res = (seg(start, w)[1], [(start, w)]) if lo <= w - start <= hi else (-1e9, [])
+        else:
+            res = (-1e9, [])
+            for end in range(start + lo, min(w, start + hi) + 1):
+                sc, cuts = best(end, left - 1)
+                if cuts and sc + seg(start, end)[1] > res[0]:
+                    res = (sc + seg(start, end)[1], [(start, end)] + cuts)
+        memo[key] = res
+        return res
 
-    search(0, n, 0.0, [])
-    if not best[1]:  # no valid cut: fall back to equal widths
+    total, cuts = best(0, n)
+    if not cuts:  # no valid cut: fall back to equal widths
         step = w / n
-        best = (0.0, [(int(round(i * step)), int(round((i + 1) * step))) for i in range(n)])
+        cuts = [(int(round(i * step)), int(round((i + 1) * step))) for i in range(n)]
+    best_cuts = cuts
     out = []
-    for a, b in best[1]:
+    for a, b in best_cuts:
         ch, sc, mg = seg(a, b)
         out.append((ch, sc, mg, (x + a, y, b - a, h)))
     return out

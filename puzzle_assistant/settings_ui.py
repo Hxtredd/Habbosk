@@ -35,7 +35,7 @@ class SettingsWindow:
         actions: {'region': fn, 'auto': fn, 'snapshot': fn}"""
         self.cfg, self.memory, self.on_change, self.actions = cfg, memory, on_change, actions
         w = self.win = tk.Toplevel(root)
-        w.title("Habbosk – Settings")
+        w.title("SK Assistant – Settings")
         w.configure(bg=BG)
         w.geometry("460x640")
         w.minsize(400, 400)
@@ -159,7 +159,7 @@ class SettingsWindow:
             self._saved("text_scale")
         scale.bind("<ButtonRelease-1>", text_size)
 
-        f = self._section("What Habbosk helps with")
+        f = self._section("What SK Assistant helps with")
         self._check(f, "Weapon puzzle (Montar un arma)", "weapon_puzzle")
         self._check(f, "Money puzzle (Cuenta el dinero)", "money_puzzle")
         self._check(f, "Questions (library, general knowledge)", "questions")
@@ -237,10 +237,10 @@ class SettingsWindow:
                                             filetypes=[("JSON", "*.json")])
         if path:
             n = self.memory.export_json(path)
-            messagebox.showinfo("Habbosk", f"Exported {n} questions.", parent=self.win)
+            messagebox.showinfo("SK Assistant", f"Exported {n} questions.", parent=self.win)
 
     def _clear(self) -> None:
-        if messagebox.askyesno("Habbosk", "Forget every learned question and the history?\n"
+        if messagebox.askyesno("SK Assistant", "Forget every learned question and the history?\n"
                                "This cannot be undone.", parent=self.win):
             self.memory.clear()
             self._refresh_memory()

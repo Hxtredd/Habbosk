@@ -41,7 +41,7 @@ class Config:
     require_layout: bool = True         # only accept the game's card layout
     disappear_after_ms: int = 700       # puzzle gone this long -> reset display
 
-    # --- what Habbosk helps with ------------------------------------------
+    # --- what SK Assistant helps with -------------------------------------
     assistant_on: bool = True           # master on/off switch
     weapon_puzzle: bool = True          # "Montar un arma"
     money_puzzle: bool = True           # "Cuenta el dinero"

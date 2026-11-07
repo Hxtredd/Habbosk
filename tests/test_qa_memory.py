@@ -130,7 +130,8 @@ class TextTests(unittest.TestCase):
     def test_normalize(self):
         self.assertEqual(normalize("¿Qué letra sigue?  V, W"), "que letra sigue v w")
         self.assertEqual(normalize("63 − 8"), normalize("63 - 8"))   # game minus vs OCR dash
-        self.assertEqual(normalize("63 − 8"), "63 - 8")
+        self.assertEqual(normalize("63 − 8"), "63-8")
+        self.assertEqual(normalize("36 +10"), normalize("36 + 10"))
 
     def test_language(self):
         self.assertEqual(guess_language("¿Qué letra sigue? V, W, X, Y"), "es")

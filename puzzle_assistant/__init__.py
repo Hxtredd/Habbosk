@@ -1,2 +1,2 @@
-"""Puzzle Answer Assistant - read-only helper for the "Montar un arma" puzzle."""
-__version__ = "1.7.0"
+"""SK Assistant - read-only helper for Habbo puzzles and questions."""
+__version__ = "1.8.0"

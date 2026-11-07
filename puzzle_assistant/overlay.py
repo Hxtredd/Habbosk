@@ -111,6 +111,36 @@ def money_overlay_items(st, place: Optional[dict]) -> List[Item]:
     return [Item(kind, x + int(w * 0.2), y + h // 2, r, text)]
 
 
+def question_overlay_items(q, ans, status: str, place: Optional[dict]) -> List[Item]:
+    """A known answer drawn on the question window: a green check on the
+    correct option, step numbers for ORDENAR, matching numbers for PAREJAS.
+    Nothing is drawn for unknown questions or once the game shows the result."""
+    if ans is None or not place or status not in ("memory", "solver"):
+        return []
+    boxes = place["boxes"]
+    nl = place.get("n_left", 0)
+    items: List[Item] = []
+
+    def at(box, kind, text):
+        x, y, w, h = box
+        r = max(9, int(h * 0.36))
+        items.append(Item(kind, x + w - r - 8, y + h // 2, r, text))
+
+    if q.kind == "choice":
+        if ans.choice in q.options:
+            at(boxes[q.options.index(ans.choice)], "answer", "")
+    elif q.kind == "order":
+        for i, opt in enumerate(ans.order):
+            if opt in q.options:
+                at(boxes[q.options.index(opt)], "next" if i == 0 else "step", str(i + 1))
+    elif q.kind == "pairs" and nl:
+        for i, (a, b) in enumerate(ans.pairs.items()):
+            if a in q.options and b in q.right:
+                at(boxes[q.options.index(a)], "step", str(i + 1))
+                at(boxes[nl + q.right.index(b)], "step", str(i + 1))
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Windows layered window (per-pixel alpha, positioned in screen pixels)
 # ---------------------------------------------------------------------------

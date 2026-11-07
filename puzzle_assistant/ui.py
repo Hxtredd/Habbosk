@@ -14,7 +14,7 @@ from typing import Optional
 from .analyzer import Analysis
 from .config import Config
 from .engine import Engine
-from .overlay import Overlay, money_overlay_items, overlay_items
+from .overlay import Overlay, money_overlay_items, overlay_items, question_overlay_items
 from .qa.memory import Memory
 from .settings_ui import open_settings
 
@@ -119,9 +119,10 @@ class App:
         self._view: Optional[dict] = None  # last rendered state (for resizes)
 
         self.memory = Memory()             # learned questions (SQLite)
+        self.engine.memory = self.memory
         self._settings = None
         r = self.root = tk.Tk()
-        r.title("Habbosk")
+        r.title("SK Assistant")
         self._base_scaling = float(r.tk.call("tk", "scaling"))
         self._apply_text_scale()
         r.configure(bg=BG)
@@ -142,7 +143,7 @@ class App:
         self.l_icon = tk.Label(head, bg=BG)
         self.l_icon.grid(row=0, column=0, padx=(0, 8))
         self._set_image(self.l_icon, "icon", _app_icon(18))
-        tk.Label(head, text="Habbosk", bg=BG, fg=FG, font=(FONT_SEMI, 11),
+        tk.Label(head, text="SK Assistant", bg=BG, fg=FG, font=(FONT_SEMI, 11),
                  anchor="w").grid(row=0, column=1, sticky="w")
         self.l_pill = tk.Label(head, bg=BG)
         self.l_pill.grid(row=0, column=2, sticky="e")
@@ -204,6 +205,7 @@ class App:
         self._last_analysis: Optional[Analysis] = None
         self._last_place: Optional[dict] = None
         self._last_money = None
+        self._last_question = None
         # Step numbers drawn on the cards (click-through, hidden from capture)
         self.overlay = Overlay(r)
         self.engine.overlay_in_capture = self.overlay.available and not self.overlay.hidden_from_capture
@@ -246,7 +248,7 @@ class App:
             self.overlay.clear()
             self._view = None
             self._pill("Off", R.MUTED)
-            self.l_target.config(text="Habbosk is switched off")
+            self.l_target.config(text="SK Assistant is switched off")
             self.l_section.config(text="")
             self._set_image(self.l_main, "main", None)
             self.l_main.config(text="Paused", fg=DIM, font=(FONT_SEMI, 18))
@@ -309,10 +311,13 @@ class App:
 
     def _draw_overlay(self) -> None:
         p, a, money = self._last_place, self._last_analysis, self._last_money
-        if not self.cfg.overlay or p is None or (a is None and money is None):
+        qn = getattr(self, "_last_question", None)
+        if not self.cfg.overlay or p is None or (a is None and money is None and qn is None):
             self.overlay.clear()
             return
-        if money is not None:
+        if qn is not None:
+            self.overlay.show(question_overlay_items(*qn, p))
+        elif money is not None:
             self.overlay.show(money_overlay_items(money, p))
         else:
             self.overlay.show(overlay_items(a, p["cards"]))
@@ -392,6 +397,7 @@ class App:
         st = m.get("state")
         if st in ("waiting", "searching", "analyzing"):
             self._last_place = self._last_analysis = self._last_money = None
+            self._last_question = None
             self.overlay.clear()
             if st == "waiting":
                 self._waiting(m.get("msg", "Waiting for puzzle…"))
@@ -401,6 +407,25 @@ class App:
         if st == "error":
             self._pill("Error", R.RED)
             self.l_warn.config(text=m.get("msg", ""), fg=BAD)
+            return
+        if st == "question_wait":
+            self._last_place = self._last_analysis = self._last_money = None
+            self.overlay.clear()
+            self._view = None
+            self._pill("Question", R.BLUE)
+            self.l_target.config(text="A question is on screen")
+            self.l_section.config(text="")
+            self._set_image(self.l_main, "main", None)
+            self.l_main.config(text="Press Rescan (F5)", fg=FG, font=(FONT_SEMI, 18))
+            self.l_next.config(text="Questions are read only when you ask (Settings).", fg=DIM)
+            self.l_hint.config(text="")
+            return
+        if st == "question":
+            self._last_analysis = self._last_money = None
+            self._last_place = m.get("place")
+            self._last_question = (m.get("question"), m.get("answer"), m.get("status"))
+            self._render_question(*self._last_question, extra=m)
+            self._draw_overlay()
             return
         if st == "money":
             self._last_analysis, self._last_money = None, m.get("money")
@@ -531,29 +556,49 @@ class App:
             self.l_warn.config(text="")
         self.l_next.config(text=values, fg=DIM if not st.done else FG)
 
-    def _render_question(self, q, ans, status: str = "") -> None:
+    def _render_question(self, q, ans, status: str = "", extra: Optional[dict] = None) -> None:
         """A recognised question and its answer.
-        status: 'memory' | 'solver' | 'game' | 'ai' | 'unsure' | 'thinking'"""
+        status: 'memory' | 'solver' | 'game' | 'ai' | 'unsure' | 'thinking' |
+                'unknown' (not learned yet) | 'answered' (result not readable)"""
+        extra = extra or {}
         self._view = {"question": (q, ans, status)}
         self._set_image(self.l_main, "main", None)
         self._tags([], 0)
-        label = {"memory": ("From memory", R.GREEN_SOFT), "game": ("Confirmed", R.GREEN_SOFT),
+        label = {"memory": ("From memory", R.GREEN_SOFT), "game": ("Learned ✓", R.GREEN_SOFT),
                  "solver": ("Solved", R.GREEN_SOFT), "ai": ("AI · unverified", R.AMBER),
-                 "unsure": ("Not sure", R.AMBER), "thinking": ("Thinking…", R.BLUE)}
+                 "unsure": ("Not sure", R.AMBER), "thinking": ("Thinking…", R.BLUE),
+                 "unknown": ("New question", R.AMBER), "answered": ("Answered", R.MUTED)}
         text, colour = label.get(status, ("Question", R.BLUE))
         self._pill(text, colour)
         self.l_target.config(text=(q.category or "Pregunta").upper())
-        self.l_section.config(text="ANSWER")
+        self.l_section.config(text="CORRECT ANSWER" if status == "game" else "ANSWER")
         if ans is None:
-            self.l_main.config(text="…", fg=DIM, font=(FONT_SEMI, 18))
+            msg = {"unknown": "Not learned yet", "answered": "Result not readable"}.get(status, "…")
+            self.l_main.config(text=msg, fg=WARN if status == "unknown" else DIM,
+                               font=(FONT_SEMI, 16))
+            self.l_next.config(text=q.text + (("\n" + "  ·  ".join(q.clues)) if q.clues else ""),
+                               fg=FG)
+            self.l_hint.config(text="Answer it in the game: SK Assistant remembers the correct "
+                                    "answer for next time." if status == "unknown" else "",
+                               fg=DIM)
+            self.l_warn.config(text="")
+            return
         else:
+            shown = extra.get("display") or ans          # clean learned text when available
+            size = 16
             if ans.kind == "choice" and ans.choice in q.options:
                 letter = "ABCDEFGH"[q.options.index(ans.choice)]
-                main = f"{letter}.  {ans.choice}"
+                main = f"{letter}.  {shown.choice or ans.choice}"
+            elif ans.kind == "pairs":
+                main = "\n".join(f"{a}  →  {b}" for a, b in (shown.pairs or ans.pairs).items())
+                size = 13
+            elif ans.kind == "order":
+                main = "\n".join(f"{i}.  {x}" for i, x in enumerate(shown.order or ans.order, 1))
+                size = 13
             else:
                 main = ans.summary()
             sure = status in ("memory", "game", "solver")
-            self.l_main.config(text=main, fg=GOOD if sure else WARN, font=(FONT_SEMI, 16))
+            self.l_main.config(text=main, fg=GOOD if sure else WARN, font=(FONT_SEMI, size))
         clues = ("\n" + "  ·  ".join(q.clues)) if q.clues else ""
         self.l_next.config(text=q.text + clues, fg=FG)
         self.l_hint.config(text=(ans.explanation if ans and ans.explanation else ""), fg=DIM)

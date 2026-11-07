@@ -3,6 +3,6 @@ rem Creates Desktop + Start menu shortcuts with the app icon (pin one to the tas
 cd /d "%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\create_shortcuts.ps1"
 echo.
-echo To pin to the taskbar: right-click the "Puzzle Answer Assistant" shortcut
+echo To pin to the taskbar: right-click the "SK Assistant" shortcut
 echo (on Windows 11 first "Show more options") and choose "Pin to taskbar".
 pause

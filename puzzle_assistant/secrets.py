@@ -31,7 +31,7 @@ def _dpapi(data: bytes, encrypt: bool) -> bytes:
     crypt32, kernel32 = ctypes.windll.crypt32, ctypes.windll.kernel32
     # flag 0x1 = CRYPTPROTECT_UI_FORBIDDEN (never show a dialog)
     if encrypt:
-        ok = crypt32.CryptProtectData(ctypes.byref(blob_in), "Habbosk", None, None, None,
+        ok = crypt32.CryptProtectData(ctypes.byref(blob_in), "SK Assistant", None, None, None,
                                       0x1, ctypes.byref(blob_out))
     else:
         ok = crypt32.CryptUnprotectData(ctypes.byref(blob_in), None, None, None, None,

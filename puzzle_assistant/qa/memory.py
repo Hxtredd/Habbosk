@@ -76,10 +76,11 @@ def _negations(norm_text: str) -> set:
 
 @dataclass
 class Match:
-    answer: Answer
+    answer: Answer      # fitted to the options on screen (for the on-screen marks)
     how: str            # "exact" | "reordered" | "similar"
     similarity: float
     question_id: int
+    stored: Optional[Answer] = None   # the answer as learned (clean text, for display)
 
 
 class Memory:
@@ -118,7 +119,24 @@ class Memory:
                                     (nt, q.kind)).fetchall()
             best = self._best_similar(rows, nt, 0.999)
             if best is not None:
-                return self._match(best[0], q, "similar", best[1])
+                m = self._match(best[0], q, "similar", best[1])
+                if m is not None:
+                    return m
+            # small reading differences in the question AND the options
+            rows = self._db.execute("SELECT * FROM questions WHERE kind=? AND category=?",
+                                    (q.kind, q.category)).fetchall()
+            neg = _negations(nt)
+            scored = []
+            for row in rows:
+                if _negations(row["norm_text"]) != neg:
+                    continue
+                r = difflib.SequenceMatcher(None, nt, row["norm_text"]).ratio()
+                if r >= 0.9:
+                    scored.append((r, row))
+            for r, row in sorted(scored, key=lambda t: -t[0]):
+                m = self._match(row, q, "similar", r)
+                if m is not None:
+                    return m
         return None
 
     def _best_similar(self, rows, nt: str, threshold: float) -> Optional[Tuple[sqlite3.Row, float]]:
@@ -133,11 +151,11 @@ class Memory:
         return (best, best_r) if best is not None else None
 
     def _match(self, row, q: Question, how: str, sim: float) -> Optional[Match]:
-        ans = Answer.from_dict(json.loads(row["answer"]))
-        ans = _fit_to_options(ans, q)
+        stored = Answer.from_dict(json.loads(row["answer"]))
+        ans = _fit_to_options(Answer.from_dict(json.loads(row["answer"])), q)
         if ans is None:
             return None
-        return Match(ans, how, sim, row["id"])
+        return Match(ans, how, sim, row["id"], stored)
 
     # -- learning ----------------------------------------------------------
     def save(self, q: Question, ans: Answer, force: bool = False) -> str:
@@ -271,25 +289,58 @@ def _row_dict(r) -> dict:
     return d
 
 
+def _strip_tail(n: str) -> str:
+    words = n.split()
+    while len(words) > 1 and len(words[-1]) <= 2 and words[-1].isalpha():
+        words.pop()
+    return " ".join(words)
+
+
+def _find_option(text: str, options: List[str]) -> Optional[str]:
+    """The on-screen option matching a stored one. Exact after normalising;
+    long options may differ by a reading slip ('banco.' / 'banc:'). Short
+    options ('63-8', 'V') must match exactly: one character changes them."""
+    n = normalize(text)
+    by_norm = {normalize(o): o for o in options}
+    if n in by_norm:
+        return by_norm[n]
+    # a stray 1-2 letter fragment after the text (icon, pointer) on either side
+    core = _strip_tail(n)
+    hits = [o for k, o in by_norm.items() if _strip_tail(k) == core and len(core) >= 3]
+    if len(hits) == 1:
+        return hits[0]
+    if len(n) < 8:
+        return None
+    best, best_r = None, 0.0
+    for k, o in by_norm.items():
+        r = difflib.SequenceMatcher(None, n, k).ratio()
+        if r > best_r:
+            best, best_r = o, r
+    # must be clearly closer than any other option
+    others = sorted((difflib.SequenceMatcher(None, n, k).ratio() for k in by_norm), reverse=True)
+    if best_r >= 0.88 and (len(others) < 2 or others[0] - others[1] >= 0.1):
+        return best
+    return None
+
+
 def _fit_to_options(ans: Answer, q: Question) -> Optional[Answer]:
     """Map a stored answer onto the options currently on screen (they may be
-    shuffled or partly different). None if it no longer fits."""
-    by_norm = {normalize(o): o for o in q.options}
+    shuffled, partly different, or read with small slips). None if it no
+    longer fits."""
     if ans.kind == CHOICE:
-        hit = by_norm.get(normalize(ans.choice or ""))
+        hit = _find_option(ans.choice or "", q.options)
         if hit is None:
             return None
         ans.choice = hit
     elif ans.kind == ORDER:
-        items = [by_norm.get(normalize(x)) for x in ans.order]
-        if None in items or len(items) != len(q.options):
+        items = [_find_option(x, q.options) for x in ans.order]
+        if None in items or len(set(items)) != len(q.options):
             return None
         ans.order = items
     elif ans.kind == PAIRS:
-        right = {normalize(o): o for o in q.right}
         pairs = {}
         for a, b in ans.pairs.items():
-            la, rb = by_norm.get(normalize(a)), right.get(normalize(b))
+            la, rb = _find_option(a, q.options), _find_option(b, q.right)
             if la is None or rb is None:
                 return None
             pairs[la] = rb

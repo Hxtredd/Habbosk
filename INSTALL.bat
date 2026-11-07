@@ -1,9 +1,9 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Puzzle Answer Assistant - Install
+title SK Assistant - Install
 echo ============================================================
-echo  Puzzle Answer Assistant - installation
+echo  SK Assistant - installation
 echo ============================================================
 echo.
 
@@ -100,7 +100,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\create_shortcuts
 echo.
 echo ============================================================
 echo  Installation finished. Start the program with the
-echo  "Puzzle Answer Assistant" icon on your Desktop (or RUN.bat).
+echo  "SK Assistant" icon on your Desktop (or RUN.bat).
 echo  To pin it: right-click the icon ^> Pin to taskbar
 echo  (Windows 11: right-click ^> Show more options ^> Pin to taskbar).
 echo ============================================================

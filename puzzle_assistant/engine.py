@@ -24,6 +24,8 @@ from .config import DEBUG_DIR, Config
 from .ocr import OcrError, Tesseract
 from .locate import Locator
 from .money import MoneyPanel, MoneyTracker, locate_money, parse_vistos, read_legend
+from .qa.screen import CATEGORIES, fingerprint, locate_question, read_question
+from .qa.text import normalize
 from .cardreader import is_mounted
 from .solver import solve
 from .vision import dhash, find_grids, hamming, prep_for_ocr, to_gray
@@ -83,6 +85,24 @@ def fingerprints(panel, cards) -> List[int]:
     return out
 
 
+def _picked(screen) -> tuple:
+    """(option the player picked, was it correct) when the game shows it."""
+    q = screen.question
+    if q.kind == "choice":
+        wrong = [o for o, s in zip(q.options, screen.status) if s == "wrong"]
+        if wrong:
+            return wrong[0], False
+        if screen.revealed is not None:
+            return screen.revealed.choice, True
+        return None, None
+    v = screen.verdict.lower()
+    if v.startswith("no era") or "incorrect" in v:
+        return None, False
+    if v.startswith("¡bien") or v.startswith("bien") or "correct" in v:
+        return None, True
+    return None, None
+
+
 def _key(b: dict) -> tuple:
     return (b["left"], b["top"], b["width"], b["height"])
 
@@ -100,6 +120,7 @@ class Engine(threading.Thread):
         # True when the overlay can be seen by screen capture (old Windows):
         # then the engine waits for the overlay to clear before reading.
         self.overlay_in_capture = False
+        self.memory = None                     # qa.memory.Memory, set by the UI
 
     # -- commands from the UI (thread-safe) ---------------------------------
     def stop(self) -> None:
@@ -143,6 +164,7 @@ class Engine(threading.Thread):
         placed: Optional[dict] = None          # card positions last sent to the overlay
         settle_until = 0.0
         money_pending = None                   # money puzzle seen once, not yet stable
+        qstate: dict = {}                      # question being shown (see _question_tick)
         last_analysis: Optional[Analysis] = None
 
         while not self._stop.is_set():
@@ -206,8 +228,23 @@ class Engine(threading.Thread):
                         self._money_loop(grabber, analyzer, money[0], money[1])
                         self._emit(state="waiting", msg="Waiting for puzzle…")
                         continue
+                    # Or a quiz question?
+                    qhit = None
+                    for b, frame_b in (zip(targets, frames) if self.cfg.questions else ()):
+                        lay = locate_question(frame_b)
+                        if lay is not None:
+                            qhit = (b, frame_b, lay)
+                            break
+                    if qhit is not None:
+                        last_target = _key(qhit[0])
+                        locked, tried, placed = None, None, None
+                        self._question_tick(qhit, analyzer, force, qstate)
+                        active, last_seen = True, tick
+                        self._sleep(tick)
+                        continue
                     if active and tick - last_seen > self.cfg.disappear_after_ms / 1000.0:
                         active, locked, tried, placed = False, None, None, None
+                        qstate.clear()
                         self._emit(state="waiting", msg="Waiting for puzzle…")
                     elif force:
                         self._emit(state="waiting", msg="No puzzle found on screen")
@@ -269,6 +306,67 @@ class Engine(threading.Thread):
                 time.sleep(1.0)
             self._sleep(tick)
         grabber.close()
+
+    # -- quiz questions ----------------------------------------------------
+    def _question_tick(self, qhit, analyzer, force: bool, st: dict) -> None:
+        """Read a question once it stops moving; answer it from memory; learn
+        the correct answer when the game reveals it."""
+        b, frame, lay = qhit
+        fp = fingerprint(frame, lay)
+        # The window slides / fades in: wait until it looks the same for a few checks.
+        st["stable"] = st.get("stable", 0) + 1 if fp == st.get("pending") else 0
+        st["pending"] = fp
+        if st["stable"] < 2 and not force:
+            return
+        if fp == st.get("read") and not force:
+            return                              # already read and shown
+        if self.cfg.question_mode == "manual" and not force:
+            if st.get("announced") != fp:
+                st["announced"] = fp
+                self._emit(state="question_wait")
+            return
+        screen = read_question(frame, lay, analyzer.ocr, analyzer.pool)
+        q = screen.question
+        if q.category not in CATEGORIES and st["stable"] < 4 and not force:
+            return                              # label not readable yet: still appearing
+        st["read"] = fp
+        ox, oy = b["left"], b["top"]
+        place = {"boxes": [(ox + x, oy + y, w, h) for x, y, w, h in lay.all_boxes()],
+                 "n_left": len(lay.left), "kind": q.kind}
+        mem = self.memory
+        # Same question as already shown? Clicking options changes their look:
+        # never downgrade a shown answer and don't repeat the same result.
+        ident = (normalize(q.category), normalize(q.text))
+        shown = st.get("shown")
+        if shown and shown[0] == ident and not force:
+            if not screen.answered and shown[1] != "unknown":
+                return
+            if screen.answered and shown[1] == "game":
+                return
+        if screen.answered and screen.revealed is not None:
+            learned = mem.save(q, screen.revealed) if mem else ""
+            if mem:
+                picked, ok = _picked(screen)
+                mem.record_feedback(q, picked, ok)
+            st["shown"] = (ident, "game")
+            self._emit(state="overlay_clear")
+            self._emit(state="question", question=q, answer=screen.revealed, status="game",
+                       learned=learned, verdict=screen.verdict, place=place)
+        elif screen.answered:
+            st["shown"] = (ident, "answered")
+            self._emit(state="overlay_clear")
+            self._emit(state="question", question=q, answer=None, status="answered",
+                       verdict=screen.verdict, place=place)
+        else:
+            m = mem.lookup(q) if mem else None
+            if m is not None:
+                st["shown"] = (ident, "memory")
+                self._emit(state="question", question=q, answer=m.answer, status="memory",
+                           how=m.how, display=m.stored, place=place)
+            elif not (shown and shown[0] == ident and shown[1] == "unknown"):
+                st["shown"] = (ident, "unknown")
+                self._emit(state="question", question=q, answer=None, status="unknown",
+                           place=place)
 
     # -- money puzzle ------------------------------------------------------
     def _money_loop(self, grabber, analyzer, b: dict, panel: MoneyPanel) -> None:

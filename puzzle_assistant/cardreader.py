@@ -227,4 +227,8 @@ def layout_recognised(readings: List[CardReading]) -> bool:
     badges = sum(1 for r in readings if r.badge is not None)
     rows = sum(1 for r in readings
                if r.mounted or "no caliber/arrow row found" not in r.notes)
-    return badges >= max(2, (len(readings) + 1) // 2) and rows == len(readings)
+    # the game letters its cards A, B, C... in reading order: random boxes
+    # (other windows) never spell that sequence
+    in_order = sum(1 for i, r in enumerate(readings) if r.badge == "ABCDEFGH"[i:i + 1])
+    return (badges >= max(2, (len(readings) + 1) // 2) and rows == len(readings)
+            and in_order >= max(3, int(0.6 * len(readings))))

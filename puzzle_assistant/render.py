@@ -60,6 +60,7 @@ BADGE_STYLE = {
     "next":  ((16, 185, 129, 245), (167, 243, 208, 255), (255, 255, 255, 255)),
     "step":  ((17, 24, 39, 230),   (96, 165, 250, 255),  (255, 255, 255, 255)),
     "done":  ((16, 185, 129, 200), (16, 185, 129, 0),    (255, 255, 255, 255)),
+    "answer": ((16, 185, 129, 245), (167, 243, 208, 255), (255, 255, 255, 255)),
     "skip":  ((190, 18, 60, 215),  (190, 18, 60, 0),     (255, 255, 255, 255)),
     "doubt": ((217, 119, 6, 235),  (253, 230, 138, 255), (255, 255, 255, 255)),
 }
@@ -78,7 +79,7 @@ def badge(kind: str, text: str, r: int) -> Image.Image:
     def disc(d, off, col, rad=R):
         d.ellipse([c - rad + off[0], c - rad + off[1], c + rad + off[0], c + rad + off[1]], fill=col)
 
-    if kind == "next":  # glow
+    if kind in ("next", "answer"):  # glow
         glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
         disc(ImageDraw.Draw(glow), (0, 0), (16, 185, 129, 150), int(R * 1.45))
         img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(R * 0.35)))
@@ -88,8 +89,8 @@ def badge(kind: str, text: str, r: int) -> Image.Image:
     if ring[3]:
         w = max(SS, int(R * 0.11))
         d.ellipse([c - R, c - R, c + R, c + R], outline=ring, width=w)
-    if kind in ("done", "skip"):
-        _icon(d, kind, c, R * 0.42, tcol)
+    if kind in ("done", "skip", "answer"):
+        _icon(d, "skip" if kind == "skip" else "done", c, R * 0.42, tcol)
     else:
         f = font(R * (1.05 if len(text) == 1 else 0.85), "Bold")
         d.text((c, c + R * 0.02), text, font=f, fill=tcol, anchor="mm")

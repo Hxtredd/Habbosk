@@ -1,4 +1,4 @@
-HABBOSK  (v1.7 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v1.8 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -31,7 +31,7 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
 
 2. USE
 ------
-  * INSTALL.bat puts a "Puzzle Answer Assistant" icon on your Desktop and in
+  * INSTALL.bat puts an "SK Assistant" icon on your Desktop and in
     the Start menu (CREATE_SHORTCUTS.bat recreates them, e.g. after moving
     the folder). Double-click it (or RUN.bat): the dark floating window appears.
   * Pin to the taskbar: right-click the Desktop icon (Windows 11: then
@@ -91,7 +91,7 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
 
   Settings panel:
     General       assistant on/off, keep on top, numbers on screen, text size
-    What Habbosk helps with
+    What SK Assistant helps with
                   weapon puzzle, money puzzle, questions (on/off each);
                   recognise questions automatically or only on "Scan"
     AI and internet
@@ -101,7 +101,7 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
                   (off by default: never pays), monthly limit, internet search
                   on/off, this month's requests and estimated cost.
                   (AI answers are connected in a coming update.)
-    Memory        how many questions Habbosk has learned; export; forget all
+    Memory        how many questions SK Assistant has learned; export; forget all
     Screen        select a region / watch all screens / save a snapshot
 
   Learned questions live in data\habbosk.db (works offline, kept across
@@ -126,6 +126,26 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   total in green ("Verified", and "= 390" on the left of the input box).
   You type it yourself. If the count does not match the game it shows
   "Not sure" ("? 390") - check before typing.
+
+2c. QUESTIONS (library "Estudiar en la biblioteca", more coming)
+-----------------------------------------------------------------
+  SK Assistant reads the question window by itself: the yellow category
+  label, the question, hint lines (• ...) and the options. It recognises
+  ADIVINANZA, PREGUNTA, ENCUENTRA EL ERROR, ¿QUIÉN SOY?, ORDENAR (put in
+  order) and PAREJAS (match pairs).
+    * Already learned: the answer appears in the window ("From memory") and
+      on the question itself - a green check on the right option, step
+      numbers for ORDENAR, the same number on both items of each PAREJAS pair.
+    * Not learned yet: "New question". Answer it in the game: as soon as the
+      game shows the correct answer (green option, revealed order or pairs)
+      SK Assistant saves it with the game's explanation ("Learned").
+      Next time that question appears - even with the options shuffled - the
+      answer is shown before you click.
+    * Questions repeat, so the memory fills up quickly. Built-in solving of
+      sums / sequences and AI answers for brand-new questions come in the
+      next updates.
+  Settings > "Recognise questions": automatically, or only when you press
+  Rescan (F5).
 
 3. HOW DETECTION WORKS
 ----------------------
@@ -200,7 +220,8 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   puzzle_assistant\overlay.py   click-through step numbers drawn on the cards
   puzzle_assistant\render.py    anti-aliased badges, step chips (Pillow)
   puzzle_assistant\money.py     money puzzle: strip tracking, value reading, checks
-  puzzle_assistant\qa\         questions: model, text helpers, SQLite memory
+  puzzle_assistant\qa\         questions: model, text helpers, SQLite memory,
+                             screen.py = reading the question window
   puzzle_assistant\settings_ui.py  settings panel
   puzzle_assistant\secrets.py   encrypted API key storage (Windows DPAPI)
   assets\fonts\                 Inter font (SIL Open Font License, see OFL.txt)

@@ -26,6 +26,7 @@ def normalize(s: str) -> str:
     s = strip_accents(s or "").lower()
     s = s.translate(str.maketrans({"−": "-", "–": "-", "—": "-", "×": "*", "÷": "/"}))
     s = re.sub(r"[^a-z0-9+\-*/=<>%]+", " ", s)
+    s = re.sub(r"\s*([+\-*/=<>%])\s*", r"\1", s)        # '63 - 8' == '63-8'
     return re.sub(r"\s+", " ", s).strip()
 
 
