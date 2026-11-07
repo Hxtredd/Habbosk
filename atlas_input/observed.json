@@ -18,6 +18,14 @@
    "method": ":taxi",
    "evidence": "2026-11-07_08-48-19.mp4, about 4-6 s",
    "status": "observed (taxi, not a walking route)"
+  },
+  {
+   "from_room": 23,
+   "from_name": "Avenida Crisol",
+   "to_room": "1900003897 (Mina · Nivel 1)",
+   "method": "mine entrance (not an arrow)",
+   "evidence": "35a0afcc-image.png ('Saliste de la mina' shown back in Avenida Crisol), 638d8ace-image.png",
+   "status": "observed, needs passive mode off; mine room IDs look generated"
   }
  ],
  "rooms_seen": [

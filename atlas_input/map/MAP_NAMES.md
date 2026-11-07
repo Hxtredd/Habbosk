@@ -14,21 +14,21 @@ Map names from hover screenshots. Room IDs from share-panel screenshots/recordin
 | P31 | Cine de Ensenada | place | 12401 | Cine de Ensenada |
 | P11 | Club Neón | place | 12418 | Club Neón |
 | P33 | Concesionario | place | 7 | Tienda de Autos |
-| P20 | Corte Suprema | place |  |  |
+| P20 | Corte Suprema | place | 12416 | Corte Suprema |
 | P18 | Gimnasio | place | 5 | Gimnasio Olimpo |
 | P6 | Gran Casino | place |  |  |
 | P14 | Hospital | place | 2 | Hospital |
 | P13 | Iglesia | place | 16 | Iglesia Santa María |
-| P29 | Invernadero de Frutales | place |  |  |
-| P22 | Invernadero de Hortalizas | place |  |  |
-| P25 | Invernadero de Maíz | place |  |  |
-| P9 | Joyería Aurora | place |  |  |
+| P29 | Invernadero de Frutales | place | 12405 | Invernadero de Frutales |
+| P22 | Invernadero de Hortalizas | place | 12404 | Invernadero de Hortalizas |
+| P25 | Invernadero de Maíz | place | 12403 | Invernadero de Maíz |
+| P9 | Joyería Aurora | place | 12352 | Joyería Aurora |
 | P19 | Mascotas | place | 15 | Tienda de Animales |
 | P21 | McDonald's | place | 10 | McDonald's |
-| P15 | Mina | place |  |  |
-| P23 | Pastelería de Ensenada | place |  |  |
+| P15 | Mina | place | 1900003897 | Mina · Nivel 1 |
+| P23 | Pastelería de Ensenada | place | 12415 | Pastelería de Ensenada |
 | P0 | Penitenciaría | place | 6 | Penitenciaría de Ensenada |
-| P8 | Planta Nuclear | place |  |  |
+| P8 | Planta Nuclear | place | 12397 | Planta Nuclear |
 | P17 | Ropa | place | 11 | Tienda de ropas Macy's |
 | P5 | Spa | place | 18 | Spa Onsen |
 | P3 | Supermercado 7-11 | place | 4 | Supermercado Eleven |
@@ -36,9 +36,9 @@ Map names from hover screenshots. Room IDs from share-panel screenshots/recordin
 | P12 | Tienda Apple | place | 9 | Tienda Apple |
 | P4 | Tienda de Armas | place | 8 | Tienda de Armas |
 | P34 | Tienda de Barcos | place |  |  |
-| P27 | Tienda de Cultivos | place |  |  |
+| P27 | Tienda de Cultivos | place | 12400 | Tienda de Cultivos |
 | P30 | Tienda de Motos | place |  |  |
-| P10 | Weinrich Minerals | place |  |  |
+| P10 | Weinrich Minerals | place | 12398 | Tienda de Minerales |
 | S11 | Avenida Alameda | street | 41 | Avenida Alameda |
 | S10 | Avenida Alborada | street | 25 | Avenida Alborada |
 | S8 | Avenida Arcos | street | 39 | Avenida Arcos |
