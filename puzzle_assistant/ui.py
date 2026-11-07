@@ -566,6 +566,7 @@ class App:
         self._tags([], 0)
         label = {"memory": ("From memory", R.GREEN_SOFT), "game": ("Learned ✓", R.GREEN_SOFT),
                  "solver": ("Solved", R.GREEN_SOFT), "ai": ("AI · unverified", R.AMBER),
+                 "likely": ("Probably", R.AMBER),
                  "unsure": ("Not sure", R.AMBER), "thinking": ("Thinking…", R.BLUE),
                  "unknown": ("New question", R.AMBER), "answered": ("Answered", R.MUTED)}
         text, colour = label.get(status, ("Question", R.BLUE))
@@ -601,7 +602,10 @@ class App:
             self.l_main.config(text=main, fg=GOOD if sure else WARN, font=(FONT_SEMI, size))
         clues = ("\n" + "  ·  ".join(q.clues)) if q.clues else ""
         self.l_next.config(text=q.text + clues, fg=FG)
-        self.l_hint.config(text=(ans.explanation if ans and ans.explanation else ""), fg=DIM)
+        expl = ans.explanation if ans and ans.explanation else ""
+        if status == "likely":
+            expl = ("Check before clicking: " + expl) if expl else "Check before clicking."
+        self.l_hint.config(text=expl, fg=WARN if status == "likely" else DIM)
         self.l_warn.config(text="")
 
     def _tags(self, items, width: int) -> None:

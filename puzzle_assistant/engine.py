@@ -25,6 +25,8 @@ from .ocr import OcrError, Tesseract
 from .locate import Locator
 from .money import MoneyPanel, MoneyTracker, locate_money, parse_vistos, read_legend
 from .qa.screen import CATEGORIES, fingerprint, locate_question, read_question
+from .qa.memory import answers_match
+from .qa.solvers import solve_question
 from .qa.text import normalize
 from .cardreader import is_mounted
 from .solver import solve
@@ -319,7 +321,17 @@ class Engine(threading.Thread):
         if st["stable"] < 2 and not force:
             return
         if fp == st.get("read") and not force:
-            return                              # already read and shown
+            # already read. If nothing was found, the first read may have been
+            # taken while the window was still appearing: retry a few times.
+            shown = st.get("shown")
+            retry = (shown is not None and shown[1] == "unknown"
+                     and st.get("retries", 0) < 3
+                     and time.monotonic() - st.get("read_at", 0.0) >= 0.9)
+            if not retry:
+                return
+            st["retries"] = st.get("retries", 0) + 1
+        else:
+            st["retries"] = 0
         if self.cfg.question_mode == "manual" and not force:
             if st.get("announced") != fp:
                 st["announced"] = fp
@@ -330,6 +342,7 @@ class Engine(threading.Thread):
         if q.category not in CATEGORIES and st["stable"] < 4 and not force:
             return                              # label not readable yet: still appearing
         st["read"] = fp
+        st["read_at"] = time.monotonic()
         ox, oy = b["left"], b["top"]
         place = {"boxes": [(ox + x, oy + y, w, h) for x, y, w, h in lay.all_boxes()],
                  "n_left": len(lay.left), "kind": q.kind}
@@ -348,6 +361,12 @@ class Engine(threading.Thread):
             if mem:
                 picked, ok = _picked(screen)
                 mem.record_feedback(q, picked, ok)
+                solved = st.get("solver")
+                if solved and solved[0] == ident:      # how did the built-in solver do?
+                    mine = solved[1]
+                    right = answers_match(mine, screen.revealed)
+                    mem.log_solver(q, mine, right)
+                    st["solver"] = None
             st["shown"] = (ident, "game")
             self._emit(state="overlay_clear")
             self._emit(state="question", question=q, answer=screen.revealed, status="game",
@@ -363,10 +382,18 @@ class Engine(threading.Thread):
                 st["shown"] = (ident, "memory")
                 self._emit(state="question", question=q, answer=m.answer, status="memory",
                            how=m.how, display=m.stored, place=place)
-            elif not (shown and shown[0] == ident and shown[1] == "unknown"):
-                st["shown"] = (ident, "unknown")
-                self._emit(state="question", question=q, answer=None, status="unknown",
-                           place=place)
+            else:
+                sol = solve_question(q)
+                if sol is not None:
+                    status = "solver" if sol.confidence >= 1.0 else "likely"
+                    st["shown"] = (ident, status)
+                    st["solver"] = (ident, sol)
+                    self._emit(state="question", question=q, answer=sol, status=status,
+                               place=place)
+                elif not (shown and shown[0] == ident and shown[1] == "unknown"):
+                    st["shown"] = (ident, "unknown")
+                    self._emit(state="question", question=q, answer=None, status="unknown",
+                               place=place)
 
     # -- money puzzle ------------------------------------------------------
     def _money_loop(self, grabber, analyzer, b: dict, panel: MoneyPanel) -> None:

@@ -235,6 +235,15 @@ class Memory:
             (qid, event, json.dumps(old.to_dict(), ensure_ascii=False) if old else None,
              json.dumps(new.to_dict(), ensure_ascii=False) if new else None, source, detail, _now()))
 
+    def log_solver(self, q: Question, solver_answer: Answer, correct: bool) -> None:
+        """How the built-in solver did, once the game revealed the answer."""
+        key = question_key(q)
+        with self._lock:
+            row = self._db.execute("SELECT id FROM questions WHERE key=?", (key,)).fetchone()
+            self._log(row["id"] if row else None, "solver_check", None, solver_answer, "solver",
+                      "right" if correct else "wrong")
+            self._db.commit()
+
     # -- usage / cost ------------------------------------------------------
     def add_usage(self, provider: str, requests: int = 1, cost: float = 0.0) -> None:
         month = _dt.date.today().strftime("%Y-%m")
@@ -258,7 +267,12 @@ class Memory:
             n = self._db.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
             v = self._db.execute("SELECT COUNT(*) FROM questions WHERE verified=1").fetchone()[0]
             c = self._db.execute("SELECT COUNT(*) FROM history WHERE event='correction'").fetchone()[0]
-        return {"questions": n, "verified": v, "corrections": c}
+            sr = self._db.execute("SELECT COUNT(*) FROM history WHERE event='solver_check' "
+                                  "AND detail='right'").fetchone()[0]
+            sw = self._db.execute("SELECT COUNT(*) FROM history WHERE event='solver_check' "
+                                  "AND detail='wrong'").fetchone()[0]
+        return {"questions": n, "verified": v, "corrections": c, "solver_right": sr,
+                "solver_wrong": sw}
 
     def recent(self, limit: int = 50) -> List[dict]:
         with self._lock:
@@ -287,6 +301,20 @@ def _row_dict(r) -> dict:
         if d.get(k):
             d[k] = json.loads(d[k])
     return d
+
+
+def answers_match(a: Answer, b: Answer) -> bool:
+    """Same answer? Tolerates the small reading differences that matching
+    already tolerates ('36 +10 Jj' == '36 + 10')."""
+    def k(x: str) -> str:
+        return _strip_tail(normalize(x or ""))
+    if a.kind != b.kind:
+        return False
+    if a.kind == CHOICE:
+        return k(a.choice) == k(b.choice)
+    if a.kind == ORDER:
+        return [k(x) for x in a.order] == [k(x) for x in b.order]
+    return {k(x): k(y) for x, y in a.pairs.items()} == {k(x): k(y) for x, y in b.pairs.items()}
 
 
 def _strip_tail(n: str) -> str:

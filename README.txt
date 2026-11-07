@@ -1,4 +1,4 @@
-SK ASSISTANT  (v1.8 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v1.9 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -141,9 +141,19 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
       SK Assistant saves it with the game's explanation ("Learned").
       Next time that question appears - even with the options shuffled - the
       answer is shown before you click.
-    * Questions repeat, so the memory fills up quickly. Built-in solving of
-      sums / sequences and AI answers for brand-new questions come in the
-      next updates.
+    * Built-in solving (no AI, instant) for brand-new "work it out" questions:
+        - ORDENAR with sums (9 + 12, 63 − 8 ...), smallest or largest first
+        - sequences: ¿Qué letra/número sigue? (F, J, N, R -> V; 2, 4, 8 -> 16;
+          1, 1, 2, 3, 5 -> 8; missing or previous term)
+        - ¿Cuánto es 7 × 8?  and  "which equation is wrong / correct"
+        - simple word problems (45 minutos y luego 25 más -> 70): shown as
+          "Probably" in orange with "Check before clicking", and no mark on
+          the game - wording can be ambiguous.
+      An answer is shown only when exactly one option fits; otherwise nothing
+      (a wrong click costs a point). "Solved" answers are checked against
+      what the game reveals: Settings > Memory shows how many were right.
+    * Questions repeat, so the memory fills up quickly. AI answers for
+      brand-new knowledge questions come in the next update.
   Settings > "Recognise questions": automatically, or only when you press
   Rescan (F5).
 
@@ -221,7 +231,8 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   puzzle_assistant\render.py    anti-aliased badges, step chips (Pillow)
   puzzle_assistant\money.py     money puzzle: strip tracking, value reading, checks
   puzzle_assistant\qa\         questions: model, text helpers, SQLite memory,
-                             screen.py = reading the question window
+                             screen.py = reading the question window,
+                             solvers.py = built-in solving (sums, sequences)
   puzzle_assistant\settings_ui.py  settings panel
   puzzle_assistant\secrets.py   encrypted API key storage (Windows DPAPI)
   assets\fonts\                 Inter font (SIL Open Font License, see OFL.txt)

@@ -85,6 +85,7 @@ difficulties: keep the interface simple, plain-worded and calm.
 | `qa/screen.py` | question window: locate, OCR, revealed results |
 | `qa/memory.py` | SQLite memory (`data/habbosk.db`), matching, source priority, history |
 | `qa/model.py`, `qa/text.py` | Question/Answer model, normalisation |
+| `qa/solvers.py` | built-in solvers (safe arithmetic parser, sequence rules); answer only if exactly one option fits, refuse when two readings fit |
 | `secrets.py` | API keys encrypted with Windows DPAPI (`data/keys.bin`) |
 
 Key ideas: detect windows by **layout** (grids of boxes) not by OCR; tiny text
@@ -99,7 +100,7 @@ source priority **game > user > solver > ai**.
 |---|---|---|
 | 1 | Unified window, settings panel, SQLite memory, key storage | done (v1.7) |
 | 2 | Read the question window; learn from the game; answer from memory; marks | done (v1.8) |
-| 3 | Built-in solvers: ORDENAR sums, letter/number sequences, simple word problems | in progress |
+| 3 | Built-in solvers: ORDENAR sums, letter/number sequences, calculations, wrong equations, simple word problems ("likely" only) | done (v1.9) |
 | 4 | AI providers (Gemini first) + optional web search, cost controls, "unverified" label | todo — check current pricing first |
 | 5 | Manual corrections, history, statistics in the UI | todo |
 | 6 | Timed general-knowledge task (needs a recording), hints, packaging | todo |
@@ -118,6 +119,12 @@ source priority **game > user > solver > ai**.
   captures don't have.
 - Windows-only parts (overlay window, DPAPI, shortcuts, .bat files) cannot be
   run in the Linux dev container — be explicit with the owner about that.
+
+Solver policy: certain answers have confidence 1.0 ("Solved", green mark on
+the game); word problems 0.7 ("Probably", amber, no mark). Each solver answer
+is compared with what the game reveals (`solver_check` in the history; shown
+in Settings > Memory). The owner has not seen other "work it out" question
+types so far.
 
 ## Known limits / ideas
 

@@ -227,9 +227,13 @@ class SettingsWindow:
 
     def _refresh_memory(self) -> None:
         st = self.memory.stats()
+        solved = st.get("solver_right", 0) + st.get("solver_wrong", 0)
         self.l_mem.config(text=f"Remembers {st['questions']} questions "
                                f"({st['verified']} confirmed by the game) · "
-                               f"{st['corrections']} corrections")
+                               f"{st['corrections']} corrections\n"
+                               f"Built-in solving checked by the game: {st.get('solver_right', 0)} "
+                               f"right, {st.get('solver_wrong', 0)} wrong"
+                               + ("" if solved else " (none yet)"), justify="left")
 
     def _export(self) -> None:
         path = filedialog.asksaveasfilename(parent=self.win, defaultextension=".json",
