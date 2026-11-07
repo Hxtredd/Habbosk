@@ -93,11 +93,69 @@
    ]
   },
   {
+   "room_id": 11,
+   "name": "Tienda de ropas Macy's",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "98dd4c2e-image.png"
+   ]
+  },
+  {
+   "room_id": 12,
+   "name": "Atención Ciudadana",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "unknown",
+   "evidence": [
+    "46fa733e-image.png"
+   ],
+   "note": "not on the map; the Ayuntamiento has an 'Atención Ciudadana' wall sign - probably inside it"
+  },
+  {
    "room_id": 13,
    "name": "Ayuntamiento de Ensenada",
    "verification": "share-panel ID + name bar (recordings)",
    "arrived_by": "see observed.json",
-   "evidence": []
+   "evidence": [
+    "37b3ed12-image.png"
+   ]
+  },
+  {
+   "room_id": 14,
+   "name": "Apartamentos Hialeah",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "6a30f29d-image.png"
+   ]
+  },
+  {
+   "room_id": 15,
+   "name": "Tienda de Animales",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "0fa18f66-image.png"
+   ],
+   "note": "wall sign 'Tienda de Mascotas'"
+  },
+  {
+   "room_id": 16,
+   "name": "Iglesia Santa María",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "7f606047-image.png"
+   ]
+  },
+  {
+   "room_id": 18,
+   "name": "Spa Onsen",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "08247bca-image.png"
+   ]
   },
   {
    "room_id": 19,
@@ -108,6 +166,51 @@
     "1f4e755d-image.png"
    ],
    "note": "probably a room inside Gimnasio Olimpo (not on the map; gym has a 'BAÑOS' door)"
+  },
+  {
+   "room_id": 20,
+   "name": "Avenida Vitalia",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "70226ce5-image.png"
+   ]
+  },
+  {
+   "room_id": 21,
+   "name": "Avenida Livia",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "83daf782-image.png"
+   ]
+  },
+  {
+   "room_id": 22,
+   "name": "Avenida Arelia",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "4bd4bea2-image.png"
+   ]
+  },
+  {
+   "room_id": 23,
+   "name": "Avenida Crisol",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "53ab7cb8-image.png"
+   ]
+  },
+  {
+   "room_id": 25,
+   "name": "Avenida Alborada",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "taxi (chat: 'Pide un Taxi VIP para ir a …')",
+   "evidence": [
+    "c5cc1d36-image.png"
+   ]
   },
   {
    "room_id": 41,
@@ -127,11 +230,40 @@
    "note": "probably a room inside the Hospital (not on the map)"
   },
   {
+   "room_id": 441,
+   "name": "Interior, Departamento Atención Ciudadana",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "unknown",
+   "evidence": [
+    "f216b00d-image.png"
+   ],
+   "note": "owner Keysha (player room); game says 'En esta sala no se permite estar trabajando'"
+  },
+  {
+   "room_id": 11884,
+   "name": "Oficina Departamento de Alfas",
+   "verification": "screenshot: share-panel ID + name bar + info panel agree",
+   "arrived_by": "unknown",
+   "evidence": [
+    "250764c9-image.png"
+   ],
+   "note": "owner Rofteck (player room, not HabboSK)"
+  },
+  {
    "room_id": 12407,
    "name": "Biblioteca de Ensenada",
    "verification": "share-panel ID + name bar (screenshot)",
    "arrived_by": "see observed.json",
-   "evidence": []
+   "evidence": [
+    "73ac114c-image.png"
+   ]
   }
- ]
+ ],
+ "taxi_messages": {
+  "start": "*Pide un Taxi VIP para ir a <room name>*",
+  "riding": "*Se sube a su auto VIP y se marcha a su destino*",
+  "arrived": "*Llegó a su destino*",
+  "not_found": "[Taxi SK] No pudimos encontrar ese lugar.",
+  "walk_only": "A ese lugar solo se llega caminando. Mira el mapa para ver la calle que conecta."
+ }
 }

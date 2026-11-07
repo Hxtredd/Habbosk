@@ -82,12 +82,14 @@
    "x": 1086,
    "y": 126,
    "name": "Spa",
-   "room_id": null,
+   "room_id": 18,
    "name_source": "map hover label",
    "evidence": [
     "ce63bfc5-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Spa Onsen",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P6",
@@ -188,12 +190,14 @@
    "x": 716,
    "y": 201,
    "name": "Iglesia",
-   "room_id": null,
+   "room_id": 16,
    "name_source": "map hover label",
    "evidence": [
     "5acc7c21-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Iglesia Santa María",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P14",
@@ -242,12 +246,14 @@
    "x": 914,
    "y": 216,
    "name": "Ropa",
-   "room_id": null,
+   "room_id": 11,
    "name_source": "map hover label",
    "evidence": [
     "84395662-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Tienda de ropas Macy's",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P18",
@@ -270,12 +276,14 @@
    "x": 569,
    "y": 245,
    "name": "Mascotas",
-   "room_id": null,
+   "room_id": 15,
    "name_source": "map hover label",
    "evidence": [
     "dffdda17-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Tienda de Animales",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P20",
@@ -365,12 +373,14 @@
    "x": 696,
    "y": 321,
    "name": "Apartamentos",
-   "room_id": null,
+   "room_id": 14,
    "name_source": "map hover label",
    "evidence": [
     "eda08d1a-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Apartamentos Hialeah",
+   "room_link": "name match map label -> room (same place, names differ slightly)"
   },
   {
    "marker": "P27",
@@ -489,12 +499,14 @@
    "x": 860,
    "y": 57,
    "name": "Avenida Arelia",
-   "room_id": null,
+   "room_id": 22,
    "name_source": "map hover label",
    "evidence": [
     "38d90c16-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Arelia",
+   "room_link": "exact name match"
   },
   {
    "marker": "S1",
@@ -502,12 +514,14 @@
    "x": 738,
    "y": 117,
    "name": "Avenida Livia",
-   "room_id": null,
+   "room_id": 21,
    "name_source": "map hover label",
    "evidence": [
     "fe5edff5-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Livia",
+   "room_link": "exact name match"
   },
   {
    "marker": "S2",
@@ -569,12 +583,14 @@
    "x": 492,
    "y": 240,
    "name": "Avenida Crisol",
-   "room_id": null,
+   "room_id": 23,
    "name_source": "map hover label",
    "evidence": [
     "13792d97-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Crisol",
+   "room_link": "exact name match"
   },
   {
    "marker": "S7",
@@ -582,12 +598,14 @@
    "x": 738,
    "y": 240,
    "name": "Avenida Vitalia",
-   "room_id": null,
+   "room_id": 20,
    "name_source": "map hover label",
    "evidence": [
     "f1bf5fd9-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Vitalia",
+   "room_link": "exact name match"
   },
   {
    "marker": "S8",
@@ -622,13 +640,15 @@
    "x": 245,
    "y": 363,
    "name": "Avenida Alborada",
-   "room_id": null,
+   "room_id": 25,
    "name_source": "map hover label",
    "evidence": [
     "b9f5bf71-image.png",
     "028eaeea-image.png"
    ],
-   "status": "named"
+   "status": "named",
+   "room_name": "Avenida Alborada",
+   "room_link": "exact name match"
   },
   {
    "marker": "S11",
