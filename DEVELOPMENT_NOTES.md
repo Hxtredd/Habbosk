@@ -261,6 +261,13 @@ unverified/conflicting/outdated) - nothing unverified is shown as fact.
 `Brain` API: learn, add_source, add_section, add_evidence, link, review,
 correct, propose_share, claim, explain, search (B1: word overlap), ask (B1:
 reports hits, never answers). Not wired into the app yet.
+TEMPORARY test bench (dev tool, removable): `BRAIN_TEST_BENCH.bat` /
+`python -m puzzle_assistant.devtools.brain_bench` - tabs Ask (Brain.ask /
+search, why + source + evidence per result, "ask as" a test contributor),
+Add material (add_source + one whole section, raw text kept), Claims (learn
++ evidence + review / contradiction / correct, Brain rules apply), Checks
+(`devtools/brain_checks.py`: scenario checks on a throwaway DB + read-only
+check of the real quiz/Atlas files). Uses the real knowledge.db. Not the chat.
 Next (each needs approval): B2 ranked retrieval (FTS5 - check availability on
 Windows), B3 reasoning, B4 corrections workflow, B5 importer, B6 test bench.
 Stage 1 (engine processing identity) is parked as an unreleased WIP commit.
