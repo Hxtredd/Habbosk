@@ -55,5 +55,27 @@ def main() -> None:
     if args.image:
         sys.exit(analyse_image(args.image, cfg))
 
+    if not _single_instance():
+        return  # already running (e.g. taskbar icon clicked twice)
     from .ui import App
     App(cfg).run()
+
+
+_MUTEX = None
+
+
+def _single_instance() -> bool:
+    """Windows: allow one running window only."""
+    global _MUTEX
+    if sys.platform != "win32":
+        return True
+    import ctypes
+    _MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, "PuzzleAnswerAssistant.Single")
+    if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        # bring the existing window to the front instead of opening a second one
+        hwnd = ctypes.windll.user32.FindWindowW(None, "Puzzle Answer Assistant")
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+        return False
+    return True

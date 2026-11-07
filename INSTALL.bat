@@ -95,8 +95,14 @@ echo.
 echo Self-test (no OCR needed)...
 ".venv\Scripts\python.exe" -m unittest discover -s tests
 echo.
+echo Creating Desktop and Start menu shortcuts...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\create_shortcuts.ps1"
+echo.
 echo ============================================================
-echo  Installation finished. Start the program with RUN.bat
+echo  Installation finished. Start the program with the
+echo  "Puzzle Answer Assistant" icon on your Desktop (or RUN.bat).
+echo  To pin it: right-click the icon ^> Pin to taskbar
+echo  (Windows 11: right-click ^> Show more options ^> Pin to taskbar).
 echo ============================================================
 pause
 exit /b 0

@@ -43,6 +43,19 @@ def _win32_tweaks(root: tk.Tk) -> None:
         pass
 
 
+def _set_icon(root: tk.Tk) -> None:
+    """Window / taskbar icon (assets/app.ico)."""
+    import os
+    base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+    try:
+        if sys.platform == "win32":
+            root.iconbitmap(default=os.path.join(base, "app.ico"))
+        else:
+            root.iconphoto(True, tk.PhotoImage(file=os.path.join(base, "app.png")))
+    except Exception:
+        pass
+
+
 class RegionSelector:
     """Full-screen translucent overlay: drag a rectangle around the puzzle."""
 
@@ -100,6 +113,7 @@ class App:
         r.configure(bg=BG)
         r.geometry(cfg.window_geometry)
         r.minsize(260, 190)
+        _set_icon(r)
         r.attributes("-topmost", True)
         try:
             r.attributes("-alpha", float(cfg.opacity))

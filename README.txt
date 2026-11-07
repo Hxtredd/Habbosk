@@ -1,4 +1,4 @@
-PUZZLE ANSWER ASSISTANT  (v1.1, Windows prototype)
+PUZZLE ANSWER ASSISTANT  (v1.2, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -31,7 +31,14 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
 
 2. USE
 ------
-  * Double-click RUN.bat. The dark floating window appears.
+  * INSTALL.bat puts a "Puzzle Answer Assistant" icon on your Desktop and in
+    the Start menu (CREATE_SHORTCUTS.bat recreates them, e.g. after moving
+    the folder). Double-click it (or RUN.bat): the dark floating window appears.
+  * Pin to the taskbar: right-click the Desktop icon (Windows 11: then
+    "Show more options") > "Pin to taskbar". Or search "Puzzle Answer
+    Assistant" in the Start menu > right-click > "Pin to taskbar".
+    Windows does not let programs pin themselves, so this one click is manual.
+    Clicking the icon while it is already running brings the window forward.
   * Open the game and play normally. When the puzzle appears the window shows:
 
         PUZZLE ANSWER ASSISTANT
