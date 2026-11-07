@@ -160,6 +160,8 @@ class SettingsWindow:
             self._saved("text_scale")
         scale.bind("<ButtonRelease-1>", text_size)
 
+        self._build_updates()
+
         f = self._section("What SK Assistant helps with")
         self._check(f, "Weapon puzzle (Montar un arma)", "weapon_puzzle")
         self._check(f, "Money puzzle (Cuenta el dinero)", "money_puzzle")
@@ -248,6 +250,73 @@ class SettingsWindow:
         tk.Label(f, text=f"Now watching: {where}.", bg=PANEL, fg=DIM, font=(FONT, 9),
                  anchor="w").pack(fill="x", padx=12, pady=(0, 10))
         tk.Frame(self.body, bg=BG, height=16).pack()
+
+    def _build_updates(self) -> None:
+        from . import __version__, updater
+        f = self._section("Updates")
+        tk.Label(f, text=f"This is version {__version__}.", bg=PANEL, fg=FG, font=(FONT, 10),
+                 anchor="w").pack(fill="x", padx=12, pady=(10, 0))
+        self._check(f, "Look for a new version when SK starts (never installs by itself)",
+                    "check_updates")
+        row = tk.Frame(f, bg=PANEL)
+        row.pack(fill="x", padx=12, pady=(2, 4))
+        status = tk.Label(f, text="", bg=PANEL, fg=DIM, font=(FONT, 9), anchor="w",
+                          justify="left", wraplength=380)
+        found = {}
+
+        def say(text, colour=DIM):
+            try:
+                self.win.after(0, lambda: status.config(text=text, fg=colour))
+            except tk.TclError:
+                pass
+
+        def check():
+            say("Checking…")
+
+            def work():
+                try:
+                    rel = updater.check()
+                except Exception as exc:
+                    say(f"Could not check: {exc}", WARN)
+                    return
+                if rel is None:
+                    say("You have the newest version ✓", GOOD)
+                    return
+                found["rel"] = rel
+                say(f"Version {rel.version} is available ({rel.size / 1e6:.0f} MB).\n{rel.notes}\n"
+                    "Press “Update now”.", WARN)
+                self.win.after(0, lambda: upd.pack(side="left", padx=(6, 0)))
+            threading.Thread(target=work, daemon=True).start()
+
+        def update():
+            rel = found.get("rel")
+            if rel is None:
+                return
+            upd.pack_forget()
+
+            def work():
+                try:
+                    say("Downloading… 0 %")
+                    path = updater.download(rel, lambda x: say(f"Downloading… {x * 100:.0f} %"))
+                    say("Installing…")
+                    changed = updater.install(path)
+                    updater.update_packages(changed)
+                except Exception as exc:
+                    say(f"Update failed, nothing was changed that can't be undone: {exc}", WARN)
+                    return
+                say(f"Updated to {rel.version} ({len(changed)} files). Restarting…", GOOD)
+                self.win.after(1200, self.actions.get("restart", lambda: None))
+            threading.Thread(target=work, daemon=True).start()
+
+        self._button(row, "Check for updates", check).pack(side="left")
+        upd = self._button(row, "Update now", update)
+        status.pack(fill="x", padx=12, pady=(0, 10))
+        if self.actions.get("update_found"):
+            found["rel"] = self.actions["update_found"]()
+            if found["rel"] is not None:
+                rel = found["rel"]
+                status.config(text=f"Version {rel.version} is available.\n{rel.notes}", fg=WARN)
+                upd.pack(side="left", padx=(6, 0))
 
     def _refresh_memory(self) -> None:
         st = self.memory.stats()

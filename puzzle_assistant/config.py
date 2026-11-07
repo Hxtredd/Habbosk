@@ -84,6 +84,7 @@ class Config:
     ai_price_out: float = 0.0
 
     # --- UI --------------------------------------------------------------
+    check_updates: bool = True          # look for a new version when SK starts (never installs by itself)
     always_on_top: bool = True
     text_scale: float = 1.0             # 0.8 .. 1.6
     window_geometry: str = "440x360+40+40"

@@ -36,11 +36,15 @@ difficulties: keep the interface simple, plain-worded and calm.
 - Modern dark look (Inter font, anti-aliased badges, chips, status pills).
 - Wants low running costs: memory first, built-in solvers, free AI tiers;
   paid AI only if explicitly enabled with a monthly cap.
-- Prefers updates as a ZIP (`dist/`). The folder inside the ZIP is named
-  after the version (`SK_Assistant_v2.1`); unzip, run `INSTALL.bat` (moves
-  the shortcuts). Data lives in `%APPDATA%\SK Assistant`, so the folder
-  can change. Each update gets the next version: v2.1, v2.2, ... (ZIP and folder named
-  `SK_Assistant_v2.1` etc.; bump `puzzle_assistant/__init__.py` and README).
+- Each update gets the next version (v2.7, v2.8, ...): bump
+  `puzzle_assistant/__init__.py` and the README title, then run
+  `python tools/publish_release.py "notes"` - it builds
+  `dist/SK_Assistant_v<x.y>.zip` (top folder "SK Assistant") and
+  `latest.json` (size + SHA-256). Commit and push both: the in-app updater
+  (`updater.py`, Settings > Updates) reads latest.json from the public repo
+  (raw.githubusercontent.com, this branch) and installs in place on click.
+  Data lives in `%APPDATA%\SK Assistant`; updates keep `.venv`, config,
+  debug; replaced files go to `_previous\`.
 
 ## Game rules learned from the owner (confirmed)
 

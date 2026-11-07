@@ -1,0 +1,7 @@
+{
+ "version": "2.7.0",
+ "zip": "dist/SK_Assistant_v2.7.zip",
+ "sha256": "8404d2b4d634b5c7d4550d247203b335caa76e1ec2d4cbc7cb4451e4109b02e2",
+ "size": 11646678,
+ "notes": "Updates with one click from now on (Settings > Updates)."
+}

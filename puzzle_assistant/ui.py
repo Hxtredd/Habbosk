@@ -7,6 +7,7 @@ any other program.
 from __future__ import annotations
 
 import queue
+import threading
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
@@ -138,6 +139,7 @@ class App:
         self.engine.memory = self.memory
         self.engine.ai = AIAnswerer(self.cfg, self.memory)
         self._settings = None
+        self._update_found = None          # a newer version found at start
         # World Atlas (read-only Live Explorer), separate from the puzzles
         self.atlas = self.explorer = None
         try:
@@ -376,6 +378,7 @@ class App:
         elif self._ex_panel is None:
             self._place_explorer(force=True)
         self._style_tabs()
+        self.root.after(4000, self._check_updates_later)
 
     def set_dock(self, mode: str) -> None:
         self._save_explorer_geometry()
@@ -493,11 +496,35 @@ class App:
                 self._style_tabs()
         self.root.after(1500, self._atlas_poll)
 
+    def restart_for_update(self) -> None:
+        from . import updater
+        updater.restart()
+        self.close()
+
+    def _check_updates_later(self) -> None:
+        """Quietly look for a new version at start (never installs)."""
+        self._update_found = None
+        if not self.cfg.check_updates:
+            return
+
+        def work():
+            from . import updater
+            try:
+                self._update_found = updater.check()
+            except Exception:
+                return
+            if self._update_found is not None:
+                v = self._update_found.version
+                self.root.after(0, lambda: self.l_warn.config(
+                    text=f"Update available: version {v} - Settings > Updates", fg=ACCENT))
+        threading.Thread(target=work, daemon=True).start()
+
     def open_settings(self) -> None:
         self._settings = open_settings(
             self._settings, self.root, self.cfg, self.memory, self._setting_changed,
             {"region": self.pick_region, "auto": self.clear_region,
-             "snapshot": self.engine.snapshot})
+             "snapshot": self.engine.snapshot, "restart": self.restart_for_update,
+             "update_found": lambda: self._update_found})
 
     def _setting_changed(self, name: str) -> None:
         if name == "assistant_on":
