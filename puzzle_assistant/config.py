@@ -67,6 +67,9 @@ class Config:
     money_puzzle: bool = True           # "Cuenta el dinero"
     questions: bool = True              # quiz questions (library, general knowledge)
     world_atlas: bool = True            # Live Explorer: learn rooms and connections
+    explorer_dock: str = "tab"          # tab | right | left | top | bottom | window
+    explorer_size: int = 420            # px of the docked Explorer pane
+    explorer_geometry: str = "600x720+480+40"   # when detached (separate window)
     question_mode: str = "auto"         # "auto" = detect by itself, "manual" = on Scan
 
     # --- AI and internet (API keys are stored encrypted, never here) -------

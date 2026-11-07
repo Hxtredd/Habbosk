@@ -1,4 +1,4 @@
-SK ASSISTANT  (v2.4 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v2.5 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -21,7 +21,7 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   a) Install Python from https://www.python.org/downloads/windows/
      During setup tick "Add python.exe to PATH" (Tkinter is included).
   b) Unzip it somewhere, e.g. into C:\ . The folder is named after the
-     version (e.g. SK_Assistant_v2.4). Updating from an older version: unzip the
+     version (e.g. SK_Assistant_v2.5). Updating from an older version: unzip the
      new one, run its INSTALL.bat (it moves the Desktop / Start icons to the
      new folder), then delete the old folder. Your memory, settings and
      keys are kept in your user profile, not in the program folder.
@@ -241,7 +241,12 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
     * A room SK has never seen waits for you in the Explorer window:
       Accept, Edit (fix ID / name; the original reading is kept) or
       "Not this". The "Explorer" button shows a dot when one is waiting.
-    * Explorer window: what SK sees right now, the rooms waiting for you,
+    * Where the Explorer is shown: the "Explorer" tab at the top of the SK
+      window (next to "Assistant"), or - with the ⧉ button at the top right
+      - docked right / left / on top / below the assistant (drag the bar
+      between them to resize), or as a separate, resizable window (closing
+      it puts it back as a tab). The choice and sizes are remembered.
+    * Explorer: what SK sees right now, the rooms waiting for you,
       a searchable list of all rooms (ID, owner, visits, where walking
       leads), and Export... (a .json file you can send to Claude to add
       to the world knowledge).

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
-from typing import Optional
 
 from .. import render as R
 
@@ -20,31 +19,22 @@ KIND = {"place": "Place", "street": "Street", "player": "Player room", "generate
         None: "-"}
 
 
-class ExplorerWindow:
-    def __init__(self, root: tk.Tk, atlas, explorer, font, topmost: bool = True):
+class ExplorerPanel:
+    """The Explorer's content, built inside any parent frame: a tab of the
+    SK window, a docked side/top/bottom pane, or a separate window."""
+
+    def __init__(self, parent, atlas, explorer, font):
         self.atlas, self.explorer, self.font = atlas, explorer, font
-        w = self.win = tk.Toplevel(root)
-        # stay above the browser like the main window (it vanished behind
-        # Chrome when the game was clicked)
-        w.attributes("-topmost", bool(topmost))
-        w.after(200, lambda: _hide_from_capture(w))
-        w.title("SK Assistant – Live Explorer")
-        w.configure(bg=BG)
-        w.geometry("560x680")
-        w.minsize(420, 480)
+        self.win = tk.Frame(parent, bg=BG)
         self._build()
         self._tick()
 
-    def lift(self) -> None:
-        self.win.deiconify()
-        self.win.lift()
-
     # -- layout ----------------------------------------------------------------
-    def _section(self, title: str) -> tk.Frame:
+    def _section(self, title: str, grow: bool = False) -> tk.Frame:
         tk.Label(self.win, text=title.upper(), bg=BG, fg=DIM, font=self.font(8),
-                 anchor="w").pack(fill="x", padx=14, pady=(12, 2))
+                 anchor="w").pack(fill="x", padx=14, pady=(10, 2))
         f = tk.Frame(self.win, bg=PANEL)
-        f.pack(fill="x", padx=12)
+        f.pack(fill="both" if grow else "x", expand=grow, padx=12, pady=(0, 10 if grow else 0))
         return f
 
     def _button(self, parent, text, cmd) -> tk.Label:
@@ -67,7 +57,7 @@ class ExplorerWindow:
         self.pend = tk.Frame(f, bg=PANEL)
         self.pend.pack(fill="x", padx=12, pady=8)
 
-        f = self._section("World Atlas")
+        f = self._section("World Atlas", grow=True)
         self.l_stats = tk.Label(f, bg=PANEL, fg=FG, font=self.font(9), anchor="w", justify="left")
         self.l_stats.pack(fill="x", padx=12, pady=(8, 4))
         row = tk.Frame(f, bg=PANEL)
@@ -89,7 +79,8 @@ class ExplorerWindow:
         self.rooms.bind("<<ListboxSelect>>", lambda e: self._show_room())
         self.l_detail = tk.Label(f, bg=PANEL, fg=FG, font=self.font(9), anchor="w",
                                  justify="left", wraplength=500)
-        self.l_detail.pack(fill="x", padx=12, pady=(0, 10))
+        self.l_detail.pack(fill="x", padx=12, pady=(0, 10), before=lst)
+        f.bind("<Configure>", lambda e: self.l_detail.config(wraplength=max(200, e.width - 30)))
         self._room_ids = []
         self._pending_key = None
         self._fill_rooms()
@@ -236,9 +227,9 @@ class ExplorerWindow:
                             "add it to the world knowledge.", parent=self.win)
 
 
-def _hide_from_capture(win) -> None:
-    """Like the main window: invisible to screen capture, so SK never reads
-    its own Explorer window as part of the game."""
+def hide_from_capture(win) -> None:
+    """Invisible to screen capture (like the main window), so SK never reads
+    its own Explorer as part of the game."""
     import sys
     if sys.platform != "win32":
         return
@@ -248,14 +239,3 @@ def _hide_from_capture(win) -> None:
         ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, 0x11)
     except Exception:
         pass
-
-
-def open_explorer(existing: Optional[ExplorerWindow], *args) -> ExplorerWindow:
-    if existing is not None:
-        try:
-            if existing.win.winfo_exists():
-                existing.lift()
-                return existing
-        except tk.TclError:
-            pass
-    return ExplorerWindow(*args)

@@ -83,6 +83,11 @@ difficulties: keep the interface simple, plain-worded and calm.
   kept the engine 'active', so weapon marks stayed after the puzzle closed);
   the Explorer window is always-on-top (like the main window) and hidden
   from capture.
+- v2.5: the Explorer is part of the SK window (owner's request): tab bar
+  "Assistant | Explorer", ⧉ menu to dock it right/left/top/bottom
+  (PanedWindow, resizable) or detach it as a resizable window; config
+  `explorer_dock`, `explorer_size`, `explorer_geometry`. The window grows
+  for the Explorer and returns to its size afterwards.
 
 ## Architecture (puzzle_assistant/)
 
