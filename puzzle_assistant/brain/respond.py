@@ -29,6 +29,19 @@ Quiz memory and World Atlas records are related records only.
 Read-only: respond() never writes, stores or changes anything; it only uses
 read calls that apply the asker's visibility (ask, the visible records, and
 store.cited_evidence / store.claim).
+
+B5.1 question understanding (understand.py), ONLY when B3's exact grammar
+did not understand the question, or understood it with a name the asker
+does not know - so every question B3 answered is answered exactly as before:
+  understood        the same reasoning and categories; the answer says how the
+                    question was read (`understood_as`, `interpretation`)
+  a misspelt name   UNKNOWN (did_you_mean) - "Did you mean the X?" with a
+                    question to tap; never an answer, never evidence
+  several names /   UNKNOWN (ambiguous) - SK asks which one, each choice a
+  two meanings      question it understands exactly
+  anything else     exactly as before (not understood / nothing documented)
+The reply language is scored (understand.language), with the words of the
+names the asker may see left out.
 """
 from __future__ import annotations
 
@@ -37,26 +50,20 @@ from typing import List, Optional, Tuple
 
 from .facts import extract
 from .model import Citation, Response
+from .reason import ANYWHERE, Ask
 from .reason import answer as reason_answer
 from .retrieve import visible_library_docs
+from . import understand_words as W
 from .text import tokens
+from .understand import about, question_for, understand
 
 SUPPORT_KINDS = ("direct", "confirmation")
 
 # -- language -------------------------------------------------------------------
-# Conservative: Spanish only with an opening "¿" / "¡" or a Spanish question
-# word first; everything else is answered in English.
-_ES_FIRST = {"que", "quien", "quienes", "cual", "cuales", "cuanto", "cuanta", "cuantos",
-             "cuantas", "donde", "adonde", "como", "cuando", "hay", "puedo", "puede",
-             "tiene", "existe", "se", "numero", "codigo"}
-
-
-def language(question: str) -> str:
-    q = question or ""
-    if "¿" in q or "¡" in q:
-        return "es"
-    words = tokens(q)
-    return "es" if words and words[0] in _ES_FIRST else "en"
+# B5.1: scored, not first-word (understand.language): an opening "¿" / "¡",
+# "ñ" and Spanish words against English words; words inside a name the asker
+# may see are not counted. Understanding works in both languages either way.
+from .understand import language  # noqa: E402,F401
 
 
 # -- wording (filled only from structured values) ---------------------------------
@@ -77,6 +84,10 @@ _T = {
                        "but no source confirms it.",
         "unsupported_bare": "I don't know: what is recorded is not confirmed by a source.",
         "not_understood": "I can't reason about this kind of question yet.",
+        "did_you_mean": "Did you mean {name}?",
+        "relation_choice": "Do you mean {options}?",
+        "understood_as": "Understood as: {about}.",
+        "read_as": "\"{a}\" read as \"{b}\"",
         "none": "none",
     },
     "es": {
@@ -94,6 +105,10 @@ _T = {
         "unsupported": "No lo sé: se ha dicho ({possible}), pero ninguna fuente lo confirma.",
         "unsupported_bare": "No lo sé: lo registrado no está confirmado por ninguna fuente.",
         "not_understood": "Todavía no puedo razonar sobre este tipo de pregunta.",
+        "did_you_mean": "¿Te refieres a {name}?",
+        "relation_choice": "¿Te refieres a {options}?",
+        "understood_as": "Entendido como: {about}.",
+        "read_as": "\"{a}\" leído como \"{b}\"",
         "none": "ninguno",
     },
 }
@@ -172,8 +187,7 @@ class _AsCurrent:
         return getattr(self._d, name)
 
 
-def _outdated_possibility(brain, question: str, viewer) -> Tuple[Optional[str], List[dict]]:
-    p = brain._plan(question)
+def _outdated_possibility(brain, p, viewer) -> Tuple[Optional[str], List[dict]]:
     if p is None:
         return None, []
     docs = visible_library_docs(brain.store, viewer)
@@ -210,10 +224,115 @@ def _localise(value: Optional[str], lang: str) -> Optional[str]:
     return value
 
 
+class _Context:
+    """What understanding needs for one asker, read once and only if needed."""
+
+    def __init__(self, brain, viewer):
+        self.brain, self.viewer = brain, viewer
+        self._names = self._vocab = None
+
+    @property
+    def names(self):
+        if self._names is None:
+            self._names = self.brain._known_names(self.viewer)
+        return self._names
+
+    @property
+    def vocab(self):
+        if self._vocab is None:
+            self._vocab = self.brain._vocab()
+        return self._vocab
+
+
+def _single_name(p) -> Optional[str]:
+    """The place name of a one-step B3 plan ("who maintains <name>"), else None."""
+    if isinstance(p, Ask) and not p.inverse and isinstance(p.place, str) and p.place != ANYWHERE:
+        return p.place
+    return None
+
+
+def _language(question: str, ctx: _Context) -> str:
+    """The reply language. Spanish words may be part of a name ("Sala Azul",
+    "Faro del Norte"): whenever a Spanish word is counted, the words of the
+    names the asker may see are left out and the question is scored again."""
+    words = set(tokens(question))
+    if words & W.ES:
+        return language(question, ctx.names)
+    return language(question)
+
+
 def respond(brain, question: str, viewer: Optional[str] = None) -> Response:
     a = brain.ask(question, viewer=viewer)
+    ctx = _Context(brain, viewer)
+    lang = _language(question, ctx)
+    p = brain._plan(question)
+    u = None
+    # B5.1: only when B3's exact grammar did not understand the question, or
+    # understood it with a name the asker does not know
+    if a.status == "not_reasoned" or (a.status == "missing" and _single_name(p) is not None
+                                      and _single_name(p) not in ctx.names):
+        u = understand(question, ctx.names, ctx.vocab)
+    if u is None:
+        r = _categorise(brain, a, p, lang, viewer, question)
+        if r.reason == "ambiguous" and _single_name(p) is not None and r.clarification:
+            r.clarification["questions"] = [question_for(p.relation, o, lang, ctx.vocab,
+                                                         p.qualifier)
+                                            for o in r.clarification["options"]]
+        return r
+    return _understood(brain, a, u, lang, viewer, question, ctx)
+
+
+def _understood(brain, a, u, lang, viewer, question, ctx) -> Response:
+    """The answer to a question understood by B5.1 (understand.py)."""
+    vocab = ctx.vocab
+    interp = u.as_dict()
+    if u.kind == "plan":
+        b = brain._reasoned(question, u.ask(), viewer, a.hits)
+        r = _categorise(brain, b, u.ask(), lang, viewer, question)
+        r.b3_status = a.status
+        text = _say(lang, "understood_as", about=about(u.relation, u.shown, lang, vocab,
+                                                         u.qualifier, u.inverse))
+        if u.corrections:
+            text = text[:-1] + " (" + ", ".join(_say(lang, "read_as", a=x, b=y)
+                                                for x, y in u.corrections) + ")."
+        r.understood_as, r.interpretation = text, interp
+        # the choices are places: a question about each (not for a reverse question,
+        # where several places fit one person - each is a possible answer, not a choice)
+        if r.reason == "ambiguous" and r.clarification and not u.inverse:
+            r.clarification["questions"] = [question_for(u.relation, o, lang, vocab, u.qualifier)
+                                            for o in r.clarification["options"]]
+        return r
+    r = Response(question, lang, "unknown", related=_related(a.hits), b3_status=a.status,
+                 interpretation=interp, audience="personal")
+    if u.kind == "did_you_mean":
+        name = u.shown if (u.inverse or lang == "es") else f"the {u.shown}"
+        r.reason = "did_you_mean"
+        r.sentence = _say(lang, "did_you_mean", name=name)
+        r.clarification = {"question": r.sentence, "options": [u.shown],
+                           "questions": [question_for(u.relation, u.shown, lang, vocab,
+                                                      u.qualifier, u.inverse)]}
+        return r
+    if u.kind == "ambiguous_name":
+        opts = [s for _, s in u.candidates]
+        r.reason = "ambiguous"
+        r.sentence = _say(lang, "ambiguous", options=" / ".join(opts))
+        r.clarification = {"question": _say(lang, "clarify"), "options": opts,
+                           "questions": [question_for(u.relation, o, lang, vocab, u.qualifier,
+                                                      u.inverse) for o in opts]}
+        return r
+    # ambiguous_relation: one word that can mean two things ("in charge")
+    opts = [about(rel, u.shown, lang, vocab, u.qualifier, u.inverse) for rel in u.relations]
+    r.reason = "ambiguous"
+    r.sentence = _say(lang, "relation_choice", options=" / ".join(opts))
+    r.clarification = {"question": _say(lang, "clarify"), "options": opts,
+                       "questions": [question_for(rel, u.shown, lang, vocab, u.qualifier,
+                                                  u.inverse) for rel in u.relations]}
+    return r
+
+
+def _categorise(brain, a, p, lang, viewer, question) -> Response:
+    """B4: one category for ask()'s result (unchanged rules)."""
     store = brain.store
-    lang = language(question)
     r = Response(question, lang, "unknown", steps=a.steps, related=_related(a.hits),
                  b3_status=a.status)
     last = a.steps[-1] if a.steps else {}
@@ -246,7 +365,7 @@ def respond(brain, question: str, viewer: Optional[str] = None) -> Response:
         return r
 
     if a.status == "missing":
-        possible, claims = _outdated_possibility(brain, question, viewer)
+        possible, claims = _outdated_possibility(brain, p, viewer)
         if possible:
             possible = _localise(possible, lang)
             r.reason, r.possible = "only_outdated", possible

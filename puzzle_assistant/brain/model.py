@@ -132,6 +132,7 @@ UNKNOWN_REASONS = (
     "only_outdated",        # only information marked outdated
     "unsupported",          # only statements without a source that states them
     "not_understood",       # not a question SK can reason about (yet)
+    "did_you_mean",         # B5.1: a name with a small typo - SK asks before answering
 )
 
 
@@ -170,3 +171,6 @@ class Response:
     ai: str = "none"
     save_offer: Optional[dict] = None
     b3_status: str = ""                 # ask()'s own status, for comparison
+    # B5.1: how a question outside B3's exact grammar was understood
+    understood_as: str = ""             # shown with the answer ("Understood as: ...")
+    interpretation: Optional[dict] = None   # relation, entity, corrections (for "why")

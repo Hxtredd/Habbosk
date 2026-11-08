@@ -32,7 +32,7 @@ import sqlite3
 import tempfile
 import threading
 import uuid
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .model import (AUTOMATIC_KINDS, EVIDENCE_KINDS, MODERATOR_KINDS, ORIGINS, SCOPES,
                     SOURCE_KINDS, STATUSES)
@@ -533,6 +533,22 @@ class KnowledgeStore:
             if a["entity_id"] in ents:
                 add(a["key"], ents[root(a["entity_id"])]["key"])
         return {k: sorted(v) for k, v in out.items() if v != {k}}
+
+    def alias_names(self, viewer: Optional[str] = None) -> List[Tuple[str, str, str]]:
+        """(key, name as written, entity kind) of the approved entities and
+        aliases `viewer` may see (shared, or their own) - the same rule as
+        alias_map. Read-only; used to understand questions (B5.1)."""
+        viewer = viewer or self.local_user
+        with self._lock:
+            ents = [(r[0], r[1], r[2]) for r in self._db.execute(
+                "SELECT key, name, kind FROM entities WHERE status='approved' AND "
+                "(scope='shared' OR owner_id=?) ORDER BY id", (viewer,))]
+            als = [(r[0], r[1], r[2]) for r in self._db.execute(
+                "SELECT a.key, a.alias, e.kind FROM aliases a JOIN entities e ON e.id=a.entity_id "
+                "WHERE a.status='approved' AND (a.scope='shared' OR a.owner_id=?) AND "
+                "e.status='approved' AND (e.scope='shared' OR e.owner_id=?) ORDER BY a.id",
+                (viewer, viewer))]
+        return ents + als
 
     def _visible_sql(self, viewer: Optional[str], alias: str = "c", review: bool = True):
         """WHERE-clause part that keeps only claims `viewer` may see. With

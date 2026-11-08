@@ -156,7 +156,6 @@ class Brain:
         """Answer from connected facts (B3, brain/reason.py), only from claims
         the viewer may see. Answered only when every claim used is verified;
         otherwise it says why it cannot establish the answer. Never invents."""
-        from .reason import answer, steps_of
         hits = self.search(question, viewer=viewer)
         p = self._plan(question)
         if p is None:
@@ -164,6 +163,11 @@ class Brain:
                                hits=hits, trace=[f"found {len(hits)} related records",
                                                  "not a question SK can reason about (yet): "
                                                  "no answer given"])
+        return self._reasoned(question, p, viewer, hits)
+
+    def _reasoned(self, question: str, p, viewer: Optional[str], hits: List[Hit]) -> BrainAnswer:
+        """B3's reasoning for the plan `p`, as ask() reports it."""
+        from .reason import answer, steps_of
         r = answer(p, self._fact_index(viewer))
         steps = [{"ask": st.ask, "outcome": st.outcome, "value": st.display or st.value,
                   "verified": st.verified, "candidates": st.candidates,
@@ -191,8 +195,72 @@ class Brain:
         from .reason import FactIndex
         from .retrieve import visible_library_docs
         labels = {k: v.get("en", k) for k, v in self.store.relation_labels().items()}
-        return FactIndex(visible_library_docs(self.store, viewer) if docs is None else docs,
-                         aliases=self.store.alias_map(viewer), labels=labels)
+        aliases = self.store.alias_map(viewer)
+        if docs is not None:                    # a special view (the outdated check): never kept
+            return FactIndex(docs, aliases=aliases, labels=labels)
+        docs = visible_library_docs(self.store, viewer)
+        hit = self._reuse("facts", viewer, docs, (aliases, labels))
+        if hit is not None:
+            return hit
+        return self._keep("facts", viewer, docs, (aliases, labels),
+                          FactIndex(docs, aliases=aliases, labels=labels))
+
+    # -- B5.1: what questions can be about ------------------------------------------
+    def _known_names(self, viewer: Optional[str] = None):
+        """The names `viewer` may see (understand.Names): places and people in
+        the facts of their visible claims (rejected claims left out; outdated
+        ones kept, so they can be found) and the approved aliases they may see.
+        Only viewer-checked reads; nothing from anyone else's private claims."""
+        from .retrieve import visible_library_docs
+        from .text import normalize
+        from .understand import Name, Names
+        docs = visible_library_docs(self.store, viewer)
+        amap = self.store.alias_map(viewer)
+        anames = self.store.alias_names(viewer)
+        hit = self._reuse("names", viewer, docs, (amap, anames))
+        if hit is not None:
+            return hit
+        canon = lambda k: tuple(amap.get(k) or (k,))  # noqa: E731
+        out = []
+        for d in docs:
+            f = d.fact
+            if f is None or d.status == "rejected":
+                continue
+            out.append(Name(f.place, None, "place", canon(f.place), d.text, d.subject or ""))
+            if f.value and f.relation == "leads_to":
+                out.append(Name(f.value, f.display or f.value, "place", canon(f.value)))
+            elif f.value and f.relation in ("caretaker", "runs"):
+                out.append(Name(f.value, f.display or f.value, "person", (f.value,)))
+        for k, name, kind in anames:
+            k = k or " ".join(normalize(name).split())
+            if kind == "person":
+                out.append(Name(k, name, "person", (k,)))
+            else:
+                out.append(Name(k, name, "place", canon(k)))
+        return self._keep("names", viewer, docs, (amap, anames), Names(out))
+
+    # Derived views (fact index, names) are reused while EXACTLY the same records
+    # are visible: the same Doc objects (a changed claim always gets a new one, and
+    # the record cache is emptied when another program writes) and the same
+    # aliases / labels. Anything else builds them again.
+    def _reuse(self, what: str, viewer, docs, extra):
+        c = getattr(self, "_derived", {}).get((what, viewer or self.store.local_user))
+        if c is None or c[1] != extra or len(c[0]) != len(docs) or \
+                any(a is not b for a, b in zip(c[0], docs)):
+            return None
+        return c[2]
+
+    def _keep(self, what: str, viewer, docs, extra, value):
+        if not hasattr(self, "_derived"):
+            self._derived = {}
+        if len(self._derived) > 64:
+            self._derived.clear()
+        self._derived[(what, viewer or self.store.local_user)] = (list(docs), extra, value)
+        return value
+
+    def _vocab(self):
+        from .understand import RelationVocab
+        return RelationVocab([r for r in self.store.relations() if not r.get("builtin")])
 
     # -- B5: relations, entities, aliases --------------------------------------------
     def relations(self) -> List[dict]:

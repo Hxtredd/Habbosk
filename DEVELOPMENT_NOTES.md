@@ -770,6 +770,61 @@ identical; B4 45/45 (zero false Established / Documented); B5 deliberate
 breaks 24/24; candidate 144 tests + check_repo OK, its breaks 10/10, GitHub
 tests passed; Brain fingerprint 0881c0267d6c2312. B5 was NOT run on Windows.
 
+### B5.1 Question understanding (in review - not approved yet)
+
+Branch claude/brain-b5.1 from claude/brain-integration at 33ef019 (+ the B5
+approval record). Owner-approved design and decisions: did_you_mean as a
+separate Unknown reason; reverse questions in scope; yes / no questions left
+for B9; fuzzy limits 1 letter (4-7 letters), 2 (8+), never for words of 3
+letters or fewer or numbers; misspelt names always confirmed; misspelt
+question words shown as "Understood as ..."; flexible word order EN / ES.
+- `brain/understand.py` + `brain/understand_words.py` (words as data): a
+  question becomes intent + relation + ONE entity (+ direction), whatever the
+  word order. Used by respond() ONLY when B3's grammar did not understand the
+  question, or understood it with a name the asker does not know; ask() and
+  search() are unchanged (B2 / B3 references identical). The meaning goes to
+  the same B3 reasoning, so B4 / B5 categories, the strict support rule,
+  citations and privacy apply unchanged.
+- Names: only those the asker may see (facts of their visible claims,
+  rejected ones left out; approved aliases they may see) - Brain._known_names,
+  viewer-checked reads only (store.alias_names added, read-only).
+- Every word must be explained (relation clue, question word, direction,
+  filler, politeness); typos only within the bounds, only with ONE meaning;
+  a misspelt name -> did_you_mean (closest names only, at most 2 letters in
+  the whole name; never an answer, never evidence, audience personal; the tap
+  asks a question SK understands exactly); several -> ambiguous; partial name
+  of one place -> not resolved. Refused (as before): negations, two entities,
+  unexplained words, past / future, yes / no, a question word that does not
+  fit ("when is X maintained"), "what leads TO X", two relations (chains).
+- A word that can mean two relations ("in charge") -> ambiguous with both.
+- Clarification choices carry `questions` (one exact question per choice) -
+  also for B3's own ambiguous answers (fixes the "Twin Lights" tap).
+- Response: `understood_as`, `interpretation`; UNKNOWN_REASONS + did_you_mean.
+- Language: scored (Spanish / English words, "¿" "¡" "ñ"; Spanish articles,
+  prepositions, directions count half; words of names the asker may see are
+  left out).
+- Speed: the fact index and the name list are reused while exactly the same
+  records (the same cached Doc objects) and aliases / labels are visible;
+  any change builds them again. ~10,000 named places: B3-grammar answers
+  ~12-25 ms (B5: ~145-190 ms), questions read by B5.1 ~17-25 ms, first
+  answer after a change ~190-340 ms (B5: ~250-300 ms).
+Tests (synthetic): tests/brain_understanding_eval.py (SK-BRAIN-EVAL-004:
+30 targets, 1,180 variants, 98 probes, 90 held-out, 84 language questions)
++ tests/test_brain_understanding.py (28). Variants 1180/1180, probes 98/98,
+held-out 84/90 on its FIRST run (written before it; the 6 misses are
+refusals: "keeps", "worth", "take you", "hours", "Puerta" (a real word), "lleva"
+for runs) - ZERO wrong answers, ZERO answers from a misspelt name, ZERO private
+names leaked; language 84/84. On the earlier sets, 14 answers changed - all
+questions B3 could not read now answered correctly from the data (checked
+against each set's expected claim), plus 2 language-only changes for an
+asker who cannot see the name. Deliberate breaks 27/29 (the 2 not caught:
+dropping the viewer from the reuse key - redundant, the exact-records check
+already separates viewers). Not run on Windows.
+Limits: single-step questions only (chains stay B3's grammar until B9);
+yes / no questions (B9); a word close to both a name and a question word is
+refused; vocabulary-bound (held-out misses above); no typo help inside B3's
+own chained questions.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the
