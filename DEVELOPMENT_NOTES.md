@@ -604,8 +604,41 @@ Milestone log (approved commits only):
 | Milestone | Brain commit | Candidate commit | Approved |
 |---|---|---|---|
 | (start) | 39fad57 | - | release branch head |
+| B3.5 | code 9b94600 + this validation record (the commit that adds this row) | 47a1858 | owner, 2026-11-08 |
 
-### B3.5 (in review - not approved yet)
+### B3.5 (APPROVED by the owner, 2026-11-08)
+
+Validation results (reported by the owner):
+- Windows 11, Python 3.14.10 64-bit, SQLite 3.50.4 with FTS5:
+  BRAIN_WINDOWS_CHECK.bat 10 passed / 0 failed; Brain fingerprint
+  2055eb8cd979c00b (= 39fad57); 178 Brain tests and 326 application tests
+  passed; locking, concurrent writes, rollback, external changes and FTS5
+  recovery passed. B2 and B3 are Windows-validated.
+- Real habbosk.db and atlas.db read through safe_snapshot; both files and
+  their sidecars unchanged.
+- BRAIN_DB_AUDIT.bat: "No knowledge.db found - nothing to audit. Nothing
+  was read or changed." Expected: SK 3.0 never creates knowledge.db (only
+  the test bench in "Real, changes allowed" mode does, never used). The
+  owner checked %APPDATA%\SK Assistant: atlas.db, config.json, habbosk.db,
+  keys.bin - no knowledge.db, no bench backups. Migration decision:
+  NOTHING to migrate from knowledge.db; B5 starts a new Brain database.
+  habbosk.db / atlas.db stay as they are (read-only adapters); importing
+  them is a separate, later decision.
+- Audit tool coverage on Windows: ONLY the missing-database path ran on
+  Windows. The in-memory and temporary-copy paths, cloud-folder refusal,
+  drive-type detection and SK-running detection are tested on Linux only.
+- Candidate lab: separate Render service sk-lab-candidate (auto-deploy
+  off) live at SK-Online 47a1858 (GitHub tests passed); owner tested on
+  iPhone: build line "Brain 39fad57 - Lab 47a1858", Lantern Garden ->
+  Mira, Glass Library -> documented none, Faro -> ambiguous.
+  (The first deploy failed with "No module named app" - most likely
+  Render's default start command on a manually created service; the
+  correct one is `gunicorn -c gunicorn.conf.py lab.wsgi:app`. No code was
+  changed; the service is now live.)
+- For B4: the answer-category contract must state how adapter statuses
+  (quiz memory / World Atlas) map to the four categories.
+
+Work done in B3.5:
 - `devtools/safe_snapshot.py`: reads a SQLite database WITHOUT opening the
   original with SQLite (no recovery, checkpoint or -shm creation): in
   memory when no -wal/-journal holds data (Python 3.11+), otherwise a byte
