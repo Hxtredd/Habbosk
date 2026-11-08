@@ -444,6 +444,40 @@ median 88 ms, first 860 ms, cache ~118 MB - scale work comes after B3.
 Windows check extended: code fingerprint, external change, whole test
 suite (packages in .venv-check of the check folder), speed and memory.
 
+## SK Brain B3: connected facts (in progress, not released)
+
+B2 is provisionally accepted on Linux testing (45/45 deliberate-break checks);
+**Windows validation of B2 is still pending - unverified, not passed.**
+
+Design (no schema change; nothing else in B2 changed except as listed):
+- `brain/facts.py`: a claim may state ONE fact of a closed set of relations
+  (leads_to, caretaker, runs, room_id, quest_reward) in a few exact EN/ES
+  sentence forms, incl. explicit absence ("has no caretaker", "no tiene
+  encargado"). Anything else gives no fact. A fact has no status, evidence
+  or owner of its own - it is part of its claim. Names compare only as
+  exact normalised strings (leading article removed). A form without the
+  place ("The northern exit leads to ...") takes the claim's subject.
+- Facts are read once per cached record (`Doc.fact`), so B2's exact cache
+  invalidation and the search visibility rule apply unchanged.
+- `brain/reason.py`: a small question grammar turns a question into steps
+  (outer ask + room description, nested up to 3). Each step uses only facts
+  of claims the asker's search may see; rejected / outdated are ignored.
+  Steps connect only through the exact same place name - never a shared
+  source, a similar or partial name. Outcomes per step: missing (never read
+  as absence), documented absence, conflicting (two values, or a claim
+  marked conflicting), ambiguous (partial name / several candidates), value.
+- `Brain.ask()`: answered only when ESTABLISHED - every claim used verified
+  (or an explicit, verified absence). Otherwise status says why, `possible`
+  may show an unverified possibility (labelled), and `hits` are B2 search.
+  `audience` is "shared" only if every claim used is shared.
+- Search (B2) changes, intended and listed in tests/test_brain_reason.py
+  (B2UnchangedTests compares all 218 realistic results with B2's,
+  tests/data/b2_search_reference.json, made from 8ab56c2):
+  documented absence answers a question about the SAME named place;
+  "look(s/ed/ing) after" = maintain (phrase map, INDEX_VERSION 5); synonym
+  groups pet/mascota, allowed/permitir..., coin/moneda; a Spanish "¿..."
+  question without a question word is yes/no.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the

@@ -89,10 +89,10 @@ class EvaluationGuarantees(unittest.TestCase):
                 self.assertEqual(ok, n, f"{kind}: {bad}")
 
     def test_accuracy_does_not_drop(self):
-        self.assertGreaterEqual(self.main["summary"]["answer"][0], 21)
+        self.assertGreaterEqual(self.main["summary"]["answer"][0], 23)
         self.assertGreaterEqual(self.main["summary"]["answer"][1], 23)
-        self.assertGreaterEqual(self.held["summary"]["answer"][0], 13)
-        self.assertGreaterEqual(self.held["summary"]["answer"][1], 14)
+        self.assertGreaterEqual(self.held["summary"]["answer"][0], 15)
+        self.assertGreaterEqual(self.held["summary"]["answer"][1], 15)
 
     def test_fts5_and_fallback_identical_on_the_dataset(self):
         for qs, res in ((E.QUESTIONS, self.main), (E.HELDOUT, self.held)):

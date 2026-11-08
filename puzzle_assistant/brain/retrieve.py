@@ -25,10 +25,11 @@ import re
 import weakref
 from typing import Dict, List, Optional, Set, Tuple
 
+from .facts import extract as extract_fact
 from .lexicon import SYNONYM_WEIGHT, synonyms
 from .model import Hit
 from .query import INTENT_EVIDENCE, Entity, Query, analyze, make_entities
-from .text import index_text, normalize, polarity, stem, terms
+from .text import absence_terms, index_text, normalize, polarity, stem, terms
 
 MIN_RELEVANCE = 0.3          # below this a record is not shown at all
 ANSWER_RELEVANCE = 0.5       # needed (with subject + intent fit) to count as matching the question
@@ -51,17 +52,43 @@ _DIRECTIONS = [frozenset({stem(w)} | set(synonyms(stem(w)))) for w in ("north", 
 # an affirmative yes/no question just as well as a positive one.
 _YES_NO = re.compile(r"^(does|do|did|is|are|was|were|can|could|will|has|have|should|may|"
                      r"puedo|puede|se puede|funciona|esta|es|hay|tiene)\b")
+# ...and a Spanish question (opening "¿") without a question word ("¿Se
+# permiten mascotas...?"): those rarely start with an auxiliary verb.
+_WH = re.compile(r"\b(what|which|who|whom|whose|where|when|why|how|que|cual|cuales|quien|"
+                 r"quienes|donde|adonde|cuando|como|cuanto|cuanta|cuantos|cuantas)\b")
+
+
+def _is_yes_no(question: str) -> bool:
+    n = normalize(question)
+    if _YES_NO.match(n):
+        return True
+    return question.strip().startswith("¿") and not _WH.search(n)
+
+
+_UNSET = object()
 
 
 class Doc:
     __slots__ = ("module", "record_id", "text", "subject", "status", "origin", "category",
                  "sources", "detail", "terms", "norm", "owner", "positive", "subject_norm",
-                 "has_digit")
+                 "has_digit", "absence", "_fact")
 
     def __init__(self, **kw):
         for k in self.__slots__:
             setattr(self, k, kw.get(k))
         self.has_digit = any(t.isdigit() for t in self.terms or ())
+        # what a negative record says is absent ("has no caretaker"), if anything
+        self.absence = absence_terms(self.text or "") if self.positive is False else frozenset()
+        self._fact = _UNSET
+
+    @property
+    def fact(self):
+        """The structured fact this record states (B3, brain/facts.py), or None.
+        Read once; cached with the record, so it follows the same invalidation."""
+        if self._fact is _UNSET:
+            self._fact = extract_fact(self.text or "", self.subject or "") \
+                if self.module == "library" else None
+        return self._fact
 
 
 def _library_doc(r: dict) -> Doc:
@@ -140,6 +167,15 @@ def _visible_docs(store, cache: _StoreCache, viewer: str, every: List[str], use_
         return docs, None
     want = set(every)
     return [d for d in docs if d.terms & want], docs
+
+
+def visible_library_docs(store, viewer: Optional[str]) -> List[Doc]:
+    """Every library record the viewer's search may use (B3 reasoning reads its
+    facts from these - the same visibility rule and cache as search)."""
+    viewer = viewer or store.local_user
+    with store._lock:
+        docs, _ = _visible_docs(store, _cache(store), viewer, [], None)
+    return docs
 
 
 def _adapter_docs(records: List[dict]) -> List[Doc]:
@@ -284,7 +320,9 @@ def _search(store, sources, question: str, viewer: Optional[str] = None, limit: 
         name_terms |= set(terms(e.key))
     asked = [t for t in q.terms if t not in name_terms]
     q_dirs = [g for g in _DIRECTIONS if g & set(q.terms)]
-    yes_no = q_positive and bool(_YES_NO.match(normalize(question)))
+    yes_no = q_positive and _is_yes_no(question)
+    # a record saying the asked-about thing is ABSENT answers the question
+    asked_words = frozenset(w for t in asked for w in groups[t])
     every = sorted({w for g in groups.values() for w in g})
 
     if lib_on:
@@ -373,8 +411,15 @@ def _search(store, sources, question: str, viewer: Optional[str] = None, limit: 
         if not direction_ok:
             factor *= 0.6
             notes.append("a different direction than the one asked about")
-        polarity_ok = d.positive == q_positive or (yes_no and not d.positive)
-        if yes_no and not d.positive:
+        # only about the place the question names: "Who is the caretaker of the
+        # Sala Azul?" <- "The Sala Azul has no caretaker" (not for "who is the caretaker?")
+        absent = bool(q.entities) and entity_ok and q_positive and not d.positive and \
+            not d.absence.isdisjoint(asked_words)
+        polarity_ok = d.positive == q_positive or (yes_no and not d.positive) or absent
+        if absent:
+            notes.append("documented absence: says there is no " +
+                         ", ".join(sorted(d.absence & asked_words)))
+        elif yes_no and not d.positive:
             notes.append("a 'no' answer to a yes/no question")
         elif not polarity_ok:
             factor *= 0.5
@@ -432,7 +477,7 @@ def _search(store, sources, question: str, viewer: Optional[str] = None, limit: 
         if not all(not g.isdisjoint(proj) for g in q_dirs):
             factor *= 0.6
         if not (yes_no and not positive) and positive != q_positive:
-            factor *= 0.5
+            factor *= 0.5                        # (absence only applies to named records)
         score = min(1.0, relevance * factor) + TRUST_BONUS.get(status, 0.0)
         if status in ("outdated", "rejected"):
             score -= 1.0

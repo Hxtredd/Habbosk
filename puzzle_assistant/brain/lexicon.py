@@ -49,6 +49,11 @@ _GROUPS: List[List[str]] = [
     ["quest", "mission", "mision", "task", "tarea"],
     ["rule", "regla", "norma"],
     ["price", "cost", "precio", "cuesta", "coste"],
+    # B3: gaps found in the realistic tests (kept narrow on purpose)
+    ["pet", "pets", "mascota", "mascotas"],
+    ["allowed", "allow", "permitted", "permit", "permite", "permiten", "permitir", "permitido",
+     "permitida", "permitidos", "permitidas"],
+    ["coin", "coins", "moneda", "monedas"],
 ]
 
 _MAP: Dict[str, FrozenSet[str]] = {}

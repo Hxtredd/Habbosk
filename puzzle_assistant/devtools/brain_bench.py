@@ -10,9 +10,10 @@ At launch you choose (see bench_safety.py):
 A coloured banner always shows which one is open; buttons that write are
 marked ✎. Test contributors exist only in the sandbox. It uses the Brain
 API only (quiz memory and World Atlas read-only), so all Brain rules apply: new claims are unverified, privacy/isolation is kept,
-nothing is verified without evidence and a review. Brain.ask() is still the
-B1 placeholder: the bench shows what was FOUND and why, and never invents
-an answer. Removing this file (and devtools/brain_checks.py, the .bat)
+nothing is verified without evidence and a review. Brain.ask() (B3) answers
+only from verified, connected facts the viewer may see; otherwise the bench
+says why it cannot establish an answer and shows what was FOUND - it never
+invents one. Removing this file (and devtools/brain_checks.py, the .bat)
 removes the bench; nothing else depends on it.
 """
 from __future__ import annotations
@@ -279,17 +280,29 @@ class Bench:
         self.tree.delete(*self.tree.get_children())
         self.why.config(text="")
         self._hits = res.hits
+        if res.answered:
+            self._say(f"SK: {res.answer}   (established from verified claims; "
+                      f"{'shared' if res.audience == 'shared' else 'your personal'} knowledge)",
+                      "verified")
+        elif res.status in ("unverified", "missing", "conflicting", "ambiguous"):
+            why = {"unverified": "it rests on unverified claims",
+                   "missing": "nothing documents a step it needs",
+                   "conflicting": "the claims it needs disagree",
+                   "ambiguous": "a name could mean more than one place"}[res.status]
+            self._say(f"SK: I cannot establish the answer: {why}." +
+                      (f" Unverified possibility: {res.possible}" if res.possible else ""),
+                      "unverified" if res.status == "unverified" else "conflict")
         if not res.hits:
             self._say("SK: I found nothing in my knowledge about this. (No answer - I don't guess.)",
                       "sk")
-        else:
-            self._say(f"SK: I found {len(res.hits)} related record(s). I can't reason over them "
-                      "yet (stage B3), so here is what I found - not an answer:", "sk")
+        elif not res.answered:
+            self._say(f"SK: related record(s) - not an answer:", "sk")
             for h in res.hits[:5]:
                 tag = "verified" if h.established else ("conflict" if h.status == "conflicting"
                                                         else "unverified")
                 self._say(f"   • {h.display()}   ({h.module}, score {h.score:.2f})", tag)
-        self._say("   " + " · ".join(res.trace), "note")
+        for line in res.trace:
+            self._say("   " + line, "note")
         for i, h in enumerate(res.hits):
             scope = h.detail.get("scope", "module")
             self.tree.insert("", "end", iid=str(i), tags=(h.status,),

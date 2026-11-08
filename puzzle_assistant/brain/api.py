@@ -146,12 +146,31 @@ class Brain:
         return hits[:limit]
 
     def ask(self, question: str, viewer: Optional[str] = None) -> BrainAnswer:
-        """Placeholder until the reasoning layer (B3): reports what was found
-        and never invents an answer."""
+        """Answer from connected facts (B3, brain/reason.py), only from claims
+        the viewer may see. Answered only when every claim used is verified;
+        otherwise it says why it cannot establish the answer. Never invents."""
+        from .reason import FactIndex, answer, plan, steps_of
+        from .retrieve import visible_library_docs
         hits = self.search(question, viewer=viewer)
-        return BrainAnswer(question, answered=False, basis="insufficient", confidence="none",
-                           hits=hits, trace=[f"found {len(hits)} related records",
-                                             "reasoning layer not built yet (stage B3): no answer given"])
+        p = plan(question)
+        if p is None:
+            return BrainAnswer(question, answered=False, basis="insufficient", confidence="none",
+                               hits=hits, trace=[f"found {len(hits)} related records",
+                                                 "not a question SK can reason about (yet): "
+                                                 "no answer given"])
+        r = answer(p, FactIndex(visible_library_docs(self.store, viewer)))
+        steps = [{"ask": st.ask, "outcome": st.outcome, "value": st.display or st.value,
+                  "verified": st.verified, "candidates": st.candidates,
+                  "claims": [{"id": s.claim_id, "text": s.text, "status": s.status,
+                              "scope": s.scope} for s in st.supports]} for st in r.steps]
+        answered = r.status in ("established", "absent")
+        return BrainAnswer(question, answered=answered, answer=r.answer,
+                           basis=("derived" if steps_of(p) > 1 else "documented") if answered
+                           else "insufficient",
+                           confidence="verified" if answered else
+                           ("unverified" if r.status == "unverified" else "none"),
+                           hits=hits, trace=r.explanation, status=r.status, possible=r.possible,
+                           steps=steps, audience=r.audience if answered or r.possible else "")
 
     def stats(self, viewer: Optional[str] = None) -> dict:
         return self.store.stats(viewer)

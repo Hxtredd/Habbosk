@@ -97,12 +97,20 @@ class Hit:
 
 @dataclass
 class BrainAnswer:
-    """What ask() returns. Until the reasoning layer (B3) exists, `answered`
-    is always False and `hits` shows what was found."""
+    """What ask() returns. `answered` is True only for an ESTABLISHED answer
+    (every claim used is verified) - see brain/reason.py. Otherwise `status`
+    says why not, `possible` may hold an unverified possibility (never an
+    answer) and `hits` shows what search found."""
     question: str
     answered: bool = False
     answer: Optional[str] = None
     basis: str = ""             # "documented" | "derived" | "insufficient"
-    confidence: str = "none"    # evidence-based level, set by B3
+    confidence: str = "none"    # "verified" for answers; else "unverified" / "none"
     hits: List[Hit] = field(default_factory=list)
     trace: List[str] = field(default_factory=list)
+    # B3
+    status: str = "not_reasoned"   # established | absent | unverified | missing |
+    #                                conflicting | ambiguous | not_reasoned
+    possible: Optional[str] = None
+    steps: List[dict] = field(default_factory=list)   # each: ask, outcome, value, claims
+    audience: str = ""          # "shared" only if every claim used is shared

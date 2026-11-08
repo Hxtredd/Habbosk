@@ -13,7 +13,7 @@ from typing import List
 
 # Bump when tokenising / stemming / synonyms change: the stored index is
 # rebuilt automatically (it is derived data; claims are never touched).
-INDEX_VERSION = 4   # lexicon-only changes don't need a rebuild (query-side)
+INDEX_VERSION = 5   # lexicon-only changes don't need a rebuild (query-side)
 
 STOP = set("""
 a al algo algun alguna alguno algunos ante antes aqui asi con como contra cual cuales cuando
@@ -82,9 +82,18 @@ def stem(w: str) -> str:
     return w
 
 
+# Multi-word expressions that mean one thing (B3). Applied to questions and
+# to claims alike, before splitting into words. Kept small and exact: a
+# single word like "look" is NOT a synonym ("look at" means something else).
+_PHRASES = [(re.compile(r"\blook(?:s|ed|ing)? after\b"), "maintain")]
+
+
 def tokens(text: str) -> List[str]:
     """All normalised words, in order (numbers and short words kept)."""
-    return normalize(text).split()
+    n = normalize(text)
+    for rx, rep in _PHRASES:
+        n = rx.sub(rep, n)
+    return n.split()
 
 
 def terms(text: str) -> List[str]:
@@ -100,6 +109,27 @@ def terms(text: str) -> List[str]:
             continue
         out.append(stem(t))
     return out
+
+
+# Explicitly documented absence (B3): "has no caretaker", "there is no exit",
+# "no tiene encargado", "sin salida". Only these forms - a plain negation
+# ("is not open") says something is not the case, not that a thing is absent.
+_ABSENCE = [re.compile(r"\b(?:has|have|had) no ((?:[a-z0-9]+ ){0,2}[a-z0-9]+)"),
+            re.compile(r"\bthere (?:is|are|was|were) no ((?:[a-z0-9]+ ){0,2}[a-z0-9]+)"),
+            re.compile(r"\bwithout (?:an? |any )?([a-z0-9]+(?: [a-z0-9]+)?)"),
+            re.compile(r"\bno (?:tiene|tienen|tenia|hay) (?:ningun |ninguna |ninguno )?"
+                       r"((?:[a-z0-9]+ ){0,2}[a-z0-9]+)"),
+            re.compile(r"\bsin ([a-z0-9]+(?: [a-z0-9]+)?)")]
+
+
+def absence_terms(text: str) -> frozenset:
+    """Terms of what the text explicitly says is absent (empty if nothing)."""
+    n = " ".join(tokens(text))
+    out = set()
+    for rx in _ABSENCE:
+        for m in rx.finditer(n):
+            out.update(terms(m.group(1)))
+    return frozenset(out)
 
 
 def index_text(*parts: str) -> str:
