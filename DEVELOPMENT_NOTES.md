@@ -444,7 +444,7 @@ median 88 ms, first 860 ms, cache ~118 MB - scale work comes after B3.
 Windows check extended: code fingerprint, external change, whole test
 suite (packages in .venv-check of the check folder), speed and memory.
 
-## SK Brain B3: connected facts (in progress, not released)
+## SK Brain B3: connected facts (first pass done, not released)
 
 B2 is provisionally accepted on Linux testing (45/45 deliberate-break checks);
 **Windows validation of B2 is still pending - unverified, not passed.**
@@ -477,6 +477,29 @@ Design (no schema change; nothing else in B2 changed except as listed):
   "look(s/ed/ing) after" = maintain (phrase map, INDEX_VERSION 5); synonym
   groups pet/mascota, allowed/permitir..., coin/moneda; a Spanish "¿..."
   question without a question word is yes/no.
+
+B3 extraction is deliberately strict (found by probing tricky claims):
+hedged / reported / past / future claims ("maybe", "I think", "used to",
+"will", "creo", "probablemente"...) state no fact; a negative claim states
+only an explicit absence; a person must be written as a proper name
+(capitals; "van der" connectors; no "someone"); a place must contain a
+capitalised word ("the garden" never connects two claims).
+Results (Linux): realistic sweeps (ask() on all 110 Villa Brisa / Ciudad
+Coral questions): no established answer on a wrong claim, none for an
+unknown / conflicting / ambiguous question, no other user's claim used;
+Coral multi-fact: Rafa and 2104560 established, the Rafael chain refused
+(unverified). Search: Villa Brisa main 23/23 (was 21), held-out 15/15 (was
+13); Coral unchanged; all other B2 results identical. Search latency same
+as B2 (alternated runs, 10,000+ claims: FTS5 p95 30-32 ms, worst 39-47;
+fallback worst 51-52 vs B2 43-46). ask() at 10k claims: median ~14 ms
+(incl. search), first after opening ~360 ms (facts of every claim read).
+Deliberate breaks: 64/65 caught; the 65th ("extraction stops at the first
+bad slot") can no longer change any result since negative claims are
+filtered first - kept as a harmless safeguard.
+B3 limits: the question grammar and sentence forms are small; one fact per
+claim; facts only from library claims (not World Atlas / quiz memory);
+names must match exactly (no aliases); compound questions ("room ID and
+caretaker") are left to search; answers are not stored as derived claims.
 
 ## Known limits / ideas
 

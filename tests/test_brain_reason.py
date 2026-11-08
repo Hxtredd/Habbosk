@@ -299,6 +299,40 @@ class ReasoningTests(unittest.TestCase):
             b.close()
             shutil.rmtree(d, ignore_errors=True)
 
+    def _small(self, claims, links=()):
+        d = tempfile.mkdtemp()
+        b = Brain(os.path.join(d, "k.db"), "", "")
+        self.addCleanup(shutil.rmtree, d, True)
+        self.addCleanup(b.close)
+        ids = []
+        for text, subject in claims:
+            c = b.learn(text, "user", subject)
+            s = b.add_source("screenshot", title=text, reference="s://" + text)
+            b.add_evidence(c, "direct", s)
+            b.review(c, "verified")
+            ids.append(c)
+        for x, y in links:
+            b.link(ids[x], ids[y], "contradicts")
+        return b, ids
+
+    def test_contradicted_by_a_claim_without_a_fact(self):
+        # the only caretaker fact is contradicted by a claim that states no fact
+        b, ids = self._small([("Bruno maintains the Bell Tower.", "Bell Tower"),
+                              ("Bruno does not maintain the Bell Tower.", "Bell Tower")],
+                             links=[(1, 0)])
+        self.assertEqual(b.claim(ids[0])["status"], "conflicting")
+        r = b.ask("Who maintains the Bell Tower?")
+        self.assertEqual((r.status, r.answered, r.answer, r.possible),
+                         ("conflicting", False, None, None))
+
+    def test_a_person_looking_after_two_rooms_is_ambiguous(self):
+        b, ids = self._small([("Mira maintains the Rose Garden.", "Rose Garden"),
+                              ("Mira maintains the Bell Tower.", "Bell Tower"),
+                              ("The Rose Garden has room ID 500100.", "Rose Garden")])
+        r = b.ask("What is the room ID of the room Mira maintains?")
+        self.assertEqual((r.status, r.answered), ("ambiguous", False))
+        self.assertEqual(sorted(r.steps[0]["candidates"]), ["Bell Tower", "Rose Garden"])
+
     def test_partial_and_similar_names(self):
         r = self.ask("Who is the caretaker of the Faro?")
         self.assertEqual((r.status, r.answered), ("ambiguous", False))
