@@ -426,6 +426,24 @@ opening the Brain builds the cache: ~160-210 ms once per session.
 Trade-offs: memory for the cache (~1 entry per claim); `search_rows` kept
 for older callers but no longer used by search.
 
+B2 performance review (not released). Found and fixed (each reproduced on
+b13b7b7, with a regression test that fails there): commits by another
+connection (raw SQL edit, external delete + reused id, restored backup)
+left stale - in the reused-id case another user's private - text in the
+cache; now the cache is emptied when SQLite's `data_version` moves or the
+event log goes backwards. Two searches in different threads could store a
+stale row for good; cache upkeep now runs under the store lock. The name
+cache moved from a global dict keyed by object id into the per-store
+cache. Removed unused `search_rows`, `change_stamp`, `_library_docs`.
+Measured (tests/brain_memory.py, Linux container, timings without memory
+tracing): 1k claims: first search 19 ms, later ~2 ms; 10k: first 112-182
+ms, later median 15 ms (max 47), after add / correct / review ~35 / 43-60
+/ 27-34 ms, after another program's change 112-145 ms (full rebuild),
+cache ~23 MB for 4 viewers, no growth over 200 searches; 50k: later
+median 88 ms, first 860 ms, cache ~118 MB - scale work comes after B3.
+Windows check extended: code fingerprint, external change, whole test
+suite (packages in .venv-check of the check folder), speed and memory.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the
