@@ -607,6 +607,7 @@ Milestone log (approved commits only):
 | B3.5 | code 9b94600 + this validation record (the commit that adds this row) | 47a1858 | owner, 2026-11-08 |
 | B4 | 17fa8b3 | da891e9 | owner, 2026-11-08 |
 | B5 | 33ef019 | 4351202 | owner, 2026-11-08 |
+| B5.1 | 80fe274 | 38533f4 | owner, 2026-11-08 |
 
 ### B3.5 (APPROVED by the owner, 2026-11-08)
 
@@ -770,7 +771,7 @@ identical; B4 45/45 (zero false Established / Documented); B5 deliberate
 breaks 24/24; candidate 144 tests + check_repo OK, its breaks 10/10, GitHub
 tests passed; Brain fingerprint 0881c0267d6c2312. B5 was NOT run on Windows.
 
-### B5.1 Question understanding (in review - not approved yet)
+### B5.1 Question understanding (APPROVED by the owner, 2026-11-08; integrated at 80fe274)
 
 Branch claude/brain-b5.1 from claude/brain-integration at 33ef019 (+ the B5
 approval record). Owner-approved design and decisions: did_you_mean as a
@@ -819,11 +820,27 @@ questions B3 could not read now answered correctly from the data (checked
 against each set's expected claim), plus 2 language-only changes for an
 asker who cannot see the name. Deliberate breaks 27/29 (the 2 not caught:
 dropping the viewer from the reuse key - redundant, the exact-records check
-already separates viewers). Not run on Windows.
+already separates viewers). Windows: see the approval record below.
 Limits: single-step questions only (chains stay B3's grammar until B9);
 yes / no questions (B9); a word close to both a name and a question word is
 refused; vocabulary-bound (held-out misses above); no typo help inside B3's
 own chained questions.
+Approval record: candidate SK-Online 38533f4 (Brain 80fe274), GitHub tests
+passed (run #8). Pre-approval checks on a clean checkout of 80fe274: typo
+rules within the approved limits (full length table; 200,000 random pairs, no
+violation either way; deletion index = full scan); B2 / B3 references, B4
+45/45 and B5 tests unchanged (no reference file or test changed since
+33ef019); 3,960 questions about names the asker may not see (exact and
+misspelt, every user, four datasets): 0 suggestions / answers / citations.
+Windows validation (owner, BRAIN_WINDOWS_CHECK.bat at 80fe274): Windows 11
+(10.0.26200), Python 3.14.10 64-bit, SQLite 3.50.4 with FTS5; fingerprint
+031fb28e99cf52be; 10 passed / 0 failed; Brain tests 269/269; application
+suite 417 OK (1 skipped, not identified by the report); real habbosk.db /
+atlas.db read safely, files and sidecars unchanged, nothing created or
+removed; knowledge.db not read. Search speed on that PC: first 322 ms, median
+45 ms; ~30 MB for 4 viewers, no growth. B5.1 is Windows-validated.
+The owner approved B5.1; claude/brain-integration fast-forwarded 33ef019 ->
+80fe274 (this record is on claude/brain-b5.1, after 80fe274).
 
 ## Known limits / ideas
 
