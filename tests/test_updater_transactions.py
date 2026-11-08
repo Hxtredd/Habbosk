@@ -114,10 +114,8 @@ class Base(unittest.TestCase):
         return updater.install(self.zip_file(data), self.target, **kw)
 
     def assert_clean(self, lock_held=False):
-        for leftover in (updater.STAGING, updater.BACKUP, updater.JOURNAL, updater.LOCK,
+        for leftover in (updater.STAGING, updater.BACKUP, updater.JOURNAL,
                          updater.JOURNAL + ".tmp"):
-            if lock_held and leftover == updater.LOCK:
-                continue
             self.assertFalse(os.path.exists(os.path.join(self.target, leftover)), leftover)
         for d, _, files in os.walk(self.target):
             for f in files:
@@ -540,8 +538,9 @@ class Recovery(Base):
         lock = updater._Lock(self.target)
         self.assertTrue(lock.acquire())
         try:
-            self.assertIsNone(updater.recover(self.target))
+            self.assertIn("another SK Assistant window", updater.recover(self.target))
             self.assertTrue(os.path.exists(os.path.join(self.target, "my_notes.txt")))
+            self.assertTrue(os.path.exists(os.path.join(self.target, updater.JOURNAL)))
         finally:
             lock.release()
 
@@ -572,11 +571,273 @@ class Recovery(Base):
         self.assertIn(".venv/Scripts/python.exe", snap)
         self.assertTrue(os.path.exists(os.path.join(self.tmp, "outside.txt")))
 
-    def test_recover_at_start_never_raises(self):
-        with mock.patch.object(updater, "recover", side_effect=RuntimeError("boom")):
-            updater.recover_at_start()
-        self.assertIn("could not be checked", updater.LAST_RECOVERY)
+
+
+LOCK_STRESS = textwrap.dedent("""
+    import os, sys, time
+    sys.path.insert(0, sys.argv[1])
+    from puzzle_assistant import updater
+    target, rounds, who = sys.argv[2], int(sys.argv[3]), sys.argv[4]
+    marker = os.path.join(target, "inside")
+    got = bad = 0
+    for i in range(rounds):
+        lock = updater._Lock(target)
+        if lock.acquire():
+            got += 1
+            try:                                  # nobody else may be inside now
+                fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+                time.sleep(0.0005)
+                os.remove(marker)
+            except FileExistsError:
+                bad += 1
+            lock.release()
+    print(who, got, bad)
+""")
+
+CONCURRENT_INSTALL = textwrap.dedent("""
+    import sys
+    sys.path.insert(0, sys.argv[1])
+    from puzzle_assistant import updater
+    try:
+        updater.install(sys.argv[3], sys.argv[2], packages=lambda c, t: None)
+        print("INSTALLED")
+    except updater.UpdateError as e:
+        print("REFUSED", e)
+""")
+
+
+class Concurrency(Base):
+    def test_lock_file_is_permanent(self):
+        lock = updater._Lock(self.target)
+        self.assertTrue(lock.acquire())
+        lock.release()
+        self.assertTrue(os.path.exists(lock.path))
+        self.install()
+        self.assertTrue(os.path.exists(lock.path))
+        updater.recover(self.target)
+        self.assertTrue(os.path.exists(lock.path))
+
+    def test_release_and_relock_race_has_one_winner(self):
+        a, b, c = (updater._Lock(self.target) for _ in range(3))
+        self.assertTrue(a.acquire())
+        b._open()                        # b has the file open, waiting to lock it
+        a.release()
+        c_got = c.acquire()              # a newcomer
+        b_got = b._try_lock()
+        self.assertEqual(sorted([b_got, c_got]), [False, True])
+        for lk in (b, c):
+            lk.release()
+
+    def test_a_lock_file_deleted_by_hand_cannot_give_two_holders(self):
+        b, c = updater._Lock(self.target), updater._Lock(self.target)
+        b._open()
+        try:
+            os.remove(b.path)            # e.g. someone tidies the folder by hand
+        except PermissionError:          # Windows refuses to delete an open file
+            b.release()
+            self.skipTest("this system does not delete open files")
+        self.assertTrue(c.acquire())     # locks a new file at the same path
+        self.assertFalse(b._try_lock())  # the old, deleted file no longer counts
+        c.release()
+
+    def test_many_processes_never_hold_the_lock_together(self):
+        script = os.path.join(self.tmp, "stress.py")
+        with open(script, "w") as fh:
+            fh.write(LOCK_STRESS)
+        procs = [subprocess.Popen([sys.executable, script, ROOT, self.target, "300", str(i)],
+                                  stdout=subprocess.PIPE, text=True) for i in range(4)]
+        results = [p.communicate(timeout=120)[0].split() for p in procs]
+        self.assertTrue(all(p.returncode == 0 for p in procs))
+        self.assertEqual([int(r[2]) for r in results], [0, 0, 0, 0])       # never two inside
+        self.assertGreater(sum(int(r[1]) for r in results), 50)
+
+    def test_concurrent_installs_and_recovery_never_mix(self):
+        self.with_manifest()
+        script = os.path.join(self.tmp, "inst.py")
+        with open(script, "w") as fh:
+            fh.write(CONCURRENT_INSTALL)
+        clean = os.path.join(self.tmp, "reference")
+        shutil.copytree(self.target, clean)
+        updater.install(self.zip_file(name="ref.zip"), clean, packages=lambda c, t: None)
+        expected = snapshot(clean)
+        for _ in range(3):
+            zips = [self.zip_file(name=f"c{i}.zip") for i in range(3)]
+            procs = [subprocess.Popen([sys.executable, script, ROOT, self.target, z],
+                                      stdout=subprocess.PIPE, text=True) for z in zips]
+            notes = [updater.recover(self.target) for _ in range(20)]   # meanwhile, starts
+            outs = [p.communicate(timeout=120)[0] for p in procs]
+            self.assertTrue(all(o.startswith(("INSTALLED", "REFUSED")) for o in outs), outs)
+            self.assertTrue(any(o.startswith("INSTALLED") for o in outs) or
+                            os.path.exists(os.path.join(self.target, updater.MANIFEST)))
+            for o in outs:
+                if o.startswith("REFUSED"):
+                    self.assertIn("already running", o)
+            self.assertTrue(all(n in (None, updater._BUSY) for n in notes), notes)
+            snap = snapshot(self.target)
+            self.assertEqual({k: v for k, v in snap.items() if not k.startswith("_previous/")},
+                             {k: v for k, v in expected.items() if not k.startswith("_previous/")})
+            self.assert_clean()
+
+
+APP_STUB_MAIN = "import os\ndef main():\n    open(os.path.join(os.path.dirname(os.path.dirname(" \
+    "os.path.abspath(__file__))), 'STARTED'), 'w').close()\n"
+
+
+class Startup(Base):
+    """SK does not run on possibly mixed program files: if an interrupted
+    update cannot be undone, it explains and stops, keeping everything
+    needed for another attempt."""
+
+    def interrupted(self):
+        """An install killed half-way: journal 'installing', backup present."""
+        self.with_manifest()
+        self.before = snapshot(self.target)
+        real, n = updater._put, {"i": 0}
+
+        def put(src, dst):
+            n["i"] += 1
+            if n["i"] == 4:
+                raise SystemExit("power off")      # not caught as a failure: no rollback
+            return real(src, dst)
+        with mock.patch.object(updater, "_put", put), \
+                mock.patch.object(updater, "_rollback", return_value=False):
+            with self.assertRaises(updater.UpdateError):
+                self.install()
+        self.assertEqual(updater._journal_state(self.target), "installing")
+        self.assertNotEqual(snapshot(self.target), self.before)
+
+    def recovery_files(self):
+        return {k: v for k, v in snapshot(self.target).items()
+                if k == updater.JOURNAL or k.startswith(updater.BACKUP + "/")}
+
+    def test_nothing_to_do_starts(self):
+        self.assertIsNone(updater.startup_check(self.target))
+
+    def test_interrupted_update_is_undone_then_starts(self):
+        self.interrupted()
+        self.assertIsNone(updater.startup_check(self.target))
+        self.assertEqual(snapshot(self.target), self.before)
+        self.assertIn("previous version was restored", updater.LAST_RECOVERY)
         updater.LAST_RECOVERY = None
+
+    def test_recovery_that_cannot_finish_blocks_and_keeps_everything(self):
+        self.interrupted()
+        kept = self.recovery_files()
+        self.assertTrue(any(k.startswith(updater.BACKUP + "/") for k in kept))
+        with mock.patch.object(updater, "_put", side_effect=PermissionError("locked")):
+            msg = updater.startup_check(self.target)
+        self.assertIn("cannot start yet", msg)
+        self.assertIn(updater.JOURNAL, msg)
+        self.assertEqual(self.recovery_files(), kept)             # nothing discarded
+        # once the cause is gone, the next start restores and starts
+        self.assertIsNone(updater.startup_check(self.target))
+        self.assertEqual(snapshot(self.target), self.before)
+        updater.LAST_RECOVERY = None
+
+    def test_a_fault_in_recovery_itself_blocks(self):
+        self.interrupted()
+        kept = self.recovery_files()
+        with mock.patch.object(updater, "_rollback", side_effect=RuntimeError("bug")):
+            msg = updater.startup_check(self.target)
+        self.assertIn("RuntimeError", msg)
+        self.assertEqual(self.recovery_files(), kept)
+        updater.LAST_RECOVERY = None
+
+    def test_unreadable_journal_blocks(self):
+        write_tree(self.target, {updater.JOURNAL: "{broken"})
+        before = snapshot(self.target)
+        self.assertIn("cannot start yet", updater.startup_check(self.target))
+        self.assertEqual(snapshot(self.target), before)
+        updater.LAST_RECOVERY = None
+
+    def test_update_running_in_another_window_blocks(self):
+        self.interrupted()
+        lock = updater._Lock(self.target)
+        self.assertTrue(lock.acquire())
+        try:
+            self.assertIn("another SK Assistant window", updater.startup_check(self.target))
+            self.assertEqual(updater._journal_state(self.target), "installing")
+        finally:
+            lock.release()
+        updater.LAST_RECOVERY = None
+
+    def test_a_complete_update_that_could_not_tidy_up_still_starts(self):
+        real = updater._finish_commit
+        with mock.patch.object(updater, "_finish_commit", side_effect=OSError("busy")):
+            self.install()
+        self.assertEqual(updater._journal_state(self.target), "committed")
+        with mock.patch.object(updater, "_finish_commit", side_effect=OSError("busy")):
+            self.assertIsNone(updater.startup_check(self.target))     # files are complete
+        self.assertIsNone(updater.startup_check(self.target))
+        self.assertIsNone(updater._journal_state(self.target))
+        self.assertTrue(callable(real))
+        updater.LAST_RECOVERY = None
+
+    # -- app.py itself, in a separate process -----------------------------
+    def app_install(self):
+        app = os.path.join(self.tmp, "app")
+        os.makedirs(os.path.join(app, "puzzle_assistant"))
+        shutil.copy(os.path.join(ROOT, "app.py"), app)
+        for f in ("__init__.py", "config.py", "updater.py"):
+            shutil.copy(os.path.join(ROOT, "puzzle_assistant", f),
+                        os.path.join(app, "puzzle_assistant", f))
+        with open(os.path.join(app, "puzzle_assistant", "main.py"), "w") as fh:
+            fh.write(APP_STUB_MAIN)       # stands in for SK: records that it started
+        return app
+
+    def run_app(self, app):
+        env = dict(os.environ, SK_ASSISTANT_NO_DIALOG="1")
+        return subprocess.run([sys.executable, os.path.join(app, "app.py")], cwd=app, env=env,
+                              capture_output=True, text=True, timeout=60)
+
+    def test_app_starts_normally(self):
+        app = self.app_install()
+        run = self.run_app(app)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue(os.path.exists(os.path.join(app, "STARTED")))
+
+    def test_app_refuses_to_start_when_recovery_cannot_finish(self):
+        app = self.app_install()
+        journal = json.dumps({"format": 99, "state": "installing", "entries": []})
+        write_tree(app, {updater.JOURNAL: journal, updater.BACKUP + "/x.py": "old"})
+        run = self.run_app(app)
+        self.assertEqual(run.returncode, 3)
+        self.assertIn("cannot start yet", run.stderr)
+        self.assertFalse(os.path.exists(os.path.join(app, "STARTED")))
+        self.assertEqual(open(os.path.join(app, updater.JOURNAL)).read(), journal)
+        self.assertTrue(os.path.exists(os.path.join(app, updater.BACKUP, "x.py")))
+
+    def test_app_refuses_when_the_update_code_cannot_load_and_a_journal_exists(self):
+        app = self.app_install()
+        with open(os.path.join(app, "puzzle_assistant", "updater.py"), "w") as fh:
+            fh.write("def (:\n")
+        write_tree(app, {updater.JOURNAL: "{}"})
+        run = self.run_app(app)
+        self.assertEqual(run.returncode, 3)
+        self.assertIn("could not be loaded", run.stderr)
+        self.assertFalse(os.path.exists(os.path.join(app, "STARTED")))
+        self.assertTrue(os.path.exists(os.path.join(app, updater.JOURNAL)))
+        os.remove(os.path.join(app, updater.JOURNAL))           # no update pending:
+        self.assertEqual(self.run_app(app).returncode, 0)        # starts as before
+        self.assertTrue(os.path.exists(os.path.join(app, "STARTED")))
+
+    def test_app_undoes_an_interrupted_update_and_starts(self):
+        self.interrupted()
+        app = self.app_install()
+        shutil.rmtree(app)
+        shutil.copytree(self.target, app)
+        for f in ("__init__.py", "config.py", "updater.py"):     # real code, stub SK
+            shutil.copy(os.path.join(ROOT, "puzzle_assistant", f),
+                        os.path.join(app, "puzzle_assistant", f))
+        shutil.copy(os.path.join(ROOT, "app.py"), app)
+        with open(os.path.join(app, "puzzle_assistant", "main.py"), "w") as fh:
+            fh.write(APP_STUB_MAIN)
+        run = self.run_app(app)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue(os.path.exists(os.path.join(app, "STARTED")))
+        self.assertFalse(os.path.exists(os.path.join(app, updater.JOURNAL)))
+        self.assertFalse(os.path.exists(os.path.join(app, updater.BACKUP)))
 
 
 class Packages(unittest.TestCase):

@@ -225,50 +225,81 @@ def _walk(root: str) -> Dict[str, str]:
     return out
 
 
+def _os_lock(fd: int) -> None:
+    """Lock byte 0 of the open lock file without waiting; OSError if taken."""
+    if sys.platform == "win32":
+        import msvcrt
+        os.lseek(fd, 0, os.SEEK_SET)      # msvcrt locks from the current position
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _os_unlock(fd: int) -> None:
+    if sys.platform == "win32":
+        import msvcrt
+        os.lseek(fd, 0, os.SEEK_SET)      # the same byte that was locked
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
 class _Lock:
     """Only one process installs or recovers at a time. The OS releases the
-    lock if the process dies, so a crash never leaves it stuck."""
+    lock if the process dies, so a crash never leaves it stuck.
+
+    The lock file is permanent: it is never deleted, because deleting it
+    would let a process that had already opened the old file and a process
+    that creates a new one both 'hold' the lock. After locking, the file is
+    also checked to still be the one at the path (someone could have deleted
+    it by hand); if not, the lock is not taken."""
 
     def __init__(self, target: str):
         self.path = os.path.join(target, LOCK)
-        self.fh = None
+        self.fd: Optional[int] = None
+
+    def _open(self) -> None:
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOINHERIT", 0)
+        self.fd = os.open(self.path, flags, 0o644)
+
+    def _try_lock(self) -> bool:
+        try:
+            _os_lock(self.fd)
+        except OSError:
+            self._close()
+            return False
+        try:
+            same = os.path.samestat(os.fstat(self.fd), os.stat(self.path))
+        except OSError:
+            same = False
+        if not same:                      # the file was replaced under us
+            self.release()
+            return False
+        return True
 
     def acquire(self) -> bool:
-        self.fh = open(self.path, "a+b")
-        try:
-            if sys.platform == "win32":
-                import msvcrt
-                self.fh.seek(0)
-                msvcrt.locking(self.fh.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(self.fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return True
-        except OSError:
-            self.fh.close()
-            self.fh = None
-            return False
+        self._open()
+        return self._try_lock()
+
+    def _close(self) -> None:
+        if self.fd is not None:
+            try:
+                os.close(self.fd)
+            except OSError:
+                pass
+            self.fd = None
 
     def release(self) -> None:
-        """Unlock and remove the lock file (left alone if someone else has it)."""
-        if self.fh is None:
+        """Unlock. The lock file stays (see above)."""
+        if self.fd is None:
             return
         try:
-            if sys.platform == "win32":
-                import msvcrt
-                self.fh.seek(0)
-                msvcrt.locking(self.fh.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(self.fh.fileno(), fcntl.LOCK_UN)
+            _os_unlock(self.fd)
         except OSError:
-            pass
-        self.fh.close()
-        self.fh = None
-        try:
-            os.remove(self.path)
-        except OSError:
-            pass
+            pass                          # closing the file releases it anyway
+        self._close()
 
 
 # ---------------------------------------------------------------------------
@@ -383,8 +414,8 @@ def _plan(src: str, target: str) -> Tuple[List[Tuple[str, str]], List[str], Dict
 
 _NOT_INSTALLED = "The update was not installed: {}. Nothing in the program folder was changed."
 _UNREADABLE = ("An interrupted update could not be undone automatically ({}). Some program "
-               "files may be from the new version; your settings and data were not touched. "
-               "Please reinstall SK Assistant over this folder.")
+               "files may be from the new version; your settings and data were not touched.")
+_BUSY = "An update is being installed by another SK Assistant window right now."
 
 
 def install(zip_path: str, target: Optional[str] = None, expected_version: Optional[str] = None,
@@ -516,7 +547,10 @@ def _rollback(target: str, entries: List[list]) -> bool:
         saved = os.path.join(backup, *rel.split("/"))
         try:
             if os.path.isfile(saved):
-                _put(saved, dst)
+                # a file that never actually changed (e.g. it was locked) needs no write
+                if not (os.path.isfile(dst) and os.path.getsize(dst) == os.path.getsize(saved)
+                        and _sha(dst) == _sha(saved)):
+                    _put(saved, dst)
             elif not existed:
                 if os.path.isfile(dst):
                     _remove(dst)
@@ -564,7 +598,7 @@ def _remove_journal_tmp(target: str) -> None:
         pass
 
 
-# set by recover_at_start(): a note for the owner, shown in the window
+# set by startup_check(): a note for the owner, shown in the window
 LAST_RECOVERY: Optional[str] = None
 
 
@@ -580,7 +614,7 @@ def recover(target: Optional[str] = None, _locked: bool = False) -> Optional[str
     if not _locked:
         lock = _Lock(target)
         if not lock.acquire():
-            return None                     # an update is running right now
+            return _BUSY                    # never touch an update that is running
     try:
         if not os.path.exists(path):        # stopped before installing began
             _tidy_unstarted(target)
@@ -610,13 +644,50 @@ def recover(target: Optional[str] = None, _locked: bool = False) -> Optional[str
             lock.release()
 
 
-def recover_at_start() -> None:
-    """Called first thing by app.py. Never stops SK from starting."""
-    global LAST_RECOVERY
+def _journal_state(target: str) -> Optional[str]:
+    """None without a journal, else its state ('installing', 'committed') or 'unreadable'."""
+    path = os.path.join(target, JOURNAL)
+    if not os.path.exists(path):
+        return None
     try:
-        LAST_RECOVERY = recover()
-    except Exception as exc:                  # pragma: no cover - last resort
-        LAST_RECOVERY = f"An interrupted update could not be checked ({type(exc).__name__})."
+        with open(path, encoding="utf-8") as fh:
+            j = json.load(fh)
+        if j.get("format") != JOURNAL_FORMAT:
+            return "unreadable"
+        return str(j.get("state"))
+    except (OSError, ValueError, AttributeError):
+        return "unreadable"
+
+
+def startup_check(target: Optional[str] = None) -> Optional[str]:
+    """Called by app.py before anything else is loaded. Finishes or undoes an
+    interrupted update. Returns None when SK may start, otherwise the message
+    to show instead of starting: the program files may be a mix of two
+    versions. Nothing is ever deleted here when recovery cannot complete -
+    the journal and the backup stay for the next attempt."""
+    global LAST_RECOVERY
+    target = target or app_dir()
+    try:
+        note = recover(target)
+    except Exception as exc:                  # a fault in recovery itself
+        note = f"Restoring it failed ({type(exc).__name__}: {exc})."
+    LAST_RECOVERY = note
+    state = _journal_state(target)
+    if state is None or state == "committed":
+        return None       # no update in progress, or a complete and verified one
+    if note == _BUSY:
+        return (f"SK Assistant cannot start yet.\n\n{_BUSY} Wait until it has finished, "
+                "then start SK Assistant again.")
+    return ("SK Assistant cannot start yet.\n\n"
+            f"{note or 'An update was interrupted.'}\n\n"
+            "SK will not run on program files that may be a mix of two versions. Nothing has "
+            "been deleted: the information needed to restore the previous version is kept in "
+            f"{JOURNAL} and the {BACKUP} folder in\n{target}\n"
+            "Your settings and personal data are not affected.\n\n"
+            "What to do: close any program that may be using files in that folder (for example "
+            "an Explorer window or an editor) and start SK Assistant again - it will try again. "
+            "If it keeps failing, leave the folder as it is (do not delete those files or "
+            "install over them) and ask for help.")
 
 
 class PackageError(OSError):

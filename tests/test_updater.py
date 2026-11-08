@@ -87,7 +87,8 @@ class UpdaterTests(unittest.TestCase):
                 fh.write(make_zip(files, top="x"))
             with self.assertRaises(ValueError):
                 updater.install(z, target)
-        self.assertEqual(os.listdir(target), [])
+        # nothing but the permanent update lock file
+        self.assertEqual([f for f in os.listdir(target) if f != updater.LOCK], [])
 
 
 if __name__ == "__main__":
