@@ -520,6 +520,9 @@ class App:
     def _check_updates_later(self) -> None:
         """Quietly look for a new version at start (never installs)."""
         self._update_found = None
+        from . import updater
+        if updater.LAST_RECOVERY:               # an interrupted update was finished or undone
+            self.l_warn.config(text=updater.LAST_RECOVERY, fg=WARN)
         if not self.cfg.check_updates:
             return
 

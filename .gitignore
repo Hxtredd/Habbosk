@@ -4,6 +4,12 @@ __pycache__/
 debug/
 data/
 config.json
+_previous/
+_update_staging/
+_update_backup/
+_update_journal.json
+_update.lock
+_installed_files.json
 brain_windows_check_report.txt
 .venv-check/
 !tests/data/

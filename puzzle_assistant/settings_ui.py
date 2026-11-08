@@ -277,7 +277,7 @@ class SettingsWindow:
                 try:
                     rel = updater.check()
                 except Exception as exc:
-                    say(f"Could not check: {exc}", WARN)
+                    say(f"Could not check for updates: {exc}", WARN)
                     return
                 if rel is None:
                     say("You have the newest version ✓", GOOD)
@@ -298,11 +298,19 @@ class SettingsWindow:
                 try:
                     say("Downloading… 0 %")
                     path = updater.download(rel, lambda x: say(f"Downloading… {x * 100:.0f} %"))
-                    say("Installing…")
-                    changed = updater.install(path)
-                    updater.update_packages(changed)
                 except Exception as exc:
-                    say(f"Update failed, nothing was changed that can't be undone: {exc}", WARN)
+                    say(f"The download failed ({exc}). Nothing was changed.", WARN)
+                    return
+                try:
+                    say("Checking and installing…")
+                    changed = updater.install(path, expected_version=rel.version)
+                except updater.UpdateError as exc:      # says exactly what was changed
+                    say(str(exc), WARN)
+                    return
+                except Exception as exc:
+                    say(f"The update stopped unexpectedly ({exc}). If anything was half "
+                        "installed, SK puts the previous version back the next time it starts.",
+                        WARN)
                     return
                 say(f"Updated to {rel.version} ({len(changed)} files). Restarting…", GOOD)
                 self.win.after(1200, self.actions.get("restart", lambda: None))
@@ -311,6 +319,8 @@ class SettingsWindow:
         self._button(row, "Check for updates", check).pack(side="left")
         upd = self._button(row, "Update now", update)
         status.pack(fill="x", padx=12, pady=(0, 10))
+        if updater.LAST_RECOVERY:
+            status.config(text=updater.LAST_RECOVERY, fg=WARN)
         if self.actions.get("update_found"):
             found["rel"] = self.actions["update_found"]()
             if found["rel"] is not None:
