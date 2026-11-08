@@ -30,7 +30,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-from .text import normalize, tokens
+from .text import normalize, polarity, tokens
 
 RELATIONS = ("leads_to", "caretaker", "runs", "room_id", "quest_reward")
 
@@ -48,6 +48,22 @@ _ARTICLES = {"the", "el", "la", "los", "las", "a", "an"}
 # a destination / place ends before a trailing modifier ("... through the archway")
 _TRAIL = re.compile(r" (?:through|via|por|a traves|from|after|at|every|on|during|desde|"
                     r"durante|cuando|when|if|si)\b.*$")
+
+
+# A claim that hedges, reports, or speaks of the past or the future does not
+# state a fact ("Maybe Mira ...", "I think ...", "Mira used to ...", "will"):
+# uncertain relationships cannot establish anything.
+_HEDGES = re.compile(r"\b(?:maybe|perhaps|probably|possibly|presumably|apparently|reportedly|"
+                     r"might|may|could|would|should|will|shall|think|thinks|believe|believes|"
+                     r"guess|seems?|seemed|rumou?r|rumou?red|supposedly|allegedly|used to|"
+                     r"formerly|previously|once|soon|next|later|until|"
+                     r"quizas?|tal vez|probablemente|posiblemente|seguramente|creo|cree|creen|"
+                     r"parece|dicen|supuestamente|antes|pronto|sera|podria|deberia|solia)\b")
+# indefinite people are not names
+_NOT_NAMES = {"someone", "somebody", "anyone", "anybody", "everyone", "everybody", "nobody",
+              "alguien", "nadie", "todos", "cualquiera", "who", "quien"}
+_CONNECTORS = {"de", "del", "la", "las", "los", "el", "van", "von", "der", "den", "da", "di",
+               "du", "le", "dos", "das", "al", "y"}
 
 
 @dataclass(frozen=True)
@@ -71,32 +87,47 @@ def key(name: str) -> str:
     return " ".join(words)
 
 
-def _place(s: str) -> Optional[str]:
+def _written(text: str, norm: str) -> List[str]:
+    """The words of `norm` as written in `text` ([] if not found)."""
+    orig = re.findall(r"[^\W_]+", text)
+    want = norm.split()
+    normed = [normalize(w) for w in orig]
+    for i in range(len(normed) - len(want) + 1):
+        if normed[i:i + len(want)] == want:
+            return orig[i:i + len(want)]
+    return []
+
+
+def _place(s: str, text: str) -> Optional[str]:
+    """A place name: plain words, at least one written with a capital ("the
+    Plaza Mayor", "the shop in the Plaza Mayor" - not "the garden")."""
     s = _TRAIL.sub("", " " + s.strip()).strip()
     k = key(s)
     if not k or len(k.split()) > 6 or re.search(r"\b(?:is|are|es|son|and|y|or|o)\b", k):
         return None                 # not a plain name: no fact
+    if not any(w[:1].isupper() for w in _written(text, k)):
+        return None                 # a common noun, not a name
     return k
 
 
-def _person(s: str) -> Optional[str]:
+def _person(s: str, text: str) -> Optional[str]:
+    """A person's name: every word written with a capital (connectors aside),
+    not an indefinite word ("someone"), at most 4 words."""
     k = key(s)
     words = k.split()
-    if not words or len(words) > 4 or any(w in ("is", "are", "es", "the", "and", "y", "no",
-                                                "not", "nobody", "nadie") for w in words):
+    if not words or len(words) > 4 or any(w in _NOT_NAMES or w in ("is", "are", "es", "the", "no",
+                                                                   "not") for w in words):
+        return None
+    written = _written(text, k)
+    if not written or not all(w[:1].isupper() or w.lower() in _CONNECTORS for w in written) \
+            or not written[0][:1].isupper():
         return None
     return k
 
 
 def display(text: str, norm: str) -> str:
     """The words of `norm` as written in `text` (capitals and accents kept)."""
-    orig = re.findall(r"[^\W_]+", text)
-    want = norm.split()
-    normed = [normalize(w) for w in orig]
-    for i in range(len(normed) - len(want) + 1):
-        if normed[i:i + len(want)] == want:
-            return " ".join(orig[i:i + len(want)])
-    return norm
+    return " ".join(_written(text, norm)) or norm
 
 
 def _q(d: Optional[str]) -> str:
@@ -158,14 +189,18 @@ def extract(text: str, subject: str = "") -> Optional[Fact]:
     without the place ("The north exit leads to ...") takes the claim's
     subject as the place - and gives no fact without one."""
     n = " ".join(tokens(text or ""))
-    if not n:
-        return None
+    if not n or _HEDGES.search(normalize(text)):
+        return None                 # hedged / reported / past / future: not a fact
+    positive = polarity(text)
     for relation, rx, absent in _P:
+        if not positive and not absent:
+            continue                # a negative claim states only an explicit absence
         m = rx.match(n)
         if not m:
             continue
         g = m.groupdict()
-        place = _place(g["place"]) if "place" in g else (_place(subject) if subject else None)
+        place = _place(g["place"], text) if "place" in g else \
+            (_place(subject, subject) if subject else None)
         if place is None:
             continue
         qual = _q(g.get("q")) or _q(g.get("q2"))
@@ -173,9 +208,9 @@ def extract(text: str, subject: str = "") -> Optional[Fact]:
             return Fact(relation, place, None, qual)
         raw = g["value"]
         if relation in ("leads_to",):
-            value = _place(raw)
+            value = _place(raw, text)
         elif relation in ("caretaker", "runs"):
-            value = _person(raw)
+            value = _person(raw, text)
         else:
             value = raw.strip()
         if not value:

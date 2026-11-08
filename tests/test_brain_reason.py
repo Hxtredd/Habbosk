@@ -78,6 +78,31 @@ class ExtractionTests(unittest.TestCase):
         # the place is the shop, not the room it is in
         self.assertEqual(self.f("Leo runs the shop in the Plaza Mayor.")[1], "shop in the plaza mayor")
 
+    def test_uncertain_negated_and_indefinite_claims_state_no_fact(self):
+        for text in ("The north door of the Plaza Mayor no longer leads to the Jardín.",
+                     "La salida norte del Puerto Coral ya no lleva al Faro del Norte.",
+                     "The north door of the Plaza Mayor might lead to the Jardín.",
+                     "I think Mira maintains the Crystal Courtyard.",
+                     "Maybe Mira maintains the Crystal Courtyard.",
+                     "Mira used to maintain the Crystal Courtyard.",
+                     "Mira will maintain the Crystal Courtyard next week.",
+                     "Mira does not maintain the Crystal Courtyard.",
+                     "Marta no es la encargada del Faro del Norte.",
+                     "Creo que Rafa es el encargado del Faro del Norte.",
+                     "Rafa probablemente cuida el Faro del Norte.",
+                     "Someone maintains the Crystal Courtyard.",
+                     "The new caretaker maintains the Crystal Courtyard.",
+                     "The north door leads to the garden."):           # a common noun
+            with self.subTest(text=text):
+                self.assertIsNone(self.f(text, "Plaza Mayor"))
+
+    def test_names_as_written(self):
+        self.assertEqual(self.f("Marta van der Berg maintains the Rose Garden."),
+                         ("caretaker", "rose garden", "", "marta van der berg"))
+        self.assertEqual(extract("El encargado del Mercado Central es Don Tito.").display, "Don Tito")
+        self.assertEqual(self.f("Capitana Irene runs the Puerto Coral."),
+                         ("runs", "puerto coral", "", "capitana irene"))
+
     def test_similar_names_stay_distinct(self):
         self.assertNotEqual(key("the Faro del Norte"), key("Faro del Sur"))
         self.assertEqual(key("the Faro del Norte"), key("Faro del Norte"))
