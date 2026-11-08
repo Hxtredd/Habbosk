@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -46,8 +47,20 @@ class FakeHttp:
 class Base(unittest.TestCase):
     def setUp(self):
         d = tempfile.mkdtemp()
+        # Keep every key operation in this temporary folder. Reassigning
+        # secrets.KEYS_PATH alone is NOT enough: get_key / set_key / has_key
+        # take the path as a default argument, fixed when secrets.py was
+        # imported - the test used to write "test-key" into the user's REAL
+        # keys.bin (%APPDATA%\SK Assistant). The file functions are redirected.
+        tmp_keys = os.path.join(d, "keys.bin")
         self.saved_keys = secrets.KEYS_PATH
-        secrets.KEYS_PATH = os.path.join(d, "keys.bin")
+        secrets.KEYS_PATH = tmp_keys
+        load, store = secrets._load, secrets._store
+        for name, fn in (("_load", lambda path=None: load(tmp_keys)),
+                         ("_store", lambda keys, path=None: store(keys, tmp_keys))):
+            patcher = mock.patch.object(secrets, name, fn)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.mem = Memory(os.path.join(d, "m.db"))
         self.cfg = Config()
         self.cfg.ai_provider = "gemini"
@@ -56,6 +69,22 @@ class Base(unittest.TestCase):
     def tearDown(self):
         self.mem.close()
         secrets.KEYS_PATH = self.saved_keys
+
+
+class KeyIsolationTests(Base):
+    def test_tests_never_touch_the_real_key_file(self):
+        real = secrets.get_key.__defaults__[0]          # the path the app really uses
+        self.assertNotEqual(real, secrets.KEYS_PATH)
+        def state():
+            if not os.path.exists(real):
+                return None
+            with open(real, "rb") as fh:
+                return fh.read()
+        before = state()
+        secrets.set_key("ai:gemini", "another-test-key")
+        self.assertEqual(secrets.get_key("ai:gemini"), "another-test-key")
+        secrets.set_key("ai:gemini", None)
+        self.assertEqual(state(), before)               # untouched (or still absent)
 
 
 class ParseTests(unittest.TestCase):
