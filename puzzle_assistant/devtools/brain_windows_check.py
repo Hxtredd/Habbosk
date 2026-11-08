@@ -11,6 +11,11 @@ Runs on the user's own PC what could only be simulated elsewhere:
     read is rolled back and leaves nothing locked
   * FTS5 table breaking while running: plain search takes over
   * the Brain's own automated tests (including the v1 -> v3 upgrade)
+  * another program changing the database while a Brain has it cached
+  * the whole application test suite (needs the app's packages: the .bat
+    installs them into .venv-check inside THIS folder - never into your
+    installed SK Assistant)
+  * search speed and memory with 10,000 claims
   * your real data files (quiz memory, World Atlas, Brain): opened
     READ-ONLY, each file's SHA-256 compared before and after, and the
     folder listing compared (proves nothing was written or created)
@@ -72,6 +77,22 @@ CHECKS = []
 def _sha(path):
     with open(path, "rb") as fh:
         return hashlib.sha256(fh.read()).hexdigest()
+
+
+def code_fingerprint() -> str:
+    """SHA-256 over the Brain's source files: shows exactly which code ran."""
+    h = hashlib.sha256()
+    brain = os.path.join(HERE, "puzzle_assistant", "brain")
+    for name in sorted(os.listdir(brain)):
+        if name.endswith(".py"):
+            with open(os.path.join(brain, name), "rb") as fh:
+                h.update(name.encode() + b"\0" + fh.read().replace(b"\r\n", b"\n") + b"\0")
+    return h.hexdigest()[:16]
+
+
+@check("Code tested")
+def code():
+    return None, f"Brain source fingerprint {code_fingerprint()} (compare with the report from Claude)"
 
 
 @check("Environment")
@@ -267,6 +288,37 @@ def fts_break():
         shutil.rmtree(root, ignore_errors=True)
 
 
+_EXTERNAL = r'''
+import sqlite3, sys; sys.path.insert(0, sys.argv[3])
+from puzzle_assistant.brain import Brain
+path, cid = sys.argv[1], int(sys.argv[2])
+con = sqlite3.connect(path)            # a raw edit, as another tool would make it
+con.execute("UPDATE claims SET status='outdated' WHERE id=?", (cid,))
+con.commit(); con.close()
+b = Brain(path, "", ""); b.learn("The Demo Plaza has room ID 900002.", "user", "Demo Plaza"); b.close()
+'''
+
+
+@check("Another program changes the database while it is cached")
+def external_change():
+    root, d = _workdir()
+    try:
+        path = os.path.join(d, "knowledge.db")
+        b = Brain(path, "", "")
+        c = b.learn("The Demo Garden has room ID 900001.", "user", "Demo Garden")
+        b.search("room ID of the Demo Garden")                 # now cached
+        subprocess.run([sys.executable, "-c", _EXTERNAL, path, str(c), HERE], check=True,
+                       timeout=120)
+        status = [h.status for h in b.search("room ID of the Demo Garden")]
+        plaza = [h.text for h in b.search("room ID of the Demo Plaza")]
+        b.close()
+        ok = status == ["outdated"] and plaza == ["The Demo Plaza has room ID 900002."]
+        return ok, f"status after the other program's edit: {status} (must be outdated); " \
+                   f"its new claim found: {bool(plaza)}"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 @check("Brain automated tests on this PC")
 def unit_tests():
     loader = unittest.TestLoader()
@@ -284,6 +336,33 @@ def unit_tests():
     if r.failures or r.errors:
         detail += "\n" + "\n".join(f"--- {t}\n{tb}" for t, tb in (r.failures + r.errors)[:10])
     return r.wasSuccessful(), detail
+
+
+@check("Whole application test suite")
+def full_suite():
+    tests_dir = os.path.join(HERE, "tests")
+    if not os.path.isdir(tests_dir):
+        return None, "tests folder not found (use the full download of the branch)"
+    r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests"], cwd=HERE,
+                       capture_output=True, text=True, timeout=1800)
+    out = r.stderr + r.stdout
+    tail = [l for l in out.splitlines() if l.startswith(("Ran ", "OK", "FAILED"))]
+    missing = sorted({l.split("'")[1] for l in out.splitlines()
+                      if "No module named" in l and "'" in l})
+    detail = " | ".join(tail[-2:]) or "no summary"
+    if missing:
+        detail += f"\nmissing packages (run BRAIN_WINDOWS_CHECK.bat, which installs them): {missing}"
+    if r.returncode:
+        bad = [l for l in out.splitlines() if l.startswith(("FAIL:", "ERROR:"))]
+        detail += "\n" + "\n".join(bad[:20])
+    return r.returncode == 0, detail
+
+
+@check("Search speed and memory (10,000 claims)")
+def speed_memory():
+    sys.path.insert(0, os.path.join(HERE, "tests"))
+    import brain_memory
+    return None, brain_memory.describe(brain_memory.measure(10000))
 
 
 @check("Your real data files, read-only (nothing written)")

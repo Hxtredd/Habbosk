@@ -183,41 +183,10 @@ class KnowledgeStore:
                   + (f" OR {alias}.scope='shared_candidate'" if mod else "") + ")")
         return clause, [viewer]
 
-    def search_rows(self, viewer: Optional[str], match_terms: Optional[List[str]] = None,
-                    use_fts: Optional[bool] = None) -> List[dict]:
-        """Index rows of the claims `viewer` may see. With match_terms, only
-        claims containing at least one of them (FTS5 when available, else
-        the same test in Python - identical eligibility)."""
-        use_fts = self.fts if use_fts is None else (use_fts and self.fts)
-        with self._lock:
-            vis, args = self._visible_sql(viewer, review=False)
-            q = ("SELECT c.id, c.text, c.subject, c.category, c.status, c.origin, c.scope, "
-                 "c.owner_id, c.version, i.terms, i.subject_terms, i.norm, i.subject_norm, "
-                 "i.positive "
-                 "FROM claims c "
-                 f"JOIN claim_index i ON i.claim_id = c.id WHERE {vis}")
-            rows = None
-            if match_terms and use_fts:
-                try:
-                    rows = [dict(r) for r in self._db.execute(
-                        q + " AND c.id IN (SELECT rowid FROM claim_fts WHERE claim_fts MATCH ?)",
-                        args + [" OR ".join('"%s"' % t.replace('"', '') for t in match_terms)])]
-                except sqlite3.Error:        # FTS5 broke while running: same search in Python
-                    self._fts_off()
-                    self._db.commit()
-                    use_fts = False
-            if rows is None:
-                rows = [dict(r) for r in self._db.execute(q, args)]
-        if match_terms and not use_fts:
-            want = set(match_terms)
-            rows = [r for r in rows if want & set(r["terms"].split())]
-        return rows
-
     def visible_keys(self, viewer: Optional[str], match_terms: Optional[List[str]] = None,
                      use_fts: Optional[bool] = None, ids_only: bool = False):
         """(id, status, scope, owner_id, version) - or just (id,) with ids_only -
-        of the claims viewer's search may use (same rule as search_rows), and
-        whether they were already
+        of the claims viewer's search may use, and whether they were already
         narrowed to `match_terms` by FTS5. Without FTS5 all visible claims are
         returned and the caller narrows them (identical eligibility)."""
         use_fts = self.fts if use_fts is None else (use_fts and self.fts)
@@ -236,7 +205,7 @@ class KnowledgeStore:
             return [tuple(r) for r in self._db.execute(q, args)], not match_terms
 
     def index_rows(self, viewer: Optional[str], ids: List[int]) -> List[dict]:
-        """Search rows (as search_rows) of these claims - only those the viewer's
+        """Search rows of these claims - only those the viewer's
         search may use, whatever ids are asked for."""
         out: List[dict] = []
         with self._lock:
@@ -282,13 +251,11 @@ class KnowledgeStore:
                 "claim_events WHERE event IN ('corrected', 'share_proposed', 'share_approved')), "
                 "(SELECT COUNT(*) FROM contributors)").fetchone())
 
-    def change_stamp(self) -> tuple:
-        """Changes whenever a claim is added, corrected, reviewed or relinked."""
+    def data_version(self) -> int:
+        """SQLite's data_version: changes when ANY OTHER connection (another
+        program, another Brain, a raw edit, a restore) commits to the file."""
         with self._lock:
-            return tuple(self._db.execute(
-                "SELECT (SELECT COUNT(*) FROM claims), (SELECT MAX(updated) FROM claims), "
-                "(SELECT COUNT(*) FROM claim_events), (SELECT COUNT(*) FROM contributors)"
-            ).fetchone())
+            return self._db.execute("PRAGMA data_version").fetchone()[0]
 
     def visible_count(self, viewer: Optional[str]) -> int:
         with self._lock:

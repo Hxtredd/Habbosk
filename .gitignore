@@ -5,3 +5,4 @@ debug/
 data/
 config.json
 brain_windows_check_report.txt
+.venv-check/

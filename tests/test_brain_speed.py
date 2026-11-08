@@ -152,10 +152,131 @@ class CacheFollowsChangesTests(unittest.TestCase):
         for name in ("Zeta Hall", "Alpha Court", "Demo Garden Annex", "Mid Plaza"):
             self.b.learn(f"The {name} has room ID 1.", "user", name)
             self.b.search(q)                                              # incremental
-        cached = R._entities(self.b.store, self.b.local_user, True, ())
+        with self.b.store._lock:
+            cached = R._entities(self.b.store, R._cache(self.b.store), self.b.local_user, True, ())
         full = make_entities([(s, "library", n)
                               for s, n in self.b.store.visible_subjects(self.b.local_user) if s])
         self.assertEqual([(e.name, e.key) for e in cached], [(e.name, e.key) for e in full])
+
+
+class ExternalChangeTests(unittest.TestCase):
+    """Changes by ANY other connection - raw SQL, deletes, restores - and
+    concurrent searches must never leave stale or someone else's data."""
+    Q = "room ID of the Demo Garden"
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.path = os.path.join(self.dir, "k.db")
+        self.b = Brain(self.path, "", "")
+        self.addCleanup(self.b.close)
+        self.luis = self.b.store.add_contributor("Luis", "external_user")
+
+    def raw(self, *statements):
+        con = sqlite3.connect(self.path)
+        con.execute("PRAGMA foreign_keys=OFF")
+        for sql, args in statements:
+            con.execute(sql, args)
+        con.commit()
+        con.close()
+
+    def test_raw_external_edit_is_seen(self):
+        c = self.b.learn("The Demo Garden has room ID 900001.", "user", "Demo Garden")
+        self.b.search(self.Q)
+        self.raw(("UPDATE claims SET text=?, status='outdated' WHERE id=?",
+                  ("The Demo Garden has room ID 777777.", c)),
+                 ("UPDATE claim_index SET norm=? WHERE claim_id=?",
+                  ("demo garden the demo garden has room id 777777", c)))
+        h = self.b.search(self.Q)
+        self.assertEqual([(x.text, x.status) for x in h],
+                         [("The Demo Garden has room ID 777777.", "outdated")])
+
+    def test_external_delete_and_id_reuse_never_shows_someone_elses_text(self):
+        c = self.b.learn("Luis secret: room 4471023 is my hideout.", "user", "Demo Garden",
+                         by=self.luis)
+        self.b.search("hideout room Demo Garden", viewer=self.luis)          # cached
+        self.raw(("DELETE FROM claim_events WHERE claim_id=?", (c,)),
+                 ("DELETE FROM claim_index WHERE claim_id=?", (c,)),
+                 ("DELETE FROM claim_fts WHERE rowid=?", (c,)),
+                 ("DELETE FROM claims WHERE id=?", (c,)))
+        # no search in between: the new claim's event even reuses the deleted event's id
+        mine = self.b.learn("Ana: the Demo Garden hideout room is public.", "user", "Demo Garden")
+        self.assertEqual(mine, c)                                            # id reused
+        texts = [h.text for h in self.b.search("hideout room Demo Garden")]
+        self.assertEqual(texts, ["Ana: the Demo Garden hideout room is public."])
+        self.assertNotIn("4471023", repr(texts))
+        self.assertEqual(self.b.search("hideout room Demo Garden", viewer=self.luis), [])
+
+    def test_external_change_can_only_narrow_access(self):
+        c = self.b.learn("The Demo Garden has room ID 900001.", "user", "Demo Garden")
+        self.raw(("UPDATE claims SET scope='shared' WHERE id=?", (c,)))
+        self.assertTrue(self.b.search(self.Q, viewer=self.luis))            # shared: seen
+        self.raw(("UPDATE claims SET scope='personal' WHERE id=?", (c,)))
+        self.assertEqual(self.b.search(self.Q, viewer=self.luis), [])       # withdrawn: gone
+
+    def test_restored_older_file_is_seen(self):
+        c = self.b.learn("The Demo Garden has room ID 900001.", "user", "Demo Garden")
+        bk = os.path.join(self.dir, "bk.db")
+        src, dst = sqlite3.connect(self.path), sqlite3.connect(bk)
+        src.backup(dst)
+        dst.close()
+        src.close()
+        self.b.review(c, "outdated")
+        self.b.learn("The Demo Garden has room ID 900002.", "user", "Demo Garden")
+        self.assertEqual(len(self.b.search(self.Q)), 2)
+        src, dst = sqlite3.connect(bk), sqlite3.connect(self.path)          # restore the copy
+        src.backup(dst)
+        dst.close()
+        src.close()
+        self.assertEqual([(h.text, h.status) for h in self.b.search(self.Q)],
+                         [("The Demo Garden has room ID 900001.", "submitted")])
+
+    def test_event_log_going_backwards_empties_the_cache(self):
+        c = self.b.learn("The Demo Garden has room ID 900001.", "user", "Demo Garden")
+        self.b.search(self.Q)
+        with self.b.store._lock:
+            cache = R._cache(self.b.store)
+            cache.mark += 1000                                               # "newer" than the file
+            cache.docs[c].text = "stale"                                     # poison the entry
+        self.assertEqual(self.b.search(self.Q)[0].text, "The Demo Garden has room ID 900001.")
+
+    def test_concurrent_search_cannot_store_a_stale_row(self):
+        import threading
+        import time
+        c = self.b.learn("The Demo Garden has room ID 900001.", "user", "Demo Garden")
+        orig = self.b.store.index_rows
+        inside, go = threading.Event(), threading.Event()
+
+        def slow(viewer, ids):
+            rows = orig(viewer, ids)            # thread 1 has read the old row...
+            inside.set()
+            go.wait(5)                          # ...and pauses before storing it
+            return rows
+        self.b.store.index_rows = slow
+        t1 = threading.Thread(target=lambda: self.b.search(self.Q))
+        t1.start()
+        self.assertTrue(inside.wait(5))
+        self.b.store.index_rows = orig
+        t2 = threading.Thread(target=lambda: (self.b.review(c, "outdated"),
+                                              self.b.search(self.Q)))
+        t2.start()
+        time.sleep(0.3)
+        go.set()
+        t1.join(5)
+        t2.join(5)
+        self.assertEqual([h.status for h in self.b.search(self.Q)], ["outdated"])
+
+    def test_cache_holds_at_most_one_entry_per_claim(self):
+        for i in range(50):
+            self.b.learn(f"The Demo Garden {i} has room ID {900000 + i}.", "user", f"Demo Garden {i}")
+        for _ in range(20):
+            for q in (self.Q, "Demo Garden 7 room ID", "nothing at all"):
+                self.b.search(q)
+                self.b.search(q, viewer=self.luis)
+        with self.b.store._lock:
+            cache = R._cache(self.b.store)
+        self.assertLessEqual(len(cache.docs), 50)
+        self.assertLessEqual(len(cache.names), 32)
 
 
 class GcPauseTests(unittest.TestCase):

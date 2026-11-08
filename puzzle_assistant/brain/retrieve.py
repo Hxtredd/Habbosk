@@ -74,39 +74,68 @@ def _library_doc(r: dict) -> Doc:
                subject_norm=r["subject_norm"])
 
 
-def _library_docs(store, rows: List[dict]) -> List[Doc]:
-    return [_library_doc(r) for r in rows]
+class _StoreCache:
+    """What one KnowledgeStore keeps between searches (gone with the store).
+
+      docs      prepared search data per claim id. WHICH claims a search may
+                use is still asked from the database on every search (the
+                visibility rule, store.visible_keys); this only saves
+                re-reading and re-parsing their text.
+      names     known-name lists per viewer (see _entities).
+
+    Kept exact by two rules:
+      * changes through this store: every change to a claim records an event
+        on it in the same transaction, so entries of claims with events after
+        `mark` are dropped (store.changed_since);
+      * changes by ANY other connection - another program, a second Brain, a
+        raw SQL edit, a restored backup: SQLite's data_version moves, and
+        everything is dropped and rebuilt (nothing is assumed about how the
+        other connection wrote). Also if the event log ever goes backwards.
+    All of it happens under the store's lock, which every write also takes."""
+
+    def __init__(self):
+        self.reset()
+        self.data_version = None
+
+    def reset(self) -> None:
+        self.docs: Dict[int, "Doc"] = {}
+        self.mark = -1
+        self.names: Dict[tuple, tuple] = {}
 
 
-# Prepared search data per claim, kept between searches. WHICH claims a
-# search may use is still decided by the database on every search (the
-# same visibility rule as everywhere: store.visible_keys); this cache only
-# saves re-reading and re-parsing their text. An entry is dropped as soon
-# as its claim has a new event (every change records one).
-_DOC_CACHE: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+_CACHES: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
 
 
-def _visible_docs(store, viewer: str, every: List[str], use_fts):
+def _cache(store) -> _StoreCache:
+    """The store's cache, emptied first if another connection committed."""
+    c = _CACHES.get(store)
+    if c is None:
+        c = _CACHES[store] = _StoreCache()
+    dv = store.data_version()
+    if c.data_version is not None and dv != c.data_version:
+        c.reset()
+    c.data_version = dv
+    return c
+
+
+def _visible_docs(store, cache: _StoreCache, viewer: str, every: List[str], use_fts):
     """(docs the viewer may see that contain one of `every`, all visible docs or
     None). In plain-search mode the word counts come from the same visible
-    claims. Which claims are visible is asked from the database every time;
-    cached entries of claims changed since the last search are dropped first
-    (store.changed_since), so only those are read again."""
-    cache = _DOC_CACHE.get(store)
-    if cache is None:
-        cache = _DOC_CACHE[store] = {"mark": -1}
-    mark, changed = store.changed_since(cache["mark"])
-    if cache["mark"] < 0:
-        changed = ()                          # empty cache: nothing to drop
-    for cid in changed:
-        cache.pop(cid, None)
-    cache["mark"] = mark
+    claims. Call with store._lock held."""
+    mark, changed = store.changed_since(max(cache.mark, 0))
+    if mark < cache.mark:                      # event log went backwards: a different file
+        cache.reset()
+    elif cache.mark >= 0:
+        for cid in changed:
+            cache.docs.pop(cid, None)
+    cache.mark = mark
     keys, filtered = store.visible_keys(viewer, every, use_fts, ids_only=True)
-    miss = [k[0] for k in keys if k[0] not in cache]
+    docs_of = cache.docs
+    miss = [k[0] for k in keys if k[0] not in docs_of]
     if miss:
         for r in store.index_rows(viewer, miss):
-            cache[r["id"]] = (None, _library_doc(r), None)
-    docs = [cache[k[0]][1] for k in keys if k[0] in cache]
+            docs_of[r["id"]] = _library_doc(r)
+    docs = [docs_of[k[0]] for k in keys if k[0] in docs_of]
     if filtered:
         return docs, None
     want = set(every)
@@ -238,7 +267,8 @@ def _search(store, sources, question: str, viewer: Optional[str] = None, limit: 
                 adapter_records += src.records()
                 names += [(n, src.module) for n in src.entity_names()]
     lib_on = want("library")
-    entities = _entities(store, viewer, lib_on, tuple(sorted(set(names))))
+    with store._lock:                          # cache upkeep and the reads it relies on
+        entities = _entities(store, _cache(store), viewer, lib_on, tuple(sorted(set(names))))
     q: Query = analyze(question, entities)
     if not q.terms:
         return []
@@ -257,8 +287,11 @@ def _search(store, sources, question: str, viewer: Optional[str] = None, limit: 
     yes_no = q_positive and bool(_YES_NO.match(normalize(question)))
     every = sorted({w for g in groups.values() for w in g})
 
-    lib_docs, all_visible = _visible_docs(store, viewer, every, use_fts) \
-        if lib_on else ([], None)
+    if lib_on:
+        with store._lock:
+            lib_docs, all_visible = _visible_docs(store, _cache(store), viewer, every, use_fts)
+    else:
+        lib_docs, all_visible = [], None
     adapter_docs = _adapter_docs(adapter_records)
     every_set = set(every)
     docs = [d for d in lib_docs + adapter_docs if d.terms & every_set]
@@ -531,18 +564,15 @@ def _search(store, sources, question: str, viewer: Optional[str] = None, limit: 
     return out
 
 
-_ENTITY_CACHE: Dict[tuple, List[Entity]] = {}
-
-
-def _entities(store, viewer: str, lib_on: bool, adapter_names: tuple,
-              stamp=None) -> List[Entity]:
+def _entities(store, cache: _StoreCache, viewer: str, lib_on: bool,
+              adapter_names: tuple) -> List[Entity]:
     """Known names the viewer may see. Kept until a new claim, a correction or
     a sharing step (store.subjects_stamp); after new claims only their
     subjects are read and added - the same list, in the same order, as
-    reading everything again (both sorted)."""
-    key = (store.path, id(store), viewer, lib_on, hash(adapter_names))
+    reading everything again (both sorted). Call with store._lock held."""
+    key = (viewer, lib_on, adapter_names)
     sub = store.subjects_stamp() if lib_on else None
-    hit = _ENTITY_CACHE.get(key)
+    hit = cache.names.get(key)
     if hit is not None and hit[0] == sub:
         return hit[2]
     names = list(adapter_names)
@@ -558,9 +588,9 @@ def _entities(store, viewer: str, lib_on: bool, adapter_names: tuple,
     else:
         pairs = []
     ents = make_entities(names)
-    if len(_ENTITY_CACHE) > 32:
-        _ENTITY_CACHE.clear()
-    _ENTITY_CACHE[key] = (sub, pairs, ents)
+    if len(cache.names) >= 32:                 # many viewers: keep it bounded
+        cache.names.clear()
+    cache.names[key] = (sub, pairs, ents)
     return ents
 
 
