@@ -495,6 +495,23 @@ class Withdrawal(Tmp):
         s.close()
         self.gone()
 
+    def test_every_connection_has_the_safe_settings(self):
+        """secure_delete ON and temp_store MEMORY on every kind of connection
+        (a temporary file is only made for large sorts - so check the setting)."""
+        s = self.w.open("ana")
+        m = self.w.open("mod", "moderator")
+        cons = [s.store._db, m.store._db, self.w.lib._reg, self.w.lib._shared_writer(),
+                self.w.lib._outbox(self.w.lib._user(self.w.ids["ana"])["file_id"], False)]
+        try:
+            for c in cons:
+                self.assertEqual(c.execute("PRAGMA secure_delete").fetchone()[0], 1)
+                self.assertEqual(c.execute("PRAGMA temp_store").fetchone()[0], 2)
+        finally:
+            for c in cons[3:]:
+                c.close()
+            s.close()
+            m.close()
+
     def test_no_sqlite_temporary_files(self):
         tmp = tempfile.mkdtemp(prefix="sk_b52_tmpdir_")
         try:

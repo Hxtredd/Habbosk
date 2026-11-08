@@ -842,6 +842,68 @@ removed; knowledge.db not read. Search speed on that PC: first 322 ms, median
 The owner approved B5.1; claude/brain-integration fast-forwarded 33ef019 ->
 80fe274 (this record is on claude/brain-b5.1, after 80fe274).
 
+### B5.2 Personal and shared storage separation (in review - not approved yet)
+
+Branch claude/brain-b5.2 from abdaa1a (= integration 80fe274 + the B5.1
+approval record). Owner-approved design (all decisions in the B5.2 planning
+rounds). Nothing here touches habbosk.db, atlas.db or a real knowledge.db.
+- `brain/library.py`: the layout (registry.db - users, file ids, pseudonyms,
+  id counter, used grants, NO knowledge and no names except moderators';
+  shared.db; personal/<file>.db + .hwm; outbox/<file>.db; epoch.json).
+  Session = own personal file read-write + shared.db attached READ-ONLY
+  ("mine + shared" temporary views; every write goes to main.* explicitly).
+  Signed, single-use, <=60 s grants (HMAC-SHA256, host key, nonce recorded,
+  epoch raised when the registry is found restored): this authenticates the
+  HOST's decision, not the human. Identity fixed per session; a viewer / by
+  naming anyone else is refused (session and engine). Proposals: per-user
+  outbox with exactly the selected material at the granted level (stub /
+  quote / details / full text), keyed tags (HMAC with the library key - never
+  plain hashes in shared storage); moderators read outboxes read-only,
+  decisions by random token in shared.db; approval COPIES into shared.db,
+  starting awaiting_verification; only a moderator review there verifies, and
+  only with a granted quote. Withdrawal: block row in shared.db first (token
+  checked, durable) - every read path and approval skips the material at
+  once - then owner record, outbox purge, shared purge (secure_delete, WAL
+  emptied, integrity check), complete; every step repeatable, finished by the
+  next sessions after a crash. Answers: Established only while active support
+  remains (session view), else Unknown `evidence_withdrawn` with the wording
+  as a labelled possibility; stored status unchanged, moderators' review list.
+  Ids: one counter (blocks of 32), kept above every personal file's
+  high-water mark (.hwm) and shared.db's max, so a restored registry can't
+  collide; a session refuses to open on any collision (backstop).
+- `brain/store.py`: roles (file / personal / shared); writes main-qualified;
+  library connections: secure_delete ON, temp_store MEMORY, WAL, synchronous
+  FULL; xrefs (namespace + id) for personal -> shared references.
+- `brain/split.py`: migration of one single-file database (original never
+  opened by SQLite, fingerprints at every step): backup, manifests B/C
+  (pending, checksum + HMAC) first, staging, every row placed in exactly one
+  file (shared knowledge -> shared.db; everything else, incl. pre-sharing
+  history and sources, with its person), source material referenced by shared
+  claims withheld (stub, same id, quotes empty; owners grant later), row-by-
+  row verification, leak checks, manifest A, ONE rename = commit, B/C
+  completed. verify_library() at first open; recovery_check() read-only with
+  trust levels (authentic / unauthenticated / untrusted), overlapping-field
+  comparison of pending / complete copies, deletion offered only with damage +
+  authentic complete record + verified copy + no new data, and only on
+  confirmation; set aside / rescue never delete.
+- `brain/keystore.py`: keys outside the library; DPAPI on Windows.
+- `Brain()` without a path is refused (decision 10); Brain(path) stays for
+  development / test files.
+Tests: tests/test_brain_b52.py (56, ~9 min) + b52_world / b52_child /
+b52_reference. On separated storage (datasets migrated): B3 109/109 identical
+to the reference; B2 218/218 identical to the same file closed and reopened
+(208/218 against the recorded reference - the 10 differences are the order of
+equally scored results after ANY reopen, also without B5.2: a pre-existing B2
+cache effect); B4 Puerto Nube 45/45 and B5.1 Isla Brisa answers identical.
+Deliberate breaks 33/33. Full suite 471+ OK (Linux). Speed ~10,000 claims:
+session answers +7-10 ms (19-30 ms), session open ~23 ms, migration 6.5 s.
+Not run on Windows yet (BRAIN_WINDOWS_CHECK.bat has a new B5.2 step).
+Limits: people are not authenticated; programs running as the same Windows
+user can read files and keys; copies outside SK (and disk remnants) can keep
+withdrawn text; duplicates across installations are not detected; moderators
+see what is proposed; whole shared-claim withdrawal is a later decision; a
+shared claim's original section reference stays with its owner.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the
