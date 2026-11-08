@@ -384,6 +384,48 @@ Must change before real multi-user use:
 10. Local adapters (quiz memory, World Atlas) are only for the local user;
     a server would need per-user copies or treat them as shared sources.
 
+B2 search latency pass (not released). Same results, faster: every result
+(order, score, status, labels, explanation) is identical to before on all
+113 realistic questions x FTS5/fallback (snapshot compared), and the test
+suite checks it permanently (see below).
+What changed (brain/retrieve.py, query.py, store.py):
+- Per-claim search data is cached between searches. Which claims a search
+  may use is still asked from the database every time (`visible_keys`,
+  same `_visible_sql` rule, ids only); `index_rows` re-applies the rule.
+  Entries are dropped when their claim has a new event (`changed_since`:
+  every change records an event on that claim in the same transaction,
+  also when another program writes).
+- Exact scores computed once per signature (question words / synonyms /
+  kind-of-question words present, number, polarity, status, whether the
+  question's names occur); records containing one of those names get the
+  full original scoring; the explanation is built only for returned
+  records. `MAX_FACTOR` is shared by scoring and the fast path.
+- Known names: per-name word sets memoised; longer-name and first-word
+  lookups once per search (`Known`); after new claims only their subjects
+  are read (sorted merge == full rebuild); reviews don't rebuild it.
+- Cyclic GC paused during a search (state always restored): full
+  collections over the cached index cost up to ~200 ms mid-search.
+Checks: `retrieve.VERIFY_FAST` (Brain test modules turn it on: every search
+also runs full() on every candidate and fails on any difference) and
+`retrieve.EXHAUSTIVE` (reference: full() for all, plain sort - the old
+way); tests/test_brain_speed.py compares fast vs reference on every
+realistic question (with filler and with quiz memory / World Atlas), cache
+invalidation (incl. changes by a second program), visibility, the name
+list and the GC state.
+Benchmark: `python tests/brain_speed.py` (10,000+ claims per scenario:
+original speed test, Villa Brisa, Ciudad Coral; 113 questions; median of
+5 runs per question; jitter = slowest single run). Same machine, old and
+new code alternated, 3 rounds each:
+  old aa037f2  FTS5 avg 57-61 ms, p95 163-170, worst 171-215;
+               fallback avg 92-99, p95 179-194, worst 192-211
+  new          FTS5 avg 11.6-13.0 ms, p95 28-32, worst 33-52;
+               fallback avg 15-17, p95 30-32, worst 32-37; jitter <= 62
+Outside the warm benchmark: first search after a review ~28 ms, after a
+new claim ~38 ms, after a correction ~46 ms; the FIRST search after
+opening the Brain builds the cache: ~160-210 ms once per session.
+Trade-offs: memory for the cache (~1 entry per claim); `search_rows` kept
+for older callers but no longer used by search.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the
