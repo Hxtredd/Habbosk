@@ -32,7 +32,7 @@ from puzzle_assistant.brain import Brain  # noqa: E402
 from puzzle_assistant.brain import understand as UN  # noqa: E402
 from puzzle_assistant.brain.model import UNKNOWN_REASONS  # noqa: E402
 
-BRAIN_DIR = os.path.join(ROOT, "puzzle_assistant", "brain")
+BRAIN_DIR = os.path.dirname(os.path.abspath(UN.__file__))   # wherever the Brain is installed
 HELDOUT_FLOOR = 84          # first run, before any change for it (84/90): never lower
 
 
