@@ -606,6 +606,7 @@ Milestone log (approved commits only):
 | (start) | 39fad57 | - | release branch head |
 | B3.5 | code 9b94600 + this validation record (the commit that adds this row) | 47a1858 | owner, 2026-11-08 |
 | B4 | 17fa8b3 | da891e9 | owner, 2026-11-08 |
+| B5 | 33ef019 | 4351202 | owner, 2026-11-08 |
 
 ### B3.5 (APPROVED by the owner, 2026-11-08)
 
@@ -718,7 +719,7 @@ exact sentence forms (passages: B6); no AI answers (B8); no memory /
 confirmation flow (B7); small question grammar (B9/B10); quiz memory and
 World Atlas never answer yet.
 
-### B5 Knowledge model (in review - not approved yet)
+### B5 Knowledge model (APPROVED by the owner, 2026-11-08; integrated at 33ef019)
 
 Branch claude/brain-b5 from claude/brain-integration at 17fa8b3. B2 search
 reference, B3 ask() reference (109 results) and B4 scored sets (45/45, zero
@@ -762,6 +763,12 @@ upgrade to refuse + migrate_file. Deliberate breaks 24/24 (Linux). Speed,
 ~10,000 claims: open ~28 ms, first answer 220-290 ms (B3: ~360 ms), no claim
 re-read at start. Limits: homonym entities are not told apart in reasoning
 (names, as in B3); dates (as_of / valid_until) are reserved, not used.
+Approval: the owner tested candidate SK-Online 4351202 (Brain 33ef019) and
+approved B5 at 33ef019; claude/brain-integration fast-forwarded 17fa8b3 ->
+33ef019. Results at approval: Habbosk 389 tests OK; B2 / B3 references
+identical; B4 45/45 (zero false Established / Documented); B5 deliberate
+breaks 24/24; candidate 144 tests + check_repo OK, its breaks 10/10, GitHub
+tests passed; Brain fingerprint 0881c0267d6c2312. B5 was NOT run on Windows.
 
 ## Known limits / ideas
 
