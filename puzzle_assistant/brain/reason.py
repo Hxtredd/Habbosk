@@ -186,6 +186,17 @@ class StepResult:
     verified: bool = False
     supports: List[Support] = field(default_factory=list)
     candidates: List[str] = field(default_factory=list)   # conflicting / ambiguous values
+    # verified step: unverified claims stating the same - shown, never evidence
+    also_unverified: List[Support] = field(default_factory=list)
+
+
+def _verified_only(ss: List[Support]) -> Tuple[bool, List[Support], List[Support]]:
+    """(verified?, evidence, also stated unverified). A verified step rests on
+    its verified claims only; an unverified step shows all its claims."""
+    good = [s for s in ss if s.status == "verified"]
+    if good:
+        return True, good, [s for s in ss if s.status != "verified"]
+    return False, ss, []
 
 
 class FactIndex:
@@ -229,10 +240,11 @@ def _settle(label: str, sups: List[Support]) -> StepResult:
                  for v, ss in values.items()]
         return StepResult(label, "conflicting", supports=sups, candidates=shown)
     (value, ss), = values.items()
-    verified = any(s.status == "verified" for s in ss)
+    verified, evidence, also = _verified_only(ss)
     if value is None:
-        return StepResult(label, "absent", None, "", verified, ss)
-    return StepResult(label, "value", value, ss[0].fact.display or value, verified, ss)
+        return StepResult(label, "absent", None, "", verified, evidence, also_unverified=also)
+    return StepResult(label, "value", value, evidence[0].fact.display or value, verified, evidence,
+                      also_unverified=also)
 
 
 def _ambiguous_name(index: FactIndex, name: str) -> List[str]:
@@ -261,13 +273,18 @@ def resolve(a, index: FactIndex, out: List[StepResult]) -> Optional[str]:
         if not places:
             out.append(StepResult(label, "missing"))
             return None
-        if len(places) > 1 or any(s.status == "conflicting" for s in sups):
+        if any(s.status == "conflicting" for s in sups):
+            out.append(StepResult(label, "conflicting", supports=sups,
+                                  candidates=sorted(index.shown(p) for p in places)))
+            return None
+        if len(places) > 1:
             out.append(StepResult(label, "ambiguous", supports=sups,
                                   candidates=sorted(index.shown(p) for p in places)))
             return None
         (place, ss), = places.items()
-        out.append(StepResult(label, "value", place, display(ss[0].text, place), any(
-            s.status == "verified" for s in ss), ss))
+        verified, evidence, also = _verified_only(ss)
+        out.append(StepResult(label, "value", place, display(evidence[0].text, place), verified,
+                              evidence, also_unverified=also))
         return place
     if a.place == ANYWHERE:
         side = f"the {a.qualifier} exit" if a.qualifier else "the exit"
@@ -316,6 +333,9 @@ def answer(a: Ask, index: FactIndex) -> Reasoned:
         if st.outcome in ("value", "absent"):
             for s in st.supports:
                 lines.append(f"step {n}: {st.ask}: \"{s.text}\" [{s.status}, claim {s.claim_id}]")
+            for s in st.also_unverified:
+                lines.append(f"    also stated, unverified (not used as evidence): \"{s.text}\" "
+                             f"[{s.status}, claim {s.claim_id}]")
         elif st.outcome == "missing":
             lines.append(f"step {n}: {st.ask}: nothing documents this - cannot establish "
                          "(missing information is not proof that there is none)")

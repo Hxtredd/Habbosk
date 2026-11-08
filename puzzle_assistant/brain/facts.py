@@ -183,9 +183,11 @@ _add("quest_reward", A + r"(?P<place>.+?) quest gives (?P<value>[0-9]+) (?:coins
 
 
 def extract(text: str, subject: str = "") -> Optional[Fact]:
-    """The one fact this claim states, or None. The first form that matches
-    with plain names in its place / value wins (a form whose slots are not
-    plain names - "nobody" as a person - lets the later forms try). A form
+    """The one fact this claim states, or None. The FIRST form that matches
+    decides: if its place / value are not plain names, the claim states no
+    fact (later forms are not tried - trying them turned run-on sentences
+    into junk facts such as room_id("capitana irene"); see DEVELOPMENT_NOTES,
+    "BM9"). A claim saying two things therefore states none. A form
     without the place ("The north exit leads to ...") takes the claim's
     subject as the place - and gives no fact without one."""
     n = " ".join(tokens(text or ""))
@@ -202,7 +204,7 @@ def extract(text: str, subject: str = "") -> Optional[Fact]:
         place = _place(g["place"], text) if "place" in g else \
             (_place(subject, subject) if subject else None)
         if place is None:
-            continue
+            return None
         qual = _q(g.get("q")) or _q(g.get("q2"))
         if absent:
             return Fact(relation, place, None, qual)
@@ -214,7 +216,7 @@ def extract(text: str, subject: str = "") -> Optional[Fact]:
         else:
             value = raw.strip()
         if not value:
-            continue
+            return None
         shown = display(text, value)
         if relation == "quest_reward":
             shown = f"{value} coins"

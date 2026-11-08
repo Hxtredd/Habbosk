@@ -103,6 +103,16 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(self.f("Capitana Irene runs the Puerto Coral."),
                          ("runs", "puerto coral", "", "capitana irene"))
 
+    def test_run_on_and_two_fact_sentences_state_no_fact(self):
+        # found by fuzzing (BM9): trying later forms after a bad slot made junk facts
+        for text in ("The Capitana Irene has room ID 123 the Old Pier and the Bell Tower is the Old "
+                     "Square is the caretaker of the Rose Garden",
+                     "Someone runs Mira who it tiene el ID 456 la Sala Azul 2 the Old Square looks "
+                     "after la Sala Azul 2 who",
+                     "The Plaza Mayor has room ID 100201 and Mira maintains the Rose Garden."):
+            with self.subTest(text=text):
+                self.assertIsNone(self.f(text))
+
     def test_similar_names_stay_distinct(self):
         self.assertNotEqual(key("the Faro del Norte"), key("Faro del Sur"))
         self.assertEqual(key("the Faro del Norte"), key("Faro del Norte"))
@@ -332,6 +342,28 @@ class ReasoningTests(unittest.TestCase):
         r = b.ask("What is the room ID of the room Mira maintains?")
         self.assertEqual((r.status, r.answered), ("ambiguous", False))
         self.assertEqual(sorted(r.steps[0]["candidates"]), ["Bell Tower", "Rose Garden"])
+
+    def test_established_answer_rests_on_verified_claims_only(self):
+        # a verified shared claim and the viewer's own unverified duplicate
+        b, ids = self._small([("Olga maintains the Rose Garden.", "Rose Garden")])
+        mod = b.store.add_contributor("Mod", "moderator")
+        b.propose_share(ids[0])
+        b.review(ids[0], "verified", reviewer=mod)
+        b.approve_share(ids[0], mod)
+        dup = b.learn("Olga maintains the Rose Garden.", "user", "Rose Garden")   # unverified
+        r = b.ask("Who maintains the Rose Garden?")
+        self.assertEqual((r.status, r.answer, r.audience), ("established", "Olga", "shared"))
+        self.assertEqual([c["id"] for c in r.steps[0]["claims"]], [ids[0]])
+        self.assertEqual([c["id"] for c in r.steps[0]["also_unverified"]], [dup])
+        self.assertTrue(any("not used as evidence" in t for t in r.trace))
+
+    def test_inverse_step_with_a_conflicting_claim_is_conflicting(self):
+        b, ids = self._small([("Bruno maintains the Bell Tower.", "Bell Tower"),
+                              ("Bruno does not maintain the Bell Tower.", "Bell Tower"),
+                              ("The Bell Tower has room ID 500200.", "Bell Tower")],
+                             links=[(1, 0)])
+        r = b.ask("What is the room ID of the room Bruno maintains?")
+        self.assertEqual((r.status, r.answered), ("conflicting", False))
 
     def test_partial_and_similar_names(self):
         r = self.ask("Who is the caretaker of the Faro?")
