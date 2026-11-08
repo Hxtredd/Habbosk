@@ -16,9 +16,13 @@ Runs on the user's own PC what could only be simulated elsewhere:
     installs them into .venv-check inside THIS folder - never into your
     installed SK Assistant)
   * search speed and memory with 10,000 claims
-  * your real data files (quiz memory, World Atlas, Brain): opened
-    READ-ONLY, each file's SHA-256 compared before and after, and the
-    folder listing compared (proves nothing was written or created)
+  * your real quiz memory and World Atlas files: NEVER opened with SQLite.
+    They are read through devtools/safe_snapshot.py (in memory, or a byte
+    copy in a private, non-synced temporary folder that is deleted
+    afterwards); each file and its -wal / -shm / -journal sidecars are
+    fingerprinted (size, time, SHA-256) before and after, and the folder
+    listing compared. Your Brain database (knowledge.db) is NOT read here:
+    BRAIN_DB_AUDIT.bat audits it, with the same method.
 
 Everything else happens in a temporary folder that is deleted at the end.
 The report is printed and saved as brain_windows_check_report.txt next to
@@ -373,33 +377,39 @@ def speed_memory():
     return None, brain_memory.describe(brain_memory.measure(10000))
 
 
-@check("Your real data files, read-only (nothing written)")
+@check("Your real quiz memory and World Atlas, read safely (nothing written)")
 def real_files():
+    from puzzle_assistant.devtools import knowledge_audit, safe_snapshot
     base = os.environ.get("SK_ASSISTANT_DATA") or os.path.join(
         os.environ.get("APPDATA", os.path.expanduser("~")), "SK Assistant")
     if not os.path.isdir(base):
         return None, f"no data folder at {base}"
+    if knowledge_audit.sk_is_running():
+        return None, "SK Assistant is running - close it to include this check (skipped, nothing read)"
     lines, ok = [], True
-    listing = sorted(os.listdir(base))
-    for name, table in (("habbosk.db", "questions"), ("atlas.db", None), ("knowledge.db", "claims")):
+    listing = safe_snapshot.listing(base)
+    for name, table in (("habbosk.db", "questions"), ("atlas.db", None)):
         p = os.path.join(base, name)
         if not os.path.exists(p):
             lines.append(f"{name}: not present")
             continue
-        h0 = _sha(p)
-        con = connect_readonly(p)
+        before = safe_snapshot.fingerprint(p)
+        s = safe_snapshot.open_snapshot(p)          # never the original: memory or a temp copy
         try:
-            quick = con.execute("PRAGMA quick_check").fetchone()[0]
-            tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-            n = con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] \
+            quick = s.con.execute("PRAGMA quick_check").fetchone()[0]
+            tables = [r[0] for r in s.con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+            n = s.con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] \
                 if table and table in tables else len(tables)
         finally:
-            con.close()
-        same = _sha(p) == h0
-        ok = ok and same and quick == "ok"
-        lines.append(f"{name}: readable, {'rows' if table else 'tables'} {n}, check {quick}, "
-                     f"file unchanged: {same}")
-    unchanged = sorted(os.listdir(base)) == listing
+            s.close()
+        same = safe_snapshot.fingerprint(p) == before
+        temp_ok = s.temp_dir is None or s.temp_removed
+        ok = ok and same and quick == "ok" and temp_ok
+        lines.append(f"{name}: readable ({s.method}), {'rows' if table else 'tables'} {n}, check {quick}, "
+                     f"file and sidecars unchanged: {same}"
+                     + ("" if s.temp_dir is None else f", temporary copy deleted: {s.temp_removed}"))
+    lines.append("knowledge.db: not read by this check (use BRAIN_DB_AUDIT.bat)")
+    unchanged = safe_snapshot.listing(base) == listing
     ok = ok and unchanged
     lines.append(f"no file created or removed in the folder: {unchanged}")
     return ok, f"{base}\n  " + "\n  ".join(lines)

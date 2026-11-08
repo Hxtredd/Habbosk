@@ -590,6 +590,43 @@ Brain changes needed before deployment: none to the reasoning; add the
 ask-only wrapper with a mandatory viewer; keep the B3 tests in the lab repo
 and run them in its CI before each deploy.
 
+## SK Brain milestones (cumulative workflow, owner-approved architecture)
+
+Branches: `claude/brain-integration` (created from 39fad57) holds ONLY
+owner-approved milestones and moves forward by fast-forward after the
+owner's explicit written approval. Each milestone is built on
+`claude/brain-<stage>` from the integration head. Never touched by Brain
+work: the release/distribution branch, latest.json, the updater branches,
+the stable SK Test Lab. Candidate lab: SK-Online `claude/sk-lab-candidate`
+(separate Render service, auto-deploy off, synthetic data only).
+
+Milestone log (approved commits only):
+| Milestone | Brain commit | Candidate commit | Approved |
+|---|---|---|---|
+| (start) | 39fad57 | - | release branch head |
+
+### B3.5 (in review - not approved yet)
+- `devtools/safe_snapshot.py`: reads a SQLite database WITHOUT opening the
+  original with SQLite (no recovery, checkpoint or -shm creation): in
+  memory when no -wal/-journal holds data (Python 3.11+), otherwise a byte
+  copy of the database + -wal/-journal in a private temp folder
+  (%LOCALAPPDATA%\Temp, refused inside OneDrive/Dropbox/Google Drive/
+  iCloud/Box folders, on network or removable drives), deleted afterwards
+  (ordinary deletion, not forensic erasure; leftovers removed next run).
+  Fingerprints (size, mtime, SHA-256) of the database and all sidecars are
+  taken around the read; a change means retry, then refusal.
+- `devtools/knowledge_audit.py` + `BRAIN_DB_AUDIT.bat`: read-only audit of
+  knowledge.db; refuses while SK runs; report = counts / kinds / dates /
+  sizes / fingerprints / integrity only (unknown values shown as "other",
+  paths masked), saved next to the program, never in the data folder;
+  verifies the originals and the folder listing are exactly unchanged.
+- `brain_windows_check.py`: the real-files check no longer opens real
+  files with SQLite (safe_snapshot instead) and no longer reads
+  knowledge.db at all (the audit does).
+- tests/test_knowledge_audit.py (synthetic databases only): 26 tests;
+  22/22 deliberate breaks of the audit safeguards caught (Linux).
+- Brain code unchanged (fingerprint 2055eb8cd979c00b = 39fad57).
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the
