@@ -493,13 +493,102 @@ Coral multi-fact: Rafa and 2104560 established, the Rafael chain refused
 as B2 (alternated runs, 10,000+ claims: FTS5 p95 30-32 ms, worst 39-47;
 fallback worst 51-52 vs B2 43-46). ask() at 10k claims: median ~14 ms
 (incl. search), first after opening ~360 ms (facts of every claim read).
-Deliberate breaks: 64/65 caught; the 65th ("extraction stops at the first
-bad slot") can no longer change any result since negative claims are
-filtered first - kept as a harmless safeguard.
+Deliberate breaks at d9f1600: 64/65 caught; the 65th (BM9) was reported
+as harmless - that turned out to be WRONG, see "B3 audit" below.
 B3 limits: the question grammar and sentence forms are small; one fact per
 claim; facts only from library claims (not World Atlas / quiz memory);
 names must match exactly (no aliases); compound questions ("room ID and
 caretaker") are left to search; answers are not stored as derived claims.
+
+### B3 audit (after d9f1600)
+
+BM9, corrected. BM9 changed `extract()` in brain/facts.py from "if the first
+matching sentence form has a value that is not a plain name, try the later
+forms" (`continue`) to "the claim states no fact" (`return None`). It was
+reported as unable to change any result. Fuzzing 300,000 generated
+sentences (every form's keywords, proper / lowercase / indefinite names,
+negations, connectors) showed it changed 1,242. In every case the CURRENT
+code (`continue`) was the one producing junk: a run-on sentence matched a
+caretaker form with a bad person, then the room_id form (which ignores text
+after the number) gave e.g. room_id("capitana irene") = 123. The fallback
+had been added for "Nobody looks after X"; the later rule "a negative claim
+states only an explicit absence" handles that before any form is tried.
+Why the BM9 behaviour is the safe one: it can only REMOVE a fact (both
+versions are identical until the first bad slot, where it stops), never
+create or change one - a missing fact makes reasoning say "cannot
+establish", never give a wrong answer. Fix: the first matching form now
+decides for place and value alike (no realistic claim changed, 74
+checked); a claim that says two things states none. BM9 is now the
+mutation "re-add the fallback", caught by
+test_run_on_and_two_fact_sentences_state_no_fact. What could make this
+area harmful in future: adding a broad sentence form, or a form that
+ignores trailing text (like room_id's "(?: .*)?"), before narrower ones;
+or relaxing the negative-claim / hedge filters. Keep forms ordered narrow
+-> broad and keep the fuzz comparison when changing them.
+
+Other audit findings (each with a test that fails on d9f1600):
+- An established step listed same-value unverified claims as evidence and
+  let them set the audience (a verified shared answer showed "personal").
+  Established steps now rest on verified claims only; others are shown as
+  "also stated, unverified (not used as evidence)".
+- A reverse step whose room came from a conflicting claim said "ambiguous";
+  now "conflicting".
+- Pre-existing (not B3): tests/test_ai.py wrote "test-key" for ai:gemini
+  into the user's REAL keys.bin - reassigning secrets.KEYS_PATH does not
+  change get_key/set_key/has_key, whose path is a default argument fixed at
+  import. INSTALL.bat's self-test runs the suite. Fixed in the test (file
+  functions redirected + a test that the real file is untouched); the
+  Windows check now also runs the suite with SK_ASSISTANT_DATA in a temp
+  folder. Recommended (app change, needs approval): secrets.py should read
+  KEYS_PATH at call time instead of as a default argument.
+- Trust assumption for any server: Brain.search/ask treat viewer None and
+  "" as the local (desktop) user. A web front end must always pass its own
+  server-side identity.
+Audit checks that passed (EN + ES, 4 viewers, b3audit): private claims
+never reach a shared answer (a private belief only changes its owner's
+view); unverified chains are not established; rejected / outdated never
+used; conflicts and absence-vs-value give no answer; ambiguous rooms /
+people never chosen; nothing of another user in answers, steps,
+explanations, search hits or errors (also with unknown / empty viewer);
+sharing a source never creates a relation; no slow-regex input found
+(12,000 characters <= 45 ms).
+Plain-search fallback: worst case 51-52 ms in both B3 runs vs 43-46 ms for
+B2 on the same machine (alternated); p95 30-32 ms. Slightly over the 50 ms
+target for the slowest question; FTS5 (the normal path) stays within it.
+
+### Web Test Lab (plan only - nothing built or deployed)
+
+Goal: try the real Brain + B3 from an iPhone, desktop off, on synthetic data.
+Smallest architecture:
+- One small private repository (new; the main repo stays public for the
+  updater) with: a copy of puzzle_assistant/brain (stdlib only), the
+  synthetic dataset builders (brain_eval*.py-style), and lab/app.py - a
+  Flask app (+ gunicorn) of about 150 lines. No desktop app, no adapters
+  (quiz memory / World Atlas paths always "").
+- At start-up it BUILDS a fresh synthetic knowledge.db in its own temp
+  folder (ephemeral disk is fine) - it has no way to reach real data,
+  because none exists on the host.
+- Routes: GET /login, POST /login, POST /logout, GET / (chat page), POST
+  /api/ask {"question"} -> {status, answer, possible, steps, trace}. Nothing
+  else: no learn / review / share / admin routes; the Brain object is wrapped
+  in a class that only exposes ask().
+- Auth: one passphrase (its hash + a session key in the host's secret
+  environment variables, never in the repo); signed, HttpOnly, Secure,
+  SameSite=Strict session cookie; login rate limit and lockout; every
+  route except /login requires the session.
+- Identity: the session maps to a FIXED test contributor created at
+  start-up; the viewer is never read from the request. The wrapper refuses
+  viewer None / "" (see trust assumption above).
+- Hardening: question length cap (500 chars), per-session rate limit,
+  JSON-only POST with a custom header (CSRF), Content-Security-Policy
+  default-src 'self', X-Frame-Options DENY, no request logging of questions
+  beyond counts, generic error messages.
+- Hosting (free tier, HTTPS on the provider's subdomain): Render free web
+  service (sleeps after ~15 min idle, ~1 min wake-up) or PythonAnywhere free
+  (one web app, low daily CPU). Terms change: re-check before deploying.
+Brain changes needed before deployment: none to the reasoning; add the
+ask-only wrapper with a mandatory viewer; keep the B3 tests in the lab repo
+and run them in its CI before each deploy.
 
 ## Known limits / ideas
 

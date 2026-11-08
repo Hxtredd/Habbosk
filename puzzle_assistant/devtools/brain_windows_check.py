@@ -344,8 +344,15 @@ def full_suite():
     tests_dir = os.path.join(HERE, "tests")
     if not os.path.isdir(tests_dir):
         return None, "tests folder not found (use the full download of the branch)"
-    r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests"], cwd=HERE,
-                       capture_output=True, text=True, timeout=1800)
+    # the app's tests run with their data folder pointed at a throwaway temp folder,
+    # so even a faulty test could never reach your real %APPDATA%\SK Assistant
+    sandbox = tempfile.mkdtemp(prefix="sk_suite_data_")
+    env = dict(os.environ, SK_ASSISTANT_DATA=sandbox)
+    try:
+        r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests"], cwd=HERE,
+                           capture_output=True, text=True, timeout=1800, env=env)
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
     out = r.stderr + r.stdout
     tail = [l for l in out.splitlines() if l.startswith(("Ran ", "OK", "FAILED"))]
     missing = sorted({l.split("'")[1] for l in out.splitlines()
