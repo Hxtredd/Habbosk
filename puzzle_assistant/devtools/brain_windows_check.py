@@ -324,6 +324,78 @@ def external_change():
         shutil.rmtree(root, ignore_errors=True)
 
 
+@check("B5.2 separate personal / shared files (keys, sharing, withdrawal, migration)")
+def separated_storage():
+    """On this PC, in a temporary folder with an awkward name: the keys kept with
+    Windows protection (DPAPI), a share and its withdrawal (the withdrawn text
+    is then absent from every shared file - raw byte scan - and still complete
+    in its owner's file), and a migration whose commit is a folder rename."""
+    from puzzle_assistant.brain import keystore
+    from puzzle_assistant.brain.library import Library, mint_grant
+    from puzzle_assistant.brain.split import fingerprint, split_file, verify_library
+    root, d = _workdir()
+    try:
+        kp = os.path.join(d, "keys", "host.key")
+        hk = keystore.load_or_create_key(kp)
+        with open(kp, "rb") as fh:
+            blob = fh.read()
+        dpapi = blob.startswith(keystore.MAGIC_DPAPI)
+        same = keystore.load_or_create_key(kp) == hk
+        if sys.platform == "win32":                       # on Windows: never stored in plain
+            same = same and dpapi and hk not in blob
+        lk = keystore.load_or_create_key(os.path.join(d, "keys", "library.key"))
+        lib = Library(os.path.join(d, "brain"), hk, lk)
+        g = lambda u, r="user": mint_grant(hk, lib.installation_id, lib.epoch, u, r)  # noqa: E731
+        ana, luis = lib.create_user("Ana"), lib.create_user("Luis", "external_user")
+        mod = lib.create_user("Mod", "moderator")
+        s = lib.open_session(g(ana))
+        src = s.add_source("document", title="WINCHECK-TITLE-MARK", content_hash="wc1")
+        c = s.learn("Mira maintains the Demo Garden.", "imported", "Demo Garden")
+        s.add_evidence(c, "direct", src, "Mira maintains the Demo Garden.")
+        tok = s.propose(c, {src: ["quote", "details"]})
+        s.close()
+        m = lib.open_session(g(mod, "moderator"))
+        cid = m.approve(m.proposals()[0]["file"], tok)
+        m.review(cid, "verified")
+        m.close()
+        l2 = lib.open_session(g(luis))
+        shared_ok = l2.respond("Who maintains the Demo Garden?").value == "Mira"
+        l2.close()
+        s = lib.open_session(g(ana))
+        state = s.withdraw_source(src)
+        s.close()
+        l2 = lib.open_session(g(luis))
+        withdrawn = l2.respond("Who maintains the Demo Garden?").reason == "evidence_withdrawn"
+        l2.close()
+        lib.close()
+        hits = []
+        for dd, _, names in os.walk(os.path.join(d, "brain")):
+            for n in names:
+                with open(os.path.join(dd, n), "rb") as fh:
+                    if b"WINCHECK-TITLE-MARK" in fh.read():
+                        hits.append(os.path.relpath(os.path.join(dd, n), d))
+        kept_by_owner = bool(hits) and all(h.startswith(os.path.join("brain", "personal"))
+                                           for h in hits)
+        # migration of a single file: original untouched, commit by folder rename
+        md = os.path.join(d, "migrate")
+        os.makedirs(md)
+        old = os.path.join(md, "knowledge.db")
+        b = Brain(old, "", "")
+        b.learn("The Demo Plaza has room ID 900002.", "user", "Demo Plaza")
+        b.close()
+        before = fingerprint(old)
+        split_file(old, md, hk, lk)
+        migrated = verify_library(os.path.join(md, "brain"), hk) == "verified" and \
+            fingerprint(old) == before
+        ok = all((same, shared_ok, state == "complete", withdrawn, kept_by_owner, migrated))
+        return ok, (f"keys protected by Windows (DPAPI): {dpapi}; key reloads: {same}; shared "
+                    f"answer: {shared_ok}; withdrawal: {state}, answer then 'evidence withdrawn': "
+                    f"{withdrawn}; withdrawn text left only in its owner's file: {kept_by_owner}; "
+                    f"migration (original unchanged, folder renamed, verified): {migrated}")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 @check("Brain automated tests on this PC")
 def unit_tests():
     loader = unittest.TestLoader()

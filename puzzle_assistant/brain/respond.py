@@ -83,6 +83,8 @@ _T = {
         "unsupported": "I don't know: it has been stated ({possible}), "
                        "but no source confirms it.",
         "unsupported_bare": "I don't know: what is recorded is not confirmed by a source.",
+        "evidence_withdrawn": "I don't know: a source behind this was withdrawn by its owner, "
+                              "so it is awaiting review (it said: {possible}).",
         "not_understood": "I can't reason about this kind of question yet.",
         "did_you_mean": "Did you mean {name}?",
         "relation_choice": "Do you mean {options}?",
@@ -104,6 +106,8 @@ _T = {
                          "(decía: {possible}).",
         "unsupported": "No lo sé: se ha dicho ({possible}), pero ninguna fuente lo confirma.",
         "unsupported_bare": "No lo sé: lo registrado no está confirmado por ninguna fuente.",
+        "evidence_withdrawn": "No lo sé: su propietario retiró una fuente en la que se basaba; "
+                              "está pendiente de revisión (decía: {possible}).",
         "not_understood": "Todavía no puedo razonar sobre este tipo de pregunta.",
         "did_you_mean": "¿Te refieres a {name}?",
         "relation_choice": "¿Te refieres a {options}?",
@@ -362,6 +366,11 @@ def _categorise(brain, a, p, lang, viewer, question) -> Response:
         r.reason, r.possible = "unsupported", _localise(a.possible, lang)
         r.sentence = _say(lang, "unsupported", possible=r.possible) if r.possible else \
             _say(lang, "unsupported_bare")
+        # B5.2: verified shared knowledge whose last support its owner withdrew
+        if r.possible and any((store.claim(c["id"], viewer) or {}).get("withdrawn_support")
+                              for c in _all_claims(a.steps)):
+            r.reason = "evidence_withdrawn"
+            r.sentence = _say(lang, "evidence_withdrawn", possible=r.possible)
         return r
 
     if a.status == "missing":

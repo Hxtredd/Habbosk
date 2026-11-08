@@ -117,7 +117,8 @@ class DidYouMean(Base):
 
     def test_the_reason_is_in_the_fixed_list(self):
         self.assertIn("did_you_mean", UNKNOWN_REASONS)
-        self.assertEqual(UNKNOWN_REASONS[-1], "did_you_mean")
+        # B5.1 added did_you_mean after the B4 reasons (B5.2 then added evidence_withdrawn)
+        self.assertEqual(UNKNOWN_REASONS.index("did_you_mean"), 6)
 
 
 class UnderstoodAs(Base):

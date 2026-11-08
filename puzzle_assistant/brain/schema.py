@@ -220,3 +220,68 @@ MIGRATIONS = {
         "ALTER TABLE claim_versions ADD COLUMN old_status TEXT",
     ],
 }
+
+# B5.2 storage separation ------------------------------------------------------------
+# Every library file (personal / shared) - its meta also records role, namespace
+# and, for a personal file, its owner.
+LIBRARY_SCHEMA = """
+-- personal file: a row here points at a row of ANOTHER file (the shared one):
+-- the reference is (namespace, id), never a bare number
+CREATE TABLE IF NOT EXISTS xrefs (
+    tbl TEXT NOT NULL,
+    row_id INTEGER NOT NULL,
+    col TEXT NOT NULL,
+    target_ns TEXT NOT NULL,
+    target_id INTEGER NOT NULL,
+    PRIMARY KEY (tbl, row_id, col)
+);
+-- personal file: what the owner allowed of one of their sources (B5.2 consent)
+CREATE TABLE IF NOT EXISTS source_grants (
+    source_id INTEGER PRIMARY KEY,
+    opaque_id TEXT NOT NULL UNIQUE,     -- the only name shared storage ever sees
+    token TEXT NOT NULL,                -- withdrawal token (secret, only here)
+    levels TEXT NOT NULL DEFAULT '[]',  -- [] (stub) / quote / details / full_text
+    granted_at TEXT,
+    withdrawn_at TEXT,
+    withdraw_state TEXT                 -- NULL | blocked | outbox_done | complete
+);
+"""
+
+# Only in shared.db: withdrawals and moderator decisions (no owner identities,
+# no content - opaque ids, keyed token hashes, random proposal tokens).
+SHARED_SCHEMA = """
+CREATE TABLE IF NOT EXISTS source_opaque (
+    source_id INTEGER PRIMARY KEY,      -- a source stub in this file
+    opaque_id TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS source_tokens (
+    opaque_id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL            -- keyed hash of the owner's withdrawal token
+);
+CREATE TABLE IF NOT EXISTS withdrawals (
+    opaque_id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL,
+    state TEXT NOT NULL,                -- blocked | complete
+    blocked_at TEXT NOT NULL,
+    completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS evidence_withdrawn (
+    evidence_id INTEGER PRIMARY KEY,
+    at TEXT NOT NULL
+);
+-- rows of shared.db that are a redacted copy (same id) of an owner's original row
+-- kept in that owner's personal file (B5.2 migration: quotes withheld, no consent)
+CREATE TABLE IF NOT EXISTS projections (
+    tbl TEXT NOT NULL,
+    id INTEGER NOT NULL,
+    PRIMARY KEY (tbl, id)
+);
+CREATE TABLE IF NOT EXISTS proposal_decisions (
+    token TEXT PRIMARY KEY,             -- random; means nothing outside the owner's outbox
+    decision TEXT NOT NULL,             -- approved | rejected
+    note TEXT,
+    claim_id INTEGER,                   -- the NEW shared claim (approved)
+    by TEXT NOT NULL,
+    at TEXT NOT NULL
+);
+"""

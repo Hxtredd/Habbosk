@@ -133,6 +133,7 @@ UNKNOWN_REASONS = (
     "unsupported",          # only statements without a source that states them
     "not_understood",       # not a question SK can reason about (yet)
     "did_you_mean",         # B5.1: a name with a small typo - SK asks before answering
+    "evidence_withdrawn",   # B5.2: a source behind it was withdrawn by its owner - awaiting review
 )
 
 

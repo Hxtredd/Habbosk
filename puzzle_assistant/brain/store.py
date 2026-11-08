@@ -38,7 +38,7 @@ from .model import (AUTOMATIC_KINDS, EVIDENCE_KINDS, MODERATOR_KINDS, ORIGINS, S
                     SOURCE_KINDS, STATUSES)
 from .facts import compile_form, extract_all, key as name_key
 from .relations import BUILTIN, CARDINALITIES, FACTS_METHOD, KEY_RE, VALUE_TYPES
-from .schema import MIGRATIONS, SCHEMA, SCHEMA_VERSION
+from .schema import MIGRATIONS, SCHEMA, SCHEMA_VERSION, SHARED_SCHEMA
 from .sqlite_ro import connect_readonly
 from .text import INDEX_VERSION, index_text, normalize, polarity
 
@@ -130,12 +130,70 @@ def _atomic(fn):
     return run
 
 
+# B5.2: the tables a session reads as "mine + shared" (temporary views over the
+# personal file and the read-only shared file). meta is never combined.
+UNION_TABLES = ("contributors", "sources", "sections", "claims", "evidence", "claim_links",
+                "claim_versions", "claim_events", "claim_index", "claim_facts", "relations",
+                "entities", "aliases", "entity_links")
+# tables whose new rows take an id from the library's allocator (unique across files)
+ALLOCATED = ("sources", "sections", "claims", "evidence", "claim_links", "claim_versions",
+             "claim_events", "entities", "aliases", "entity_links")
+ROLES = ("file", "personal", "shared")
+_WITHDRAWN_SQL = ("(e.id IN (SELECT evidence_id FROM shared.evidence_withdrawn) OR e.source_id IN "
+                  "(SELECT o.source_id FROM shared.source_opaque o JOIN shared.withdrawals w "
+                  "ON w.opaque_id = o.opaque_id))")
+# a shared claim is presented as verified only while some support is left: once
+# withdrawn evidence leaves none, it reads as awaiting verification (its stored
+# status is unchanged - only a moderator's review changes that)
+_STATUS_SQL = (
+    "CASE WHEN s.status='verified' AND EXISTS (SELECT 1 FROM shared.evidence e WHERE "
+    f"e.claim_id=s.id AND {_WITHDRAWN_SQL}) AND NOT EXISTS (SELECT 1 FROM shared.evidence e "
+    "LEFT JOIN shared.sources src ON src.id=e.source_id WHERE e.claim_id=s.id AND e.kind IN "
+    "('direct','confirmation') AND e.source_id IS NOT NULL AND COALESCE(src.kind,'') != "
+    f"'user_statement' AND NOT {_WITHDRAWN_SQL}) THEN 'awaiting_verification' ELSE s.status END "
+    'AS "status"')
+
+
+def file_uri(path: str, mode: str) -> str:
+    import pathlib
+    return pathlib.Path(os.path.abspath(path)).as_uri() + f"?mode={mode}"
+
+
+def library_pragmas(con) -> None:
+    """Every connection to a B5.2 library file: deleted content overwritten
+    (secure_delete), no SQLite temporary files on disk, write-ahead log with
+    full sync (a committed change survives power loss)."""
+    con.execute("PRAGMA secure_delete = ON")
+    con.execute("PRAGMA temp_store = MEMORY")
+    con.execute("PRAGMA synchronous = FULL")
+
+
 class KnowledgeStore:
-    def __init__(self, path: str, _upgrade: bool = False):
+    def __init__(self, path: str, _upgrade: bool = False, *, role: str = "file",
+                 owner: Optional[Tuple[str, str, str]] = None, shared_path: Optional[str] = None,
+                 allocator=None, namespace: str = ""):
         """`_upgrade` is only used by brain.migrate on its own new COPY: an
-        existing older file is otherwise refused, unchanged (NeedsMigration)."""
+        existing older file is otherwise refused, unchanged (NeedsMigration).
+
+        B5.2 (brain/library.py opens these; never needed by callers):
+          role "file"      one development / test file (as before B5.2)
+          role "personal"  ONE person's file (owner = (id, display name, kind));
+                           with shared_path, the shared file is attached
+                           READ-ONLY and reads see "mine + shared"; every write
+                           goes to this file only
+          role "shared"    the shared library file (moderator review methods)
+        allocator(table) gives ids unique across the library's files."""
+        if role not in ROLES:
+            raise BrainError(f"unknown role {role!r}")
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         self.path = path
+        self.role = role
+        self.owner = owner[0] if owner else None
+        self._owner_row = owner
+        self.namespace = namespace
+        self.shared_path = shared_path
+        self.attached = False
+        self._alloc = allocator
         self._lock = threading.RLock()
         self._depth = 0
         self._forms = None
@@ -149,7 +207,10 @@ class KnowledgeStore:
                 f"this knowledge database is in an older format ({v}); it was not opened and "
                 f"nothing in it was changed. Make an upgraded copy with "
                 f"brain.migrate.migrate_file() - the original is kept as it is")
-        self._db = sqlite3.connect(path, check_same_thread=False)
+        if role == "file":
+            self._db = sqlite3.connect(path, check_same_thread=False)
+        else:
+            self._db = sqlite3.connect(file_uri(path, "rwc"), uri=True, check_same_thread=False)
         try:
             self._open()
         except BaseException:
@@ -158,23 +219,155 @@ class KnowledgeStore:
 
     def _open(self) -> None:
         self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA foreign_keys = ON")
+        if self.role != "file":
+            library_pragmas(self._db)
+            self._db.execute("PRAGMA journal_mode = WAL")
+        # cross-file references (personal -> shared) cannot be foreign keys: in a
+        # session the Brain checks them itself and records their namespace (xrefs)
+        self._db.execute("PRAGMA foreign_keys = %s" % ("OFF" if self.shared_path else "ON"))
         self._db.executescript(SCHEMA)
         self._migrate()
         self.fts = self._setup_fts()
         for cid, name, kind in ((SYSTEM, "SK Assistant", "system"),
                                 (IMPORTER, "Importer", "importer")):
-            self._db.execute("INSERT OR IGNORE INTO contributors VALUES (?,?,?,?)",
+            self._db.execute("INSERT OR IGNORE INTO main.contributors VALUES (?,?,?,?)",
                              (cid, name, kind, _now()))
-        if self._meta("local_user") is None:
-            uid = str(uuid.uuid4())
-            self._db.execute("INSERT INTO contributors VALUES (?,?,?,?)",
-                             (uid, "Local user", "local_user", _now()))
-            self._set_meta("local_user", uid)
+        if self.role == "file":
+            if self._meta("local_user") is None:
+                uid = str(uuid.uuid4())
+                self._db.execute("INSERT INTO main.contributors VALUES (?,?,?,?)",
+                                 (uid, "Local user", "local_user", _now()))
+                self._set_meta("local_user", uid)
+        else:
+            self._open_library_file()
         self._ensure_relations()
         self._db.commit()
+        if self.shared_path:
+            self._attach_shared()
         self._ensure_index()
         self._ensure_facts()
+
+    # -- B5.2: library files ------------------------------------------------------
+    def _open_library_file(self) -> None:
+        from .schema import LIBRARY_SCHEMA
+        self._db.executescript(LIBRARY_SCHEMA)
+        role = self._meta("role")
+        if role is None:
+            self._set_meta("role", self.role)
+            self._set_meta("namespace", self.namespace or uuid.uuid4().hex)
+            if self.role == "personal":
+                oid, name, kind = self._owner_row
+                self._db.execute("INSERT OR IGNORE INTO main.contributors VALUES (?,?,?,?)",
+                                 (oid, name, kind, _now()))
+                self._set_meta("local_user", oid)
+                self._set_meta("owner", oid)
+        elif role != self.role:
+            raise BrainError(f"this is a {role} file, not a {self.role} file")
+        if self.role == "personal" and self._meta("owner") != self.owner:
+            raise BrainError("this personal file belongs to someone else")
+        self.namespace = self._meta("namespace")
+        if self.role == "shared":
+            self._db.executescript(SHARED_SCHEMA)
+
+    def _attach_shared(self) -> None:
+        """The shared file, READ-ONLY, behind "mine + shared" views."""
+        from .schema import SCHEMA_VERSION as V
+        self._db.execute("ATTACH DATABASE ? AS shared", (file_uri(self.shared_path, "ro"),))
+        r = self._db.execute("SELECT value FROM shared.meta WHERE key IN ('role', 'schema_version') "
+                             "ORDER BY key").fetchall()
+        vals = [x[0] for x in r]
+        if vals != ["shared", str(V)]:
+            raise BrainError("the shared file is missing, of another kind or another format")
+        self.shared_namespace = self._db.execute(
+            "SELECT value FROM shared.meta WHERE key='namespace'").fetchone()[0]
+        try:
+            self._db.execute("SELECT COUNT(*) FROM shared.claim_fts").fetchone()
+        except sqlite3.Error:
+            self.fts = False
+        for t in UNION_TABLES:
+            cols = [r[1] for r in self._db.execute(f'PRAGMA main.table_info("{t}")')]
+            scols = {r[1] for r in self._db.execute(f'PRAGMA shared.table_info("{t}")')}
+            if set(cols) != scols:
+                raise BrainError(f"the shared file's '{t}' table has other columns")
+            c = ", ".join(f'"{x}"' for x in cols)
+            shared_part = f"SELECT {c} FROM shared.{t}"
+            if t == "claims":                   # verified only while support remains (B5.2)
+                c2 = ", ".join(f'"{x}"' if x != "status" else _STATUS_SQL for x in cols)
+                shared_part = f"SELECT {c2} FROM shared.claims s"
+            key = {"contributors": "id", "relations": "key", "sources": "id",
+                   "evidence": "id"}.get(t)
+            if key:                             # one's own full row wins over the shared one
+                shared_part += (" WHERE " if t != "claims" else " AND ") + \
+                    f'"{key}" NOT IN (SELECT "{key}" FROM main.{t})'
+            self._db.execute(f'CREATE TEMP VIEW "{t}" AS SELECT {c} FROM main.{t} '
+                             f"UNION ALL {shared_part}")
+        self.attached = True
+        clash = self.id_collisions()
+        if clash:
+            self._db.close()
+            raise BrainError("record numbers in your file and the shared file collide "
+                             f"({', '.join(f'{t} {i}' for t, i in clash[:5])}); the files were "
+                             "not changed - run the library repair before using them")
+
+    def id_collisions(self) -> List[Tuple[str, int]]:
+        """(table, id) present in BOTH the personal and the shared file (should
+        never happen; checked at every session start)."""
+        out = []
+        for t in ALLOCATED:
+            for r in self._db.execute(f"SELECT id FROM main.{t} INTERSECT SELECT id FROM "
+                                      f"shared.{t} WHERE id NOT IN (SELECT id FROM "
+                                      f"shared.projections WHERE tbl=?)", (t,)):
+                out.append((t, r[0]))
+        # a cross-file reference must still point at the same file (namespace)
+        for t, rid, col, ns, tid in self._db.execute("SELECT * FROM main.xrefs").fetchall():
+            if ns not in (self.shared_namespace, "inaccessible"):
+                out.append((f"{t}.{col} -> another file", rid))
+        return out
+
+    def _new(self, table: str, sql: str, params) -> sqlite3.Cursor:
+        """INSERT a new row; in a library its id comes from the allocator."""
+        if self._alloc is None:
+            return self._db.execute(sql, params)
+        head = f"INTO main.{table} ("
+        assert head in sql, sql
+        sql = sql.replace(head, head + "id, ", 1).replace("VALUES (", "VALUES (?,", 1)
+        return self._db.execute(sql, (self._alloc(table),) + tuple(params))
+
+    def _xref(self, table: str, row_id: int, column: str, target_table: str,
+              target_id: Optional[int]) -> None:
+        """Record that a row of this personal file points at a SHARED row
+        (namespace + id), so the reference keeps its meaning."""
+        if not self.attached or target_id is None:
+            return
+        if self._db.execute(f"SELECT 1 FROM main.{target_table} WHERE id=?",
+                            (target_id,)).fetchone():
+            return
+        if self._db.execute(f"SELECT 1 FROM shared.{target_table} WHERE id=?",
+                            (target_id,)).fetchone():
+            self._db.execute("INSERT OR REPLACE INTO main.xrefs VALUES (?,?,?,?,?)",
+                             (table, row_id, column, self.shared_namespace, target_id))
+
+    def _shared_schema(self) -> Optional[str]:
+        """Where the shared-only tables are: 'shared' in a session, 'main' in
+        the shared file itself, None for a file without them."""
+        if self.attached:
+            return "shared"
+        return "main" if self.role == "shared" else None
+
+    def withdrawn_evidence(self, claim_id: int) -> set:
+        """Evidence of a claim that its source's owner withdrew (B5.2): never
+        support, never cited."""
+        sh = self._shared_schema()
+        if sh is None:
+            return set()
+        return {r[0] for r in self._db.execute(
+            f"SELECT e.id FROM evidence e WHERE e.claim_id=? AND (e.id IN (SELECT evidence_id FROM "
+            f"{sh}.evidence_withdrawn) OR e.source_id IN (SELECT o.source_id FROM {sh}.source_opaque "
+            f"o JOIN {sh}.withdrawals w ON w.opaque_id = o.opaque_id))", (claim_id,))}
+
+    def _check_viewer(self, viewer: Optional[str]) -> None:
+        if self.role == "personal" and viewer not in (None, "", self.owner):
+            raise BrainError("this session belongs to another person")
 
     def close(self) -> None:
         with self._lock:
@@ -199,15 +392,15 @@ class KnowledgeStore:
     def _index_claim(self, claim_id: int, text: str, subject: str, category: str) -> None:
         self._store_fact(claim_id, text, subject)
         t = index_text(text, subject or "", category or "")
-        self._db.execute("INSERT OR REPLACE INTO claim_index (claim_id, terms, subject_terms, norm, "
+        self._db.execute("INSERT OR REPLACE INTO main.claim_index (claim_id, terms, subject_terms, norm, "
                          "subject_norm, positive) VALUES (?,?,?,?,?,?)",
                          (claim_id, t, index_text(subject or ""),
                           normalize(f"{subject or ''} {text}"), normalize(subject or ""),
                           int(polarity(text))))
         if self.fts:
             try:
-                self._db.execute("DELETE FROM claim_fts WHERE rowid=?", (claim_id,))
-                self._db.execute("INSERT INTO claim_fts (rowid, terms) VALUES (?,?)", (claim_id, t))
+                self._db.execute("DELETE FROM main.claim_fts WHERE rowid=?", (claim_id,))
+                self._db.execute("INSERT INTO main.claim_fts (rowid, terms) VALUES (?,?)", (claim_id, t))
             except sqlite3.Error:
                 self._fts_off()
         else:                                # written without FTS5: that table is now behind
@@ -217,42 +410,43 @@ class KnowledgeStore:
         """Rebuild the index if it is missing, incomplete or from an older
         version of the word rules. Only index tables are written."""
         with self._lock:
-            cols = {r[1] for r in self._db.execute("PRAGMA table_info(claim_index)")}
+            cols = {r[1] for r in self._db.execute("PRAGMA main.table_info(claim_index)")}
             if "positive" not in cols:       # index from an earlier development build:
-                self._db.execute("DROP TABLE claim_index")      # derived data, rebuilt below
+                self._db.execute("DROP TABLE main.claim_index")      # derived data, rebuilt below
                 self._db.executescript(SCHEMA)
-            n_claims = self._db.execute("SELECT COUNT(*) FROM claims").fetchone()[0]
-            n_index = self._db.execute("SELECT COUNT(*) FROM claim_index").fetchone()[0]
+            n_claims = self._db.execute("SELECT COUNT(*) FROM main.claims").fetchone()[0]
+            n_index = self._db.execute("SELECT COUNT(*) FROM main.claim_index").fetchone()[0]
             n_fts = n_claims
             if self.fts:
                 try:
-                    n_fts = self._db.execute("SELECT COUNT(*) FROM claim_fts").fetchone()[0]
+                    n_fts = self._db.execute("SELECT COUNT(*) FROM main.claim_fts").fetchone()[0]
                 except sqlite3.Error:
                     self.fts = False
             fts_stale = self.fts and self._meta("fts_stale") == "1"
             if (self._meta("index_version") == str(INDEX_VERSION) and n_index == n_claims
                     and n_fts == n_claims and not fts_stale):
                 return
-            self._db.execute("DELETE FROM claim_index")
+            self._db.execute("DELETE FROM main.claim_index")
             if self.fts:
                 try:
-                    self._db.execute("DELETE FROM claim_fts")
+                    self._db.execute("DELETE FROM main.claim_fts")
                 except sqlite3.Error:
                     self.fts = False
-            for r in self._db.execute("SELECT id, text, subject, category FROM claims").fetchall():
+            for r in self._db.execute("SELECT id, text, subject, category FROM main.claims"
+                                      ).fetchall():
                 self._index_claim(r[0], r[1], r[2], r[3])
             self._set_meta("index_version", str(INDEX_VERSION))
             if self.fts:
-                self._db.execute("DELETE FROM meta WHERE key='fts_stale'")
+                self._db.execute("DELETE FROM main.meta WHERE key='fts_stale'")
             self._db.commit()
 
     # -- structured facts (B5): derived from claims, like the search index -------
     def _store_fact(self, claim_id: int, text: str, subject: str) -> None:
-        r = self._db.execute("SELECT version FROM claims WHERE id=?", (claim_id,)).fetchone()
+        r = self._db.execute("SELECT version FROM main.claims WHERE id=?", (claim_id,)).fetchone()
         f = extract_all(text or "", subject or "", self.custom_forms())
         method = FACTS_METHOD if f is None or f.relation in BUILTIN else f"relation:{f.relation}"
         self._db.execute(
-            "INSERT OR REPLACE INTO claim_facts (claim_id, claim_version, text_sha, relation, "
+            "INSERT OR REPLACE INTO main.claim_facts (claim_id, claim_version, text_sha, relation, "
             "place, value, absent, qualifier, display, method) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (claim_id, r[0] if r else 1, _text_sha(text, subject),
              None if f is None else f.relation, None if f is None else f.place,
@@ -275,7 +469,7 @@ class KnowledgeStore:
                 return
             stale = [r for r in self._db.execute(
                 "SELECT c.id, c.text, c.subject, c.version, f.text_sha, f.claim_version "
-                "FROM claims c LEFT JOIN claim_facts f ON f.claim_id = c.id").fetchall()
+                "FROM main.claims c LEFT JOIN main.claim_facts f ON f.claim_id = c.id").fetchall()
                 if r[4] != _text_sha(r[1], r[2]) or r[5] != r[3]]
             if not stale:
                 return
@@ -287,8 +481,8 @@ class KnowledgeStore:
 
     def _rebuild_facts(self) -> None:
         self._forms = None
-        self._db.execute("DELETE FROM claim_facts")
-        for r in self._db.execute("SELECT id, text, subject FROM claims").fetchall():
+        self._db.execute("DELETE FROM main.claim_facts")
+        for r in self._db.execute("SELECT id, text, subject FROM main.claims").fetchall():
             self._store_fact(r[0], r[1], r[2])
         self._set_meta("facts_stamp", self._facts_stamp())
         from .retrieve import forget_cache            # cached facts are now out of date
@@ -305,7 +499,7 @@ class KnowledgeStore:
     def _ensure_relations(self) -> None:
         for k, (vtype, card, changes, labels) in BUILTIN.items():
             self._db.execute(
-                "INSERT OR IGNORE INTO relations (key, value_type, cardinality, changes, labels, "
+                "INSERT OR IGNORE INTO main.relations (key, value_type, cardinality, changes, labels, "
                 "builtin, added_by, added_at) VALUES (?,?,?,?,?,1,?,?)",
                 (k, vtype, card, int(changes), json.dumps(labels, ensure_ascii=False), SYSTEM,
                  _now()))
@@ -376,7 +570,7 @@ class KnowledgeStore:
                 if (q or "").count("{place}") != 1 or "{value}" in q:
                     raise BrainError("a question form needs exactly one {place} and no {value}")
             self._db.execute(
-                "INSERT INTO relations (key, value_type, cardinality, changes, labels, "
+                "INSERT INTO main.relations (key, value_type, cardinality, changes, labels, "
                 "sentence_forms, question_forms, builtin, added_by, added_at) "
                 "VALUES (?,?,?,?,?,?,?,0,?,?)",
                 (key, value_type, cardinality, int(changes),
@@ -409,12 +603,15 @@ class KnowledgeStore:
             raise BrainError("an entity needs a name")
         if scope not in ("personal", "shared"):
             raise BrainError("an entity is personal or shared")
+        if self.role == "personal" and scope != "personal":
+            raise BrainError("a personal file holds personal entities only")
+        if self.role == "shared" and scope != "shared":
+            raise BrainError("the shared file holds shared entities only")
         with self._lock:
             status = self._person_or_proposal(by)
             if scope == "shared" and self._known_contributor(by) not in MODERATOR_KINDS:
                 raise BrainError("shared entities are created by moderators")
-            cur = self._db.execute(
-                "INSERT INTO entities (name, key, kind, status, scope, owner_id, created) "
+            cur = self._new("entities", "INSERT INTO main.entities (name, key, kind, status, scope, owner_id, created) "
                 "VALUES (?,?,?,?,?,?,?)", (name.strip(), name_key(name), (kind or "").strip(),
                                            status, scope, by, _now()))
             return cur.lastrowid
@@ -431,6 +628,9 @@ class KnowledgeStore:
             automatic = self._known_contributor(by) in AUTOMATIC_KINDS
             if e is None or not (automatic or self._sees(e, by)):
                 raise BrainError(f"no entity {entity_id}")
+            if self.attached and not self._db.execute("SELECT 1 FROM main.entities WHERE id=?",
+                                                      (entity_id,)).fetchone():
+                raise BrainError("names for shared entities are added by moderators")
             if e["scope"] == "shared" and not automatic and \
                     self._known_contributor(by) not in MODERATOR_KINDS:
                 raise BrainError("aliases of shared entities are added by moderators")
@@ -438,8 +638,7 @@ class KnowledgeStore:
             if not k or k == e["key"]:
                 raise BrainError("an alias needs a different name")
             status = self._person_or_proposal(by)
-            cur = self._db.execute(
-                "INSERT INTO aliases (entity_id, alias, key, language, status, scope, owner_id, "
+            cur = self._new("aliases", "INSERT INTO main.aliases (entity_id, alias, key, language, status, scope, owner_id, "
                 "added_by, added_at) VALUES (?,?,?,?,?,?,?,?,?)",
                 (entity_id, alias.strip(), k, language, status, e["scope"], e["owner_id"], by,
                  _now()))
@@ -456,7 +655,7 @@ class KnowledgeStore:
                 raise BrainError(f"no alias {alias_id}")
             if a["scope"] == "shared" and self._known_contributor(by) not in MODERATOR_KINDS:
                 raise BrainError("aliases of shared entities are approved by moderators")
-            self._db.execute("UPDATE aliases SET status='approved' WHERE id=?", (alias_id,))
+            self._db.execute("UPDATE main.aliases SET status='approved' WHERE id=?", (alias_id,))
 
     @_atomic
     def link_entities(self, a: int, b: int, by: Optional[str] = None) -> int:
@@ -472,9 +671,12 @@ class KnowledgeStore:
             shared = ea["scope"] == eb["scope"] == "shared"
             if shared and self._known_contributor(by) not in MODERATOR_KINDS:
                 raise BrainError("shared entities are linked by moderators")
-            cur = self._db.execute(
-                "INSERT INTO entity_links (a, b, scope, owner_id, active, added_by, added_at) "
+            cur = self._new("entity_links", "INSERT INTO main.entity_links (a, b, scope, owner_id, active, added_by, added_at) "
                 "VALUES (?,?,?,?,1,?,?)", (a, b, "shared" if shared else "personal", by, by, _now()))
+            if shared and self.role == "personal":
+                raise BrainError("shared entities are linked by moderators")
+            self._xref("entity_links", cur.lastrowid, "a", "entities", a)
+            self._xref("entity_links", cur.lastrowid, "b", "entities", b)
             return cur.lastrowid
 
     @_atomic
@@ -486,7 +688,7 @@ class KnowledgeStore:
                 raise BrainError(f"no active link {link_id}")
             if row["scope"] == "shared" and self._known_contributor(by) not in MODERATOR_KINDS:
                 raise BrainError("shared links are removed by moderators")
-            self._db.execute("UPDATE entity_links SET active=0, removed_by=?, removed_at=? "
+            self._db.execute("UPDATE main.entity_links SET active=0, removed_by=?, removed_at=? "
                              "WHERE id=?", (by, _now(), link_id))
 
     def entities(self, viewer: Optional[str] = None) -> List[dict]:
@@ -554,6 +756,7 @@ class KnowledgeStore:
         """WHERE-clause part that keeps only claims `viewer` may see. With
         review=False (search), other people's proposals are left out even for
         moderators: unreviewed proposals are for reviewing, not for answers."""
+        self._check_viewer(viewer)
         viewer = viewer or self.local_user
         r = self._db.execute("SELECT kind FROM contributors WHERE id=?", (viewer,)).fetchone()
         mod = review and bool(r) and r[0] in MODERATOR_KINDS
@@ -572,15 +775,18 @@ class KnowledgeStore:
             vis, args = self._visible_sql(viewer, review=False)
             cols = "c.id" if ids_only else "c.id, c.status, c.scope, c.owner_id, c.version"
             q = f"SELECT {cols} FROM claims c WHERE {vis}"
+            # a session reads two files: keep the single file's order (record number)
+            order = " ORDER BY c.id" if self.attached else ""
             if match_terms and use_fts:
                 try:
+                    m = " OR ".join('"%s"' % t.replace('"', '') for t in match_terms)
                     return [tuple(r) for r in self._db.execute(
-                        q + " AND c.id IN (SELECT rowid FROM claim_fts WHERE claim_fts MATCH ?)",
-                        args + [" OR ".join('"%s"' % t.replace('"', '') for t in match_terms)])], True
+                        q + " AND c.id IN " + self._fts_in() + order,
+                        args + self._fts_args(m))], True
                 except sqlite3.Error:        # FTS5 broke while running: same search in Python
                     self._fts_off()
                     self._db.commit()
-            return [tuple(r) for r in self._db.execute(q, args)], not match_terms
+            return [tuple(r) for r in self._db.execute(q + order, args)], not match_terms
 
     def index_rows(self, viewer: Optional[str], ids: List[int]) -> List[dict]:
         """Search rows of these claims - only those the viewer's
@@ -598,7 +804,8 @@ class KnowledgeStore:
                     "f.absent AS f_absent, f.qualifier AS f_qualifier, f.display AS f_display "
                     "FROM claims c JOIN claim_index i ON i.claim_id = c.id "
                     "LEFT JOIN claim_facts f ON f.claim_id = c.id "
-                    f"WHERE {vis} AND c.id IN ({','.join('?' * len(chunk))})", args + chunk)]
+                    f"WHERE {vis} AND c.id IN ({','.join('?' * len(chunk))})"
+                    + (" ORDER BY c.id" if self.attached else ""), args + chunk)]
         return out
 
     def visible_subjects(self, viewer: Optional[str], after_id: int = 0) -> List[tuple]:
@@ -633,11 +840,24 @@ class KnowledgeStore:
                 "claim_events WHERE event IN ('corrected', 'share_proposed', 'share_approved')), "
                 "(SELECT COUNT(*) FROM contributors)").fetchone())
 
-    def data_version(self) -> int:
+    def _fts_in(self) -> str:
+        if self.attached:
+            return ("(SELECT rowid FROM main.claim_fts WHERE claim_fts MATCH ? UNION ALL "
+                    "SELECT rowid FROM shared.claim_fts WHERE claim_fts MATCH ?)")
+        return "(SELECT rowid FROM main.claim_fts WHERE claim_fts MATCH ?)"
+
+    def _fts_args(self, m: str) -> list:
+        return [m, m] if self.attached else [m]
+
+    def data_version(self):
         """SQLite's data_version: changes when ANY OTHER connection (another
-        program, another Brain, a raw edit, a restore) commits to the file."""
+        program, another Brain, a raw edit, a restore) commits to the file
+        (in a session: to either file)."""
         with self._lock:
-            return self._db.execute("PRAGMA data_version").fetchone()[0]
+            v = self._db.execute("PRAGMA main.data_version").fetchone()[0]
+            if self.attached:
+                return (v, self._db.execute("PRAGMA shared.data_version").fetchone()[0])
+            return v
 
     def visible_count(self, viewer: Optional[str]) -> int:
         with self._lock:
@@ -657,8 +877,8 @@ class KnowledgeStore:
                     for w in words:
                         out[w] = self._db.execute(
                             f"SELECT COUNT(*) FROM claims c WHERE {vis} AND c.id IN "
-                            "(SELECT rowid FROM claim_fts WHERE claim_fts MATCH ?)",
-                            args + ['"%s"' % w.replace('"', '')]).fetchone()[0]
+                            + self._fts_in(), args + self._fts_args('"%s"' % w.replace('"', ''))
+                        ).fetchone()[0]
                     return out
                 except sqlite3.Error:        # FTS5 broke while running: count in Python
                     self._fts_off()
@@ -693,11 +913,11 @@ class KnowledgeStore:
 
     # -- meta ------------------------------------------------------------------
     def _meta(self, key: str) -> Optional[str]:
-        r = self._db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        r = self._db.execute("SELECT value FROM main.meta WHERE key=?", (key,)).fetchone()
         return r[0] if r else None
 
     def _set_meta(self, key: str, value: str) -> None:
-        self._db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (key, value))
+        self._db.execute("INSERT OR REPLACE INTO main.meta VALUES (?,?)", (key, value))
 
     @property
     def local_user(self) -> str:
@@ -712,7 +932,7 @@ class KnowledgeStore:
                         contributor_id: Optional[str] = None) -> str:
         cid = contributor_id or str(uuid.uuid4())
         with self._lock:
-            self._db.execute("INSERT OR IGNORE INTO contributors VALUES (?,?,?,?)",
+            self._db.execute("INSERT OR IGNORE INTO main.contributors VALUES (?,?,?,?)",
                              (cid, display_name, kind, _now()))
         return cid
 
@@ -726,6 +946,7 @@ class KnowledgeStore:
     # -- isolation -------------------------------------------------------------------
     def searchable(self, c: Optional[dict], viewer: Optional[str]) -> bool:
         """May `c` appear in viewer's search results: shared, or their own."""
+        self._check_viewer(viewer)
         return c is not None and (c["scope"] == "shared" or c["owner_id"] == (viewer or self.local_user))
 
     def can_see(self, c: dict, viewer: Optional[str]) -> bool:
@@ -733,6 +954,7 @@ class KnowledgeStore:
         Moderators also see candidates (to review them)."""
         if c is None:
             return False
+        self._check_viewer(viewer)
         if c["scope"] == "shared":
             return True
         viewer = viewer or self.local_user
@@ -780,11 +1002,13 @@ class KnowledgeStore:
                    meta: Optional[dict] = None) -> int:
         if kind not in SOURCE_KINDS:
             raise BrainError(f"unknown source kind {kind!r}")
+        if self.role == "shared":
+            raise BrainError("sources reach the shared file only through an owner's explicit "
+                             "permission (approved proposals)")
         by = by or self.local_user
         with self._lock:
             self._known_contributor(by)
-            cur = self._db.execute(
-                "INSERT INTO sources (kind, title, reference, content_hash, captured_at, added_at, "
+            cur = self._new("sources", "INSERT INTO main.sources (kind, title, reference, content_hash, captured_at, added_at, "
                 "added_by, private, raw_text, meta) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (kind, title, reference, content_hash, captured_at, _now(), by, int(private),
                  raw_text, json.dumps(meta or {}, ensure_ascii=False)))
@@ -798,8 +1022,7 @@ class KnowledgeStore:
             src = self.source(source_id)
             if src is None or src["added_by"] != by:
                 raise BrainError(f"no source {source_id} of yours")
-            cur = self._db.execute(
-                "INSERT INTO sections (source_id, heading_path, position, text) VALUES (?,?,?,?)",
+            cur = self._new("sections", "INSERT INTO main.sections (source_id, heading_path, position, text) VALUES (?,?,?,?)",
                 (source_id, heading_path, position, text))
             return cur.lastrowid
 
@@ -826,17 +1049,21 @@ class KnowledgeStore:
             raise BrainError("a claim needs text")
         by = by or self.local_user
         now = _now()
+        if self.role == "shared":
+            raise BrainError("shared knowledge is added only by approving a proposal")
         with self._lock:
-            self._known_contributor(by)
+            kind = self._known_contributor(by)
+            if self.role == "personal" and by != self.owner and kind not in AUTOMATIC_KINDS:
+                raise BrainError("this personal file belongs to someone else")
             if section_id is not None and not self._usable_section(section_id, by):
                 raise BrainError(f"no section {section_id}")
-            cur = self._db.execute(
-                "INSERT INTO claims (text, subject, category, origin, status, scope, owner_id, "
+            cur = self._new("claims", "INSERT INTO main.claims (text, subject, category, origin, status, scope, owner_id, "
                 "section_id, version, created, created_by, updated) "
                 "VALUES (?,?,?,?,?,?,?,?,1,?,?,?)",
-                (text.strip(), subject, category, origin, status, scope, by, section_id, now, by,
-                 now))
+                (text.strip(), subject, category, origin, status, scope,
+                 self.owner if self.role == "personal" else by, section_id, now, by, now))
             cid = cur.lastrowid
+            self._xref("claims", cid, "section_id", "sections", section_id)
             self._index_claim(cid, text.strip(), subject, category)
             self._event(cid, "created", None, status, by, f"origin={origin}")
             return cid
@@ -847,10 +1074,19 @@ class KnowledgeStore:
         return dict(r) if r else None
 
     def claim(self, claim_id: int, viewer: Optional[str] = None) -> Optional[dict]:
-        """The claim if `viewer` (default: the local user) may see it, else None."""
+        """The claim if `viewer` (default: the local user) may see it, else None.
+        In a session, `withdrawn_support` is True for a shared claim that is
+        verified but no longer presented so, because its source's owner
+        withdrew the evidence it rested on (B5.2)."""
         with self._lock:
             c = self._claim(claim_id)
-            return c if self.can_see(c, viewer) else None
+            if not self.can_see(c, viewer):
+                return None
+            if self.attached:
+                raw = self._db.execute("SELECT status FROM shared.claims WHERE id=?",
+                                       (claim_id,)).fetchone()
+                c["withdrawn_support"] = bool(raw and raw[0] != c["status"])
+            return c
 
     def claims(self, subject: Optional[str] = None, status: Optional[str] = None,
                text_like: Optional[str] = None, limit: int = 200,
@@ -876,9 +1112,11 @@ class KnowledgeStore:
 
     def _event(self, claim_id: int, event: str, old: Optional[str], new: Optional[str],
                by: str, note: str = "", related: Optional[int] = None) -> None:
-        self._db.execute("INSERT INTO claim_events (claim_id, event, old_status, new_status, by, "
-                         "at, note, related_claim) VALUES (?,?,?,?,?,?,?,?)",
-                         (claim_id, event, old, new, by, _now(), note, related))
+        cur = self._new("claim_events", "INSERT INTO main.claim_events (claim_id, event, old_status, "
+                        "new_status, by, at, note, related_claim) VALUES (?,?,?,?,?,?,?,?)",
+                        (claim_id, event, old, new, by, _now(), note, related))
+        self._xref("claim_events", cur.lastrowid, "claim_id", "claims", claim_id)
+        self._xref("claim_events", cur.lastrowid, "related_claim", "claims", related)
 
     def history(self, claim_id: int, viewer: Optional[str] = None) -> Dict[str, list]:
         """Events and earlier wordings. What happened while the claim was
@@ -926,6 +1164,9 @@ class KnowledgeStore:
             if c is None or not self.can_see(c, by):
                 raise BrainError(f"no claim {claim_id}")
             self._require_changer(c, by, "add evidence to")
+            if self.attached and not self._db.execute("SELECT 1 FROM main.claims WHERE id=?",
+                                                      (claim_id,)).fetchone():
+                raise BrainError("shared knowledge: evidence is added by moderators")
             if source_id is not None:
                 src = self._usable_source(source_id, by)
                 if src is None:
@@ -938,19 +1179,22 @@ class KnowledgeStore:
                     (claim_id,)).fetchone():
                 raise BrainError("derived evidence needs a 'derived_from' link to the claims "
                                  "it comes from")
-            cur = self._db.execute(
-                "INSERT INTO evidence (claim_id, source_id, kind, locator, added_by, added_at) "
+            cur = self._new("evidence", "INSERT INTO main.evidence (claim_id, source_id, kind, locator, added_by, added_at) "
                 "VALUES (?,?,?,?,?,?)", (claim_id, source_id, kind, locator, by, _now()))
+            self._xref("evidence", cur.lastrowid, "source_id", "sources", source_id)
             self._event(claim_id, "evidence_added", None, None, by,
                         f"{kind}" + (f" from source {source_id}" if source_id else ""))
             return cur.lastrowid
 
     def evidence(self, claim_id: int) -> List[dict]:
+        """Evidence rows of a claim. Evidence its source's owner WITHDREW (B5.2)
+        is left out: it is no support and nothing to show."""
         with self._lock:
+            gone = self.withdrawn_evidence(claim_id)
             return [dict(r) for r in self._db.execute(
                 "SELECT e.*, s.kind AS source_kind, s.content_hash, s.private, s.title, "
                 "s.reference FROM evidence e LEFT JOIN sources s ON s.id = e.source_id "
-                "WHERE e.claim_id=? ORDER BY e.id", (claim_id,))]
+                "WHERE e.claim_id=? ORDER BY e.id", (claim_id,)) if r["id"] not in gone]
 
     def evidence_summary(self, claim_id: int) -> dict:
         """How well supported a claim is. The same material (same content
@@ -985,11 +1229,14 @@ class KnowledgeStore:
             c = self._claim(claim_id)
             if not self.searchable(c, viewer):
                 return []
+            gone = self.withdrawn_evidence(claim_id)
             rows = [dict(r) for r in self._db.execute(
-                "SELECT e.kind, e.locator, s.id AS source_id, s.kind AS source_kind, s.title, "
-                "s.captured_at, s.added_at AS source_added, s.private, s.added_by "
+                "SELECT e.id AS ev_id, e.kind, e.locator, s.id AS source_id, s.kind AS source_kind, "
+                "s.title, s.captured_at, s.added_at AS source_added, s.private, s.added_by "
                 "FROM evidence e LEFT JOIN sources s ON s.id = e.source_id "
-                "WHERE e.claim_id=? ORDER BY e.id", (claim_id,))]
+                "WHERE e.claim_id=? ORDER BY e.id", (claim_id,)) if r["ev_id"] not in gone]
+            for r in rows:
+                r.pop("ev_id")
         out = []
         for r in rows:
             if r["source_id"] is not None and r["private"] and \
@@ -1019,6 +1266,11 @@ class KnowledgeStore:
                 if s["direct"] + s["confirmations"] == 0:
                     raise BrainError("cannot verify: no direct evidence or independent "
                                      "confirmation (repeated statements don't count)")
+                if self.role == "shared" and not any(
+                        e["kind"] in ("direct", "confirmation") and (e["locator"] or "").strip()
+                        for e in self.evidence(claim_id)):
+                    raise BrainError("cannot verify shared knowledge without a quote its owner "
+                                     "allowed to be shared")
                 if rkind in AUTOMATIC_KINDS:
                     game = [e for e in self.evidence(claim_id) if e["kind"] == "direct"
                             and e["source_kind"] == "game_observation"]
@@ -1037,7 +1289,7 @@ class KnowledgeStore:
                 if open_conflict:
                     raise BrainError("cannot verify: a contradicting claim is still open "
                                      "(reject or mark it outdated first)")
-            self._db.execute("UPDATE claims SET status=?, updated=? WHERE id=?",
+            self._db.execute("UPDATE main.claims SET status=?, updated=? WHERE id=?",
                              (new_status, _now(), claim_id))
             self._event(claim_id, "reviewed", c["status"], new_status, reviewer, note)
 
@@ -1060,14 +1312,13 @@ class KnowledgeStore:
             if c["scope"] != "personal":
                 raise BrainError("shared / proposed knowledge is not edited in place: use "
                                  "propose_correction()")
-            self._db.execute(
-                "INSERT INTO claim_versions (claim_id, version, text, subject, category, "
+            self._new("claim_versions", "INSERT INTO main.claim_versions (claim_id, version, text, subject, category, "
                 "old_status, replaced_by, replaced_at, reason) VALUES (?,?,?,?,?,?,?,?,?)",
                 (claim_id, c["version"], c["text"], c["subject"], c["category"], c["status"],
                  by, _now(), reason))
             v = c["version"] + 1
             self._db.execute(
-                "UPDATE claims SET text=?, subject=?, category=?, version=?, status=?, updated=? "
+                "UPDATE main.claims SET text=?, subject=?, category=?, version=?, status=?, updated=? "
                 "WHERE id=?", (new_text.strip(), c["subject"] if subject is None else subject,
                                c["category"] if category is None else category, v,
                                "awaiting_verification", _now(), claim_id))
@@ -1091,8 +1342,10 @@ class KnowledgeStore:
             sec = c["section_id"] if c["section_id"] is not None and \
                 self._usable_section(c["section_id"], by) else None
             new = self.add_claim(new_text, "user", by, c["subject"], c["category"], sec)
-            self._db.execute("INSERT INTO claim_links (from_claim, to_claim, kind, added_by, "
-                             "added_at) VALUES (?,?,'supersedes',?,?)", (new, claim_id, by, _now()))
+            lc = self._new("claim_links", "INSERT INTO main.claim_links (from_claim, to_claim, kind, "
+                           "added_by, added_at) VALUES (?,?,'supersedes',?,?)",
+                           (new, claim_id, by, _now()))
+            self._xref("claim_links", lc.lastrowid, "to_claim", "claims", claim_id)
             self._event(new, "correction_proposed", None, None, by,
                         f"for claim {claim_id}: {reason}", related=claim_id)
             self._event(claim_id, "correction_received", None, None, by, f"claim {new}",
@@ -1111,9 +1364,14 @@ class KnowledgeStore:
             if not (self.can_see(a, by) and self.can_see(b, by)):
                 raise BrainError("both claims must exist and be visible to you")
             self._require_changer(a, by, "link")
-            self._db.execute("INSERT OR IGNORE INTO claim_links (from_claim, to_claim, kind, "
+            if self.attached and not self._db.execute("SELECT 1 FROM main.claims WHERE id=?",
+                                                      (from_claim,)).fetchone():
+                raise BrainError("shared knowledge: links are added by moderators")
+            lc = self._new("claim_links", "INSERT OR IGNORE INTO main.claim_links (from_claim, to_claim, kind, "
                              "added_by, added_at) VALUES (?,?,?,?,?)",
                              (from_claim, to_claim, kind, by, _now()))
+            if lc.rowcount:
+                self._xref("claim_links", lc.lastrowid, "to_claim", "claims", to_claim)
             self._event(from_claim, f"link_{kind}", None, None, by, f"-> claim {to_claim}",
                         related=to_claim)
             if kind == "contradicts":
@@ -1127,7 +1385,7 @@ class KnowledgeStore:
                         continue
                     if not self._same_audience(c, o):
                         continue
-                    self._db.execute("UPDATE claims SET status='conflicting', updated=? "
+                    self._db.execute("UPDATE main.claims SET status='conflicting', updated=? "
                                      "WHERE id=?", (_now(), cid))
                     self._event(cid, "conflict_flagged", c["status"], "conflicting", by,
                                 f"contradicted by claim {oid}", related=oid)
@@ -1163,6 +1421,9 @@ class KnowledgeStore:
     # -- scope: personal -> shared candidate (explicit, recorded) ----------------
     @_atomic
     def propose_share(self, claim_id: int, by: Optional[str] = None) -> None:
+        if self.role != "file":
+            raise BrainError("in a library, proposals go to the owner's outbox "
+                             "(Session.propose) - nothing changes scope in place")
         by = by or self.local_user
         with self._lock:
             c = self._claim(claim_id)
@@ -1173,7 +1434,7 @@ class KnowledgeStore:
             if self.evidence_summary(claim_id)["private_sources"]:
                 raise BrainError("this claim has evidence from a private source; it cannot be "
                                  "shared (add non-private evidence or remove it first)")
-            self._db.execute("UPDATE claims SET scope='shared_candidate', updated=? WHERE id=?",
+            self._db.execute("UPDATE main.claims SET scope='shared_candidate', updated=? WHERE id=?",
                              (_now(), claim_id))
             self._event(claim_id, "share_proposed", c["status"], c["status"], by,
                         f"scope {c['scope']} -> shared_candidate")
@@ -1182,6 +1443,9 @@ class KnowledgeStore:
     def approve_share(self, claim_id: int, moderator: str, note: str = "") -> None:
         """Shared-candidate -> shared. Only a moderator, only for verified
         claims without private evidence (the shared library prefers accuracy)."""
+        if self.role != "file":
+            raise BrainError("in a library, moderators approve outbox proposals "
+                             "(ModeratorSession.approve)")
         with self._lock:
             if self._known_contributor(moderator) not in MODERATOR_KINDS:
                 raise BrainError("only a moderator can approve shared knowledge")
@@ -1202,7 +1466,7 @@ class KnowledgeStore:
                                  "own verification is not enough for the shared library)")
             if self.evidence_summary(claim_id)["private_sources"]:
                 raise BrainError("has evidence from a private source")
-            self._db.execute("UPDATE claims SET scope='shared', updated=? WHERE id=?",
+            self._db.execute("UPDATE main.claims SET scope='shared', updated=? WHERE id=?",
                              (_now(), claim_id))
             self._event(claim_id, "share_approved", c["status"], c["status"], moderator, note)
 

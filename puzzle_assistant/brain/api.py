@@ -1,7 +1,8 @@
 """The SK Brain's public API - the one entry point for every module.
 
     from puzzle_assistant.brain import Brain
-    brain = Brain()                       # %APPDATA%\\SK Assistant\\knowledge.db
+    brain = Brain(path)                   # a development / test file (B5.2: the
+                                          # real data is opened through brain.library)
     hits = brain.search("¿Dónde está el Gran Casino?")
     cid = brain.learn("El Gran Casino está junto al Spa.", origin="imported",
                       subject="Gran Casino", category="lugares")
@@ -42,8 +43,16 @@ def _default_paths():
 class Brain:
     def __init__(self, knowledge_path: Optional[str] = None, quiz_path: Optional[str] = None,
                  atlas_path: Optional[str] = None):
-        k, q, a = _default_paths() if knowledge_path is None else (knowledge_path, None, None)
-        path = knowledge_path or k
+        if knowledge_path is None:
+            # B5.2: personal and shared knowledge live in separate files; SK
+            # Assistant's data folder is opened through brain.library.Library.
+            # A single knowledge.db there is never created or used any more (an
+            # existing one is migrated into the new layout, never changed).
+            raise BrainError("open SK Brain through brain.library.Library (personal and shared "
+                             "knowledge are separate files); Brain(path) is for development "
+                             "and test files")
+        k, q, a = (knowledge_path, None, None)
+        path = knowledge_path
         quiz = quiz_path if quiz_path is not None else (q or "")
         atlas = atlas_path if atlas_path is not None else (a or "")
         # the Brain writes only its OWN database: never the quiz memory or World Atlas
@@ -54,6 +63,14 @@ class Brain:
         # other modules, read-only (never created, migrated or modified here)
         self.sources = [QuizMemoryAdapter(quiz_path if quiz_path is not None else (q or "")),
                         AtlasAdapter(atlas_path if atlas_path is not None else (a or ""))]
+
+    @classmethod
+    def _over(cls, store: KnowledgeStore) -> "Brain":
+        """A Brain over an already opened store (a B5.2 library session)."""
+        b = cls.__new__(cls)
+        b.store = store
+        b.sources = [QuizMemoryAdapter(""), AtlasAdapter("")]
+        return b
 
     def close(self) -> None:
         self.store.close()
