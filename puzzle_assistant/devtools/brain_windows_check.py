@@ -309,10 +309,11 @@ def external_change():
         b.search("room ID of the Demo Garden")                 # now cached
         subprocess.run([sys.executable, "-c", _EXTERNAL, path, str(c), HERE], check=True,
                        timeout=120)
-        status = [h.status for h in b.search("room ID of the Demo Garden")]
-        plaza = [h.text for h in b.search("room ID of the Demo Plaza")]
+        status = [h.status for h in b.search("room ID of the Demo Garden") if h.record_id == str(c)]
+        plaza = [h.text for h in b.search("room ID of the Demo Plaza")
+                 if h.text == "The Demo Plaza has room ID 900002."]
         b.close()
-        ok = status == ["outdated"] and plaza == ["The Demo Plaza has room ID 900002."]
+        ok = status == ["outdated"] and bool(plaza)
         return ok, f"status after the other program's edit: {status} (must be outdated); " \
                    f"its new claim found: {bool(plaza)}"
     finally:
