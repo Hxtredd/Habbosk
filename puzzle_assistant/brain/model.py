@@ -114,3 +114,59 @@ class BrainAnswer:
     possible: Optional[str] = None
     steps: List[dict] = field(default_factory=list)   # each: ask, outcome, value, claims
     audience: str = ""          # "shared" only if every claim used is shared
+
+
+# -- B4: answer categories -----------------------------------------------------------
+# Every answer from Brain.respond() is in exactly ONE category. Only an
+# Established answer may be stated without a qualifier.
+CATEGORIES = (
+    "established",    # every fact used is verified (incl. a verified "there is none")
+    "documented",     # an unverified fact whose cited evidence quote states it by itself
+    "ai_generated",   # defined for later milestones - never produced before the AI gateway
+    "unknown",        # anything else, always with a reason
+)
+UNKNOWN_REASONS = (
+    "nothing_documented",   # nothing the asker may see documents it (never "there is none")
+    "sources_disagree",     # the records disagree - each side is shown, labelled
+    "ambiguous",            # several places / people fit - SK asks which one
+    "only_outdated",        # only information marked outdated
+    "unsupported",          # only statements without a source that states them
+    "not_understood",       # not a question SK can reason about (yet)
+)
+
+
+@dataclass
+class Citation:
+    """One claim behind an answer, with the evidence the asker may see."""
+    claim_id: int
+    text: str
+    status: str
+    scope: str
+    evidence: List[dict] = field(default_factory=list)   # kind, quote, source title/kind/date
+    supports: bool = False      # Documented only: this claim's quote states the fact by itself
+
+
+@dataclass
+class Response:
+    """What Brain.respond() returns (B4). Read-only: producing it never
+    changes anything. `save_offer` stays None until confirmed saving exists
+    (B7); `ai` stays "none" until the AI gateway exists (B8)."""
+    question: str
+    language: str                       # "en" | "es"
+    category: str                       # one of CATEGORIES
+    reason: str = ""                    # unknown only: one of UNKNOWN_REASONS
+    value: Optional[str] = None         # the answer (established / documented)
+    sentence: str = ""                  # ready-made wording, in `language`
+    citations: List[Citation] = field(default_factory=list)
+    steps: List[dict] = field(default_factory=list)          # the reasoning (from ask())
+    clarification: Optional[dict] = None   # ambiguous: {"question": ..., "options": [...]}
+    sides: List[dict] = field(default_factory=list)          # sources_disagree: value + claims
+    possible: Optional[str] = None      # unknown: an unverified / outdated possibility, labelled
+    related: List[dict] = field(default_factory=list)        # labelled search results - never answers
+    # "shared" only if every claim used is shared. It covers the ANSWER (value,
+    # sentence, possible, citations, steps); `related` is always the asker's own view
+    # and must never be passed on with a shared answer.
+    audience: str = ""
+    ai: str = "none"
+    save_offer: Optional[dict] = None
+    b3_status: str = ""                 # ask()'s own status, for comparison

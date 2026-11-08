@@ -592,6 +592,31 @@ class KnowledgeStore:
                 "contributors": len({e["added_by"] for e in ev}),
                 "private_sources": sum(1 for e in ev if e["private"])}
 
+    def cited_evidence(self, claim_id: int, viewer: Optional[str] = None) -> List[dict]:
+        """Evidence of a claim that `viewer` may be shown as a citation (B4).
+        Read-only. Nothing for a claim the viewer's answers may not use (the
+        search rule: shared or their own). A private source is cited only on
+        its owner's own personal claim - never on shared knowledge (a shared
+        answer must be safe to pass on) and never to anyone else."""
+        viewer = viewer or self.local_user
+        with self._lock:
+            c = self._claim(claim_id)
+            if not self.searchable(c, viewer):
+                return []
+            rows = [dict(r) for r in self._db.execute(
+                "SELECT e.kind, e.locator, s.id AS source_id, s.kind AS source_kind, s.title, "
+                "s.captured_at, s.added_at AS source_added, s.private, s.added_by "
+                "FROM evidence e LEFT JOIN sources s ON s.id = e.source_id "
+                "WHERE e.claim_id=? ORDER BY e.id", (claim_id,))]
+        out = []
+        for r in rows:
+            if r["source_id"] is not None and r["private"] and \
+                    (r["added_by"] != viewer or c["scope"] != "personal"):
+                continue                       # private: only on the owner's personal claim
+            r.pop("added_by")
+            out.append(r)
+        return out
+
     # -- review (the only way to 'verified' / 'rejected' / ...) ---------------------
     @_atomic
     def review(self, claim_id: int, new_status: str, reviewer: Optional[str] = None,

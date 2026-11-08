@@ -175,5 +175,13 @@ class Brain:
                            hits=hits, trace=r.explanation, status=r.status, possible=r.possible,
                            steps=steps, audience=r.audience if answered or r.possible else "")
 
+    def respond(self, question: str, viewer: Optional[str] = None):
+        """The answer in exactly one category (B4, brain/respond.py):
+        established, documented, ai_generated (never before the AI gateway) or
+        unknown with a reason. Built on ask() and search(), which are unchanged.
+        Read-only: never writes, stores or changes anything."""
+        from .respond import respond as b4_respond
+        return b4_respond(self, question, viewer)
+
     def stats(self, viewer: Optional[str] = None) -> dict:
         return self.store.stats(viewer)

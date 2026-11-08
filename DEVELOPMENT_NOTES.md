@@ -660,6 +660,63 @@ Work done in B3.5:
   22/22 deliberate breaks of the audit safeguards caught (Linux).
 - Brain code unchanged (fingerprint 2055eb8cd979c00b = 39fad57).
 
+### B4 Answer reliability (in review - not approved yet)
+
+Owner-approved design (all five decisions): Documented only under the
+strict support rule; questions outside B3's grammar are Unknown with
+labelled related records; quiz memory / World Atlas are related records
+only (answer eligibility deferred); answers in the question's language
+(EN/ES, conservative detection); the candidate lab gets the respond() view.
+
+What was built (ask() and search() unchanged - B2 and B3 references identical):
+- `brain/respond.py` + `Brain.respond(question, viewer)`: exactly one
+  category per answer - established / documented / ai_generated (defined,
+  never produced before the AI gateway) / unknown + reason
+  (nothing_documented, sources_disagree, ambiguous, only_outdated,
+  unsupported, not_understood). Mapping from ask(): established/absent ->
+  Established; unverified -> Documented only if EVERY unverified claim used
+  has direct/confirmation evidence from a real source (not someone's own
+  statement) whose quote, read ON ITS OWN with B3's sentence forms, states
+  exactly the same fact - else Unknown(unsupported) with the possibility
+  labelled; missing -> nothing_documented, or only_outdated (a separate
+  check that never changes the category); conflicting -> both sides;
+  ambiguous -> a clarification question with B3's candidates;
+  not_reasoned -> not_understood + labelled related records (never answers).
+  EN/ES sentences filled only from structured values ("coins" -> "monedas").
+- `model.py`: CATEGORIES, UNKNOWN_REASONS, Citation, Response. The
+  audience ("shared" only if every claim used is shared) covers the answer
+  (value, sentence, possible, citations, steps); `related` is always the
+  asker's own view and must never be passed on with a shared answer.
+- `store.cited_evidence(claim, viewer)`: read-only, viewer-checked
+  citations; a private source is cited only on its owner's own personal
+  claim (never on shared knowledge, never to anyone else).
+- respond() never writes: save_offer is always None (confirmed saving is
+  B7), ai is always "none" (gateway is B8).
+Tests (synthetic data only):
+- tests/b3_reference.py + data/b3_ask_reference.json: 109 ask() results
+  recorded at c9fe6b9, must stay identical.
+- tests/brain_answer_eval.py ("Puerto Nube", SK-BRAIN-EVAL-003: 31 claims,
+  45 questions incl. 10 everyday personal questions, expectations written
+  from the data): 45/45; zero false Established, zero false Documented.
+- tests/brain_citation_set.py: 53 labelled quotes (supports / contradicts
+  / partial / unrelated: negation, conditions, dates, hedges, reported
+  speech, context, lists, tables, EN/ES): zero false support; 2 genuine
+  supports refused on purpose (extra clause, table row).
+- test_brain_b4_guards.py: B3 reference; the database is byte-identical
+  after every answer and every write method can be disabled; respond.py
+  only uses viewer-checked store calls; no network code in the Brain and
+  answers with the network blocked; AI claims cannot be verified by
+  automatic contributors; categories / reasons from the fixed lists.
+- test_brain_respond.py: each category / reason, wording EN/ES, quiz memory
+  and World Atlas only as related records (their files unchanged), privacy
+  markers never reaching another user or a shared answer.
+- Deliberate breaks: 24/24 caught (Linux). Speed with ~10,000 claims:
+  respond() median ~21 ms = ask() (~20 ms).
+Limits (by design, for later milestones): Documented needs a quote in B3's
+exact sentence forms (passages: B6); no AI answers (B8); no memory /
+confirmation flow (B7); small question grammar (B9/B10); quiz memory and
+World Atlas never answer yet.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the

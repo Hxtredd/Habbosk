@@ -1,0 +1,656 @@
+{
+"brisa|ana|Are pets allowed in the Biblioteca Antigua?": [
+"not_reasoned",
+false,
+null,
+"70d068a6db9c5084f352"
+],
+"brisa|ana|Biblioteca Antigua room id": [
+"not_reasoned",
+false,
+null,
+"ba32e2f58561a64121d5"
+],
+"brisa|ana|Can I bring pets to the Jardín de las Rosas?": [
+"not_reasoned",
+false,
+null,
+"54b6657b895fc39cd09a"
+],
+"brisa|ana|Can I take the taxi to the Cementerio Viejo?": [
+"not_reasoned",
+false,
+null,
+"fc3bc57f84be48713eab"
+],
+"brisa|ana|Does the taxi work everywhere?": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"brisa|ana|Does the taxi work in the Cementerio Viejo?": [
+"not_reasoned",
+false,
+null,
+"54b6657b895fc39cd09a"
+],
+"brisa|ana|Does the taxi work in the Jardín del Sol?": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"brisa|ana|How do I get to the Cementerio Viejo?": [
+"not_reasoned",
+false,
+null,
+"fc3bc57f84be48713eab"
+],
+"brisa|ana|How much does the Sala Azul quest cost?": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"brisa|ana|ID of Jardín de la Luna": [
+"unverified",
+false,
+"100203",
+"b014310e66b053cc06be"
+],
+"brisa|ana|Is the fountain in the Plaza Mayor broken?": [
+"not_reasoned",
+false,
+null,
+"f4a0e5cb5f5e1332cfab"
+],
+"brisa|ana|Is the fountain in the Plaza Mayor working?": [
+"not_reasoned",
+false,
+null,
+"f4a0e5cb5f5e1332cfab"
+],
+"brisa|ana|Is the taxi available in every room?": [
+"not_reasoned",
+false,
+null,
+"8ad23845ea61545a28b3"
+],
+"brisa|ana|Plaza Mayor ID?": [
+"not_reasoned",
+false,
+null,
+"f4a0e5cb5f5e1332cfab"
+],
+"brisa|ana|Room ID of the Sala Azul": [
+"established",
+true,
+"100210",
+"d14438a0491702d58106"
+],
+"brisa|ana|Sala Azul 2 hideout": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"brisa|ana|Sala Azul 2 room number": [
+"not_reasoned",
+false,
+null,
+"ba32e2f58561a64121d5"
+],
+"brisa|ana|Tell me the code of the Bosque Oscuro room": [
+"not_reasoned",
+false,
+null,
+"ba32e2f58561a64121d5"
+],
+"brisa|ana|What connects to the Biblioteca Antigua?": [
+"not_reasoned",
+false,
+null,
+"46b3ecfceb3e283c72d9"
+],
+"brisa|ana|What is the ID of Sala Azul 2?": [
+"unverified",
+false,
+"100211",
+"54ef8da4f6900a39a2f4"
+],
+"brisa|ana|What is the room ID of the Cementerio Viejo?": [
+"absent",
+true,
+"none (documented: The Cementerio Viejo has no permanent room ID; it is only reached from the Bosque Oscuro.)",
+"b5651c18a9c9442be98b"
+],
+"brisa|ana|What is the room ID of the Jardín del Sol?": [
+"missing",
+false,
+null,
+"708e08760fcbe5f70659"
+],
+"brisa|ana|What is the room ID of the Jardín?": [
+"ambiguous",
+false,
+null,
+"8f63023f2fcd2d64b155"
+],
+"brisa|ana|What is the room ID of the Plaza Mayor?": [
+"established",
+true,
+"100201",
+"bf5382464176b1659832"
+],
+"brisa|ana|What is the room ID of the Sala Roja?": [
+"missing",
+false,
+null,
+"124575c88b72ecd8a355"
+],
+"brisa|ana|When does the Biblioteca Antigua close?": [
+"not_reasoned",
+false,
+null,
+"8641faf2a2beb4c51817"
+],
+"brisa|ana|When does the Plaza Mayor close?": [
+"not_reasoned",
+false,
+null,
+"f9be0ced3e38aebe3eca"
+],
+"brisa|ana|When does the Sala Azul open?": [
+"not_reasoned",
+false,
+null,
+"f4a0e5cb5f5e1332cfab"
+],
+"brisa|ana|Where does the east exit of the Plaza Mayor go?": [
+"unverified",
+false,
+"Sala Azul",
+"be78e6846b5717817fa5"
+],
+"brisa|ana|Where does the north door of the Plaza Mayor lead?": [
+"established",
+true,
+"Jardín de las Rosas",
+"725b810e39f2a810adc6"
+],
+"brisa|ana|Where does the north path of the Bosque Oscuro lead?": [
+"missing",
+false,
+null,
+"060687190565ab28af0a"
+],
+"brisa|ana|Where does the south door of the Plaza Mayor lead?": [
+"missing",
+false,
+null,
+"02b05ef7cc6cc84a93dd"
+],
+"brisa|ana|Where does the west door of the Plaza Mayor lead?": [
+"missing",
+false,
+null,
+"5d19ea4eb5d4a2e02ce4"
+],
+"brisa|ana|Where does the west path of the Bosque Oscuro lead?": [
+"established",
+true,
+"Cementerio Viejo",
+"66dcfb8aa052c8c45185"
+],
+"brisa|ana|Where is Luis's secret hideout?": [
+"not_reasoned",
+false,
+null,
+"5c52866aa761535001e8"
+],
+"brisa|ana|Which exit of the Plaza Mayor goes to the Sala Azul?": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"brisa|ana|Who is Luis's hideout?": [
+"not_reasoned",
+false,
+null,
+"5c52866aa761535001e8"
+],
+"brisa|ana|Who is the caretaker of the Biblioteca Antigua?": [
+"unverified",
+false,
+"Tomás",
+"396da0a5162e730eea51"
+],
+"brisa|ana|Who is the caretaker of the Bosque Oscuro?": [
+"missing",
+false,
+null,
+"f53f707dd4ff14feab5d"
+],
+"brisa|ana|Who is the caretaker of the Jardín de la Luna?": [
+"missing",
+false,
+null,
+"e82e7080ec8de8379851"
+],
+"brisa|ana|Who is the caretaker of the Plaza Mayor?": [
+"missing",
+false,
+null,
+"5ae972e7233688ad90de"
+],
+"brisa|ana|Who is the caretaker of the Sala Azul?": [
+"absent",
+true,
+"none (documented: The Sala Azul has no caretaker.)",
+"02fc5e07123cf9a9f9ed"
+],
+"brisa|ana|Who is the caretaker?": [
+"not_reasoned",
+false,
+null,
+"54b6657b895fc39cd09a"
+],
+"brisa|ana|Who is the owner of the shop in the Plaza Mayor?": [
+"not_reasoned",
+false,
+null,
+"8ad23845ea61545a28b3"
+],
+"brisa|ana|Who looks after the Jardín de las Rosas?": [
+"established",
+true,
+"Marta",
+"f5f399d0827e10ebfb98"
+],
+"brisa|ana|Who runs the shop in the Plaza Mayor?": [
+"established",
+true,
+"Leo",
+"f5cc9498610cc9e5e699"
+],
+"brisa|ana|Who runs the shop in the Sala Azul?": [
+"missing",
+false,
+null,
+"1717c6ed6a9eea1b3cd6"
+],
+"brisa|ana|Who takes care of the Jardín de las Rosas?": [
+"established",
+true,
+"Marta",
+"f5f399d0827e10ebfb98"
+],
+"brisa|ana|numero de sala del bosque oscuro": [
+"not_reasoned",
+false,
+null,
+"fc3bc57f84be48713eab"
+],
+"brisa|ana|room number of the Sala Azul": [
+"established",
+true,
+"100210",
+"d14438a0491702d58106"
+],
+"brisa|ana|¿Cuál es el ID de la sala del Jardín de las Rosas?": [
+"missing",
+false,
+null,
+"638e3df476e514afee88"
+],
+"brisa|ana|¿Cuál es el código de la Biblioteca Antigua?": [
+"unverified",
+false,
+"100220",
+"a1f1be39b4c3d4ced66b"
+],
+"brisa|ana|¿Cuánto cuesta la misión de la Sala Azul?": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"brisa|ana|¿Cómo llego al Cementerio Viejo?": [
+"not_reasoned",
+false,
+null,
+"fc3bc57f84be48713eab"
+],
+"brisa|ana|¿Dónde está la Fuente de los Deseos?": [
+"not_reasoned",
+false,
+null,
+"fc3bc57f84be48713eab"
+],
+"brisa|ana|¿Quién cuida la Biblioteca Antigua?": [
+"unverified",
+false,
+"Tomás",
+"396da0a5162e730eea51"
+],
+"brisa|ana|¿Quién es el encargado de la Sala Azul 2?": [
+"unverified",
+false,
+"Rafa",
+"365fe72244226d347e13"
+],
+"brisa|ana|¿Quién mantiene el Cementerio Viejo?": [
+"missing",
+false,
+null,
+"f9179c4c747f933b581a"
+],
+"brisa|ana|¿Qué número tiene el Jardín de la Luna?": [
+"not_reasoned",
+false,
+null,
+"f4a0e5cb5f5e1332cfab"
+],
+"brisa|ana|¿Se permiten mascotas en la Biblioteca Antigua?": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"brisa|luis|Biblioteca Antigua room id": [
+"not_reasoned",
+false,
+null,
+"8ad23845ea61545a28b3"
+],
+"brisa|luis|Plaza Mayor room id": [
+"not_reasoned",
+false,
+null,
+"5c52866aa761535001e8"
+],
+"coral|ana|Are pets allowed in the Hotel Coral?": [
+"not_reasoned",
+false,
+null,
+"f4a0e5cb5f5e1332cfab"
+],
+"coral|ana|Can I bring my pet to the Hotel Coral Suite?": [
+"not_reasoned",
+false,
+null,
+"fc3bc57f84be48713eab"
+],
+"coral|ana|Does the Cueva Marina quest require a diving helmet?": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"coral|ana|Faro del Norte room ID": [
+"not_reasoned",
+false,
+null,
+"ba32e2f58561a64121d5"
+],
+"coral|ana|Hotel Coral Suite room number": [
+"not_reasoned",
+false,
+null,
+"46b3ecfceb3e283c72d9"
+],
+"coral|ana|How do I reach the Cueva Marina?": [
+"not_reasoned",
+false,
+null,
+"f9be0ced3e38aebe3eca"
+],
+"coral|ana|How many coins does the quest give in the room Rafael looks after?": [
+"unverified",
+false,
+"50 coins",
+"bc90ea721469ac2644a0"
+],
+"coral|ana|How much does a room in the Hotel Coral cost?": [
+"not_reasoned",
+false,
+null,
+"fc3bc57f84be48713eab"
+],
+"coral|ana|How much does the taxi to the Faro del Sur cost?": [
+"not_reasoned",
+false,
+null,
+"8ad23845ea61545a28b3"
+],
+"coral|ana|How much is the taxi to the Cueva Marina?": [
+"not_reasoned",
+false,
+null,
+"8641faf2a2beb4c51817"
+],
+"coral|ana|ID del Mercado Central": [
+"not_reasoned",
+false,
+null,
+"54b6657b895fc39cd09a"
+],
+"coral|ana|ID of the Mercado": [
+"ambiguous",
+false,
+null,
+"3ccbece01c78c1d00398"
+],
+"coral|ana|Is the Faro del Norte open at night?": [
+"not_reasoned",
+false,
+null,
+"8641faf2a2beb4c51817"
+],
+"coral|ana|Is trading allowed in the Mercado Nocturno after midnight?": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"coral|ana|What is the ID of the Faro del Este?": [
+"missing",
+false,
+null,
+"3dd16f8061b6f9952ff1"
+],
+"coral|ana|What is the ID of the Mercado Nocturno?": [
+"unverified",
+false,
+"2104561",
+"c87ffdab99d2a4ee9f6f"
+],
+"coral|ana|What is the room ID and who is the caretaker of the Faro del Norte?": [
+"not_reasoned",
+false,
+null,
+"ba32e2f58561a64121d5"
+],
+"coral|ana|What is the room ID of the Faro?": [
+"ambiguous",
+false,
+null,
+"2b6cd3b467f9235a4416"
+],
+"coral|ana|What is the room ID of the Hotel Coral?": [
+"established",
+true,
+"2104580",
+"d77bb5edf183a3290042"
+],
+"coral|ana|What is the room ID of the Torre del Reloj?": [
+"missing",
+false,
+null,
+"059fa0e34df8a15eac34"
+],
+"coral|ana|What is the room ID of the room where Don Tito is the encargado?": [
+"established",
+true,
+"2104560",
+"99805248f9b13665dc03"
+],
+"coral|ana|When does the Torre del Reloj close?": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"coral|ana|Where do the east stairs of the Mercado Central lead?": [
+"unverified",
+false,
+"Torre del Reloj",
+"d8d5711ace36f4abd9dd"
+],
+"coral|ana|Where does the south exit of the Puerto Coral lead?": [
+"missing",
+false,
+null,
+"2f6445609272da60d578"
+],
+"coral|ana|Who is the caretaker of the Cueva Marina?": [
+"missing",
+false,
+null,
+"dfc3c1da3f63640738c4"
+],
+"coral|ana|Who is the caretaker of the Faro del Norte?": [
+"established",
+true,
+"Rafa",
+"79cf22c99645e87178f7"
+],
+"coral|ana|Who is the caretaker of the Faro del Sur?": [
+"unverified",
+false,
+"Rafael",
+"75b8d55887b2e6bb91bb"
+],
+"coral|ana|Who is the caretaker of the Faro?": [
+"ambiguous",
+false,
+null,
+"2b6cd3b467f9235a4416"
+],
+"coral|ana|Who is the caretaker of the Hotel Coral?": [
+"missing",
+false,
+null,
+"8ab715418f486fccdf7f"
+],
+"coral|ana|Who is the caretaker of the room the north exit of the Puerto Coral leads to?": [
+"established",
+true,
+"Rafa",
+"adeb9c132f63790aede2"
+],
+"coral|ana|Who runs the Mercado Nocturno?": [
+"missing",
+false,
+null,
+"49102a1d0f494d19be66"
+],
+"coral|ana|Who runs the Puerto Coral?": [
+"established",
+true,
+"Capitana Irene",
+"776da3fa4f8a5a6bcaa7"
+],
+"coral|ana|trade password coral": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"coral|ana|¿A dónde lleva la salida norte del Puerto Coral?": [
+"established",
+true,
+"Faro del Norte",
+"eb520f81ba5f3bcbed01"
+],
+"coral|ana|¿A qué hora abre el Mercado Nocturno?": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"coral|ana|¿Cuál es el ID del Faro del Sur?": [
+"unverified",
+false,
+"2104553",
+"14532d7684293a2affa6"
+],
+"coral|ana|¿Cuál es el ID del Mercado Central y quién es su encargado?": [
+"not_reasoned",
+false,
+null,
+"54b6657b895fc39cd09a"
+],
+"coral|ana|¿Cuál es el ID del Puerto Coral?": [
+"established",
+true,
+"2104551",
+"a7d13d7de61cb058878f"
+],
+"coral|ana|¿Cuántas monedas da la misión del Faro del Norte?": [
+"established",
+true,
+"30 coins",
+"702af7b5270c49bf33a6"
+],
+"coral|ana|¿Cuántas monedas da la misión del Mercado Central?": [
+"missing",
+false,
+null,
+"f44da840c4991e00c901"
+],
+"coral|ana|¿Quién es el encargado del Mercado Central?": [
+"established",
+true,
+"Don Tito",
+"84e3d16f1aa3eff861aa"
+],
+"coral|luis|Faro del Norte room ID": [
+"not_reasoned",
+false,
+null,
+"a1f6c8487e5134a7666c"
+],
+"coral|luis|Marta Irene Puerto Coral 9pm": [
+"not_reasoned",
+false,
+null,
+"5c52866aa761535001e8"
+],
+"coral|luis|What is the room ID of the Hotel Coral?": [
+"established",
+true,
+"2104580",
+"d77bb5edf183a3290042"
+],
+"coral|luis|locker code Hotel Coral": [
+"not_reasoned",
+false,
+null,
+"8ad23845ea61545a28b3"
+],
+"coral|marta|Where is Luis's hidden stash?": [
+"not_reasoned",
+false,
+null,
+"5c52866aa761535001e8"
+],
+"coral|mod|Torre del Reloj room ID": [
+"not_reasoned",
+false,
+null,
+"5c52866aa761535001e8"
+]
+}
