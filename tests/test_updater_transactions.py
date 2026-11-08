@@ -159,13 +159,12 @@ class Success(Base):
     def test_release_files_named_like_protected_ones_are_ignored(self):
         evil = dict(NEW, **{"config.json": "{}", "data/memory.db": "x", ".venv/x": "x",
                             "_previous/x": "x", updater.MANIFEST: "{}",
-                            updater.JOURNAL: "{}", "Config.JSON": "{}"})
+                            updater.JOURNAL: "{}"})
         self.install(make_zip(evil))
         snap = snapshot(self.target)
         self.assertEqual(snap["config.json"], b'{"mine": true}')
         self.assertEqual(snap["data/memory.db"], b"my memory")
         self.assertNotIn(".venv/x", snap)
-        self.assertNotIn("Config.JSON", snap)
         self.assertIn(updater.MANIFEST, snap)
         self.assertNotEqual(snap[updater.MANIFEST], b"{}")
         self.assert_clean()
@@ -232,6 +231,11 @@ class Refused(Base):
 
     def test_not_a_zip(self):
         self.assertIn("not a valid ZIP", self.refused(b"this is not a zip file at all"))
+
+    def test_names_that_differ_only_in_case_are_refused(self):
+        # on Windows they are the same file: which one would win is ambiguous
+        self.assertIn("twice", self.refused(make_zip(dict(NEW, **{"Config.JSON": "{}",
+                                                                   "config.json": "{}"}))))
 
     def test_truncated_zip(self):
         self.refused(make_zip(NEW)[:-200])
@@ -579,6 +583,9 @@ LOCK_STRESS = textwrap.dedent("""
     from puzzle_assistant import updater
     target, rounds, who = sys.argv[2], int(sys.argv[3]), sys.argv[4]
     marker = os.path.join(target, "inside")
+    go = os.path.join(target, "go")
+    while not os.path.exists(go):          # all processes start contending together
+        time.sleep(0.001)
     got = bad = 0
     for i in range(rounds):
         lock = updater._Lock(target)
@@ -592,6 +599,7 @@ LOCK_STRESS = textwrap.dedent("""
             except FileExistsError:
                 bad += 1
             lock.release()
+        time.sleep(0.0003)                 # give the others a turn
     print(who, got, bad)
 """)
 
@@ -647,10 +655,12 @@ class Concurrency(Base):
             fh.write(LOCK_STRESS)
         procs = [subprocess.Popen([sys.executable, script, ROOT, self.target, "300", str(i)],
                                   stdout=subprocess.PIPE, text=True) for i in range(4)]
+        open(os.path.join(self.target, "go"), "w").close()
         results = [p.communicate(timeout=120)[0].split() for p in procs]
         self.assertTrue(all(p.returncode == 0 for p in procs))
         self.assertEqual([int(r[2]) for r in results], [0, 0, 0, 0])       # never two inside
-        self.assertGreater(sum(int(r[1]) for r in results), 50)
+        # and the lock really was contended and handed around
+        self.assertGreaterEqual(sum(1 for r in results if int(r[1]) > 0), 2, results)
 
     def test_concurrent_installs_and_recovery_never_mix(self):
         self.with_manifest()

@@ -38,13 +38,27 @@ class UpdaterTests(unittest.TestCase):
         self.assertFalse(updater.newer("2.5", "2.6.0"))
 
     def test_check(self):
-        latest = {"version": "99.0.0", "zip": "dist/SK_Assistant_v99.0.zip", "sha256": "AB",
-                  "size": 10, "notes": "x"}
-        rel = updater.check(lambda url: json.dumps(latest).encode())
-        self.assertEqual((rel.version, rel.sha256), ("99.0.0", "ab"))
+        # only a manifest signed by a trusted key is used (tests/test_updater_signing.py)
+        sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tools"))
+        import update_signing
+        from puzzle_assistant import ed25519
+        seed = hashlib.sha256(b"SK test key - never trusted by a release").digest()
+        pub = ed25519.public_key(seed)
+        trusted = {updater.key_id(pub): pub.hex()}
+
+        def latest(version):
+            return json.dumps(update_signing.make_manifest(
+                version, "dist/SK_Assistant_v99.0.zip", "ab" * 32, 10, "x", [seed])).encode()
+        rel = updater.check(lambda url: latest("99.0.0"), trusted=trusted, revoked=frozenset())
+        self.assertEqual((rel.version, rel.sha256), ("99.0.0", "ab" * 32))
         self.assertTrue(rel.url.endswith("/dist/SK_Assistant_v99.0.zip"))
-        latest["version"] = __version__
-        self.assertIsNone(updater.check(lambda url: json.dumps(latest).encode()))
+        self.assertIsNone(updater.check(lambda url: latest(__version__), trusted=trusted,
+                                        revoked=frozenset()))
+        unsigned = {"version": "99.0.0", "zip": "dist/SK_Assistant_v99.0.zip",
+                    "sha256": "ab" * 32, "size": 10, "notes": "x"}
+        with self.assertRaises(updater.UpdateError):
+            updater.check(lambda url: json.dumps(unsigned).encode(), trusted=trusted,
+                          revoked=frozenset())
 
     def test_download_is_verified(self):
         data = make_zip({"puzzle_assistant/__init__.py": "x"})

@@ -91,24 +91,152 @@ def newer(remote: str, local: str = __version__) -> bool:
     return parse_version(remote) > parse_version(local)
 
 
-def _get(url: str, timeout: float = 15.0) -> bytes:
+@dataclass(frozen=True)
+class Limits:
+    """Upper bounds for an update. They come from the INSTALLED program, never
+    from the update itself, so a package cannot raise them. The defaults are
+    several times larger than a real release (3.0: 11.8 MB ZIP, 15 MB
+    unpacked, 135 files, largest file 2.3 MB, worst compression 7:1) and far
+    below anything that could fill a disk or exhaust memory."""
+    manifest_bytes: int = 64 * 1024          # latest.json
+    download_bytes: int = 64 * 1024 * 1024   # the ZIP
+    extracted_bytes: int = 160 * 1024 * 1024  # all files unpacked together
+    files: int = 2000                        # entries in the ZIP
+    file_bytes: int = 32 * 1024 * 1024       # one unpacked file
+    ratio: int = 100                         # unpacked / compressed, per file over ratio_from
+    ratio_from: int = 64 * 1024
+    total_ratio: int = 20                    # all unpacked bytes / ZIP size
+    path_chars: int = 200                    # one file name (Windows paths stay short)
+
+
+LIMITS = Limits()
+
+SIGNED_FORMAT = 1
+SIGNATURE_DOMAIN = b"SK-Assistant update manifest v1\n"   # signatures are for this use only
+_VERSION_RE = re.compile(r"^\d{1,4}(\.\d{1,4}){0,2}$")
+_ZIP_RE = re.compile(r"^dist/[A-Za-z0-9][A-Za-z0-9._-]{0,100}\.zip$")
+
+
+def key_id(public_key: bytes) -> str:
+    return hashlib.sha256(public_key).hexdigest()[:16]
+
+
+def _trusted_keys(trusted: Optional[Dict[str, str]] = None,
+                  revoked: Optional[frozenset] = None) -> Dict[str, bytes]:
+    """key id -> public key bytes, without revoked keys. Entries whose id does
+    not match their key are ignored."""
+    if trusted is None or revoked is None:
+        from . import update_keys
+        trusted = update_keys.TRUSTED_KEYS if trusted is None else trusted
+        revoked = update_keys.REVOKED_KEYS if revoked is None else revoked
+    out = {}
+    for kid, hexkey in trusted.items():
+        try:
+            pub = bytes.fromhex(hexkey)
+        except (TypeError, ValueError):
+            continue
+        if len(pub) == 32 and key_id(pub) == kid and kid not in revoked:
+            out[kid] = pub
+    return out
+
+
+def _no_duplicates(pairs):
+    seen = {}
+    for k, v in pairs:
+        if k in seen:
+            raise ValueError(f"duplicate field {k!r}")
+        seen[k] = v
+    return seen
+
+
+def verify_manifest(raw: bytes, trusted: Optional[Dict[str, str]] = None,
+                    revoked: Optional[frozenset] = None,
+                    limits: Limits = LIMITS) -> dict:
+    """Check latest.json and return its SIGNED content. Raises UpdateError
+    when it is not signed by a trusted key or is not a valid manifest.
+
+    latest.json keeps the plain fields older SK versions read (version, zip,
+    sha256, size, notes) and adds:
+      "signed":     the manifest as an exact JSON text - the only part used;
+      "signatures": [{"key_id": ..., "sig": <base64 Ed25519 signature over
+                     SIGNATURE_DOMAIN + the UTF-8 bytes of "signed">}, ...]
+    """
+    from . import ed25519
+    import base64
+    if len(raw) > limits.manifest_bytes:
+        raise UpdateError("the update information is too large to be genuine")
+    keys = _trusted_keys(trusted, revoked)
+    if not keys:
+        raise UpdateError("this version of SK Assistant has no trusted update key, so it "
+                          "cannot accept any update (it never installs unsigned updates)")
+    try:
+        outer = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise UpdateError(f"the update information is not valid ({exc})")
+    signed = outer.get("signed") if isinstance(outer, dict) else None
+    sigs = outer.get("signatures") if isinstance(outer, dict) else None
+    if not isinstance(signed, str) or not isinstance(sigs, list) or not sigs:
+        raise UpdateError("the update information is not signed, so it was ignored")
+    message = SIGNATURE_DOMAIN + signed.encode("utf-8")
+    good = False
+    for entry in sigs[:8]:
+        if not isinstance(entry, dict):
+            continue
+        pub = keys.get(entry.get("key_id"))
+        if pub is None:
+            continue
+        try:
+            sig = base64.b64decode(str(entry.get("sig", "")), validate=True)
+        except ValueError:
+            continue
+        if ed25519.verify(pub, message, sig):
+            good = True
+            break
+    if not good:
+        raise UpdateError("the update information does not carry a valid signature from a "
+                          "trusted SK Assistant key, so it was ignored")
+    try:
+        m = json.loads(signed, object_pairs_hook=_no_duplicates)
+    except ValueError as exc:
+        raise UpdateError(f"the signed update information is not valid ({exc})")
+    ok = isinstance(m, dict) and m.get("format") == SIGNED_FORMAT and \
+        m.get("product") == "SK Assistant" and \
+        isinstance(m.get("version"), str) and _VERSION_RE.match(m["version"]) and \
+        isinstance(m.get("zip"), str) and _ZIP_RE.match(m["zip"]) and \
+        isinstance(m.get("sha256"), str) and re.fullmatch(r"[0-9a-f]{64}", m["sha256"]) and \
+        type(m.get("size")) is int and 0 < m["size"] <= limits.download_bytes and \
+        isinstance(m.get("notes", ""), str)
+    if not ok:
+        raise UpdateError("the signed update information is incomplete or out of range")
+    return m
+
+
+def _get(url: str, timeout: float = 15.0, limit: int = LIMITS.manifest_bytes) -> bytes:
     req = urllib.request.Request(url, headers=UA)
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+        data = r.read(limit + 1)                 # never more than the limit
+    if len(data) > limit:
+        raise UpdateError("the update information is too large to be genuine")
+    return data
 
 
-def check(fetch: Callable[[str], bytes] = _get) -> Optional[Release]:
+def check(fetch: Callable[[str], bytes] = _get, trusted: Optional[Dict[str, str]] = None,
+          revoked: Optional[frozenset] = None, limits: Limits = LIMITS) -> Optional[Release]:
     """The newest release if it is newer than this version, else None.
-    Raises OSError / ValueError when the check itself fails."""
-    data = json.loads(fetch(LATEST_URL).decode("utf-8"))
-    rel = Release(str(data["version"]), BASE + str(data["zip"]), str(data["sha256"]).lower(),
-                  int(data["size"]), str(data.get("notes", "")))
+    Only a manifest signed by a trusted key is used. Raises UpdateError (or
+    OSError when the server cannot be reached) when the check fails."""
+    m = verify_manifest(fetch(LATEST_URL), trusted, revoked, limits)
+    rel = Release(m["version"], BASE + m["zip"], m["sha256"], m["size"], m.get("notes", ""))
     return rel if newer(rel.version) else None
 
 
 def download(rel: Release, progress: Optional[Callable[[float], None]] = None,
-             opener=urllib.request.urlopen) -> str:
-    """Download to a temporary file and verify it. Returns its path."""
+             opener=urllib.request.urlopen, limits: Limits = LIMITS) -> str:
+    """Download to a temporary file and verify size and SHA-256 against the
+    (signed) release. Never reads more than the announced size. Returns its
+    path; nothing is left behind on failure."""
+    if not 0 < rel.size <= limits.download_bytes:
+        raise UpdateError(f"the update is larger than allowed ({rel.size} bytes)")
     fd, path = tempfile.mkstemp(prefix="sk_update_", suffix=".zip")
     h = hashlib.sha256()
     done = 0
@@ -116,12 +244,14 @@ def download(rel: Release, progress: Optional[Callable[[float], None]] = None,
         with os.fdopen(fd, "wb") as out, opener(urllib.request.Request(rel.url, headers=UA),
                                                timeout=30) as r:
             while True:
-                chunk = r.read(256 * 1024)
+                chunk = r.read(min(256 * 1024, rel.size + 1 - done))
                 if not chunk:
                     break
+                done += len(chunk)
+                if done > rel.size:
+                    raise ValueError("the download is larger than announced")
                 out.write(chunk)
                 h.update(chunk)
-                done += len(chunk)
                 if progress and rel.size:
                     progress(min(1.0, done / rel.size))
         if done != rel.size or h.hexdigest() != rel.sha256:
@@ -133,6 +263,18 @@ def download(rel: Release, progress: Optional[Callable[[float], None]] = None,
         except OSError:
             pass
         raise
+
+
+def verify_package(zip_path: str, rel: Release) -> None:
+    """The file on disk is exactly the signed package (checked again right
+    before installing, in case the temporary file was changed)."""
+    try:
+        size = os.path.getsize(zip_path)
+        digest = _sha(zip_path)
+    except OSError as exc:
+        raise UpdateError(f"the downloaded update cannot be read ({exc})")
+    if size != rel.size or digest != rel.sha256:
+        raise UpdateError("the downloaded update does not match the signed release")
 
 
 # ---------------------------------------------------------------------------
@@ -191,17 +333,41 @@ def _put(src: str, dst: str) -> None:
     for attempt in range(3):
         try:
             os.replace(tmp, dst)
+            _drop_bytecode(dst)
             return
         except PermissionError:
             time.sleep(0.2 * (attempt + 1))      # e.g. a virus scanner looking at it
     try:
         shutil.copyfile(tmp, dst)
         shutil.copystat(tmp, dst)
+        _drop_bytecode(dst)
     finally:
         try:
             os.remove(tmp)
         except OSError:
             pass
+
+
+def _drop_bytecode(py_path: str) -> None:
+    """Python reuses __pycache__ bytecode when a source file's size and
+    modification time (to the second) match what it recorded. An update
+    keeps the ZIP's timestamps, so a replaced .py of the same size could
+    otherwise keep running its OLD code. Remove the cached bytecode of every
+    .py the updater writes; Python rebuilds it from the new source."""
+    if not py_path.endswith(".py"):
+        return
+    cache = os.path.join(os.path.dirname(py_path), "__pycache__")
+    stem = os.path.basename(py_path)[:-3] + "."
+    try:
+        names = os.listdir(cache)
+    except OSError:
+        return
+    for name in names:
+        if name.startswith(stem) and name.endswith(".pyc"):
+            try:
+                os.remove(os.path.join(cache, name))
+            except OSError:
+                pass
 
 
 def _remove(path: str) -> None:
@@ -323,7 +489,113 @@ def _same_version(a: Optional[str], b: str) -> bool:
     return pa + [0] * (n - len(pa)) == pb + [0] * (n - len(pb))
 
 
-def stage(zip_path: str, target: str, expected_version: Optional[str] = None) -> str:
+_WIN_RESERVED = {"con", "prn", "aux", "nul"} | {f"com{i}" for i in range(1, 10)} | \
+    {f"lpt{i}" for i in range(1, 10)}
+
+
+def _unsafe_name(name: str, limits: Limits) -> Optional[str]:
+    if not name or len(name) > limits.path_chars:
+        return "file name too long"
+    if any(ord(c) < 32 for c in name) or "\\" in name or ":" in name or name.startswith("/"):
+        return "unsafe file name"
+    for part in name.rstrip("/").split("/"):
+        if part in ("", ".", "..") or part != part.rstrip(". ") or \
+                part.split(".")[0].lower() in _WIN_RESERVED:
+            return "unsafe file name"
+    return None
+
+
+def _inspect_zip(z: zipfile.ZipFile, zip_size: int, limits: Limits) -> List[zipfile.ZipInfo]:
+    """Everything that can be checked from the ZIP's directory, before a
+    single byte is unpacked. Returns the file entries to extract."""
+    import stat
+    import struct
+    infos = z.infolist()
+    if not infos:
+        raise UpdateError("the update package is empty")
+    if len(infos) > limits.files:
+        raise UpdateError(f"the update package has too many files ({len(infos)})")
+    total, seen, files = 0, set(), []
+    for i in infos:
+        problem = _unsafe_name(i.filename, limits)
+        if problem:
+            raise UpdateError(f"{problem} in the update ({i.filename[:80]!r})")
+        key = i.filename.rstrip("/").lower()
+        if key in seen:
+            raise UpdateError(f"the update package lists a file twice ({i.filename[:80]!r})")
+        seen.add(key)
+        if i.flag_bits & 0x1:
+            raise UpdateError("the update package contains encrypted files")
+        kind = stat.S_IFMT(i.external_attr >> 16)
+        if kind not in (0, stat.S_IFREG, stat.S_IFDIR):
+            raise UpdateError(f"the update package contains a link or special file "
+                              f"({i.filename[:80]!r})")
+        if i.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            raise UpdateError("the update package uses an unsupported compression")
+        if i.is_dir():
+            if i.file_size:
+                raise UpdateError("the update package is malformed")
+            continue
+        if i.file_size > limits.file_bytes:
+            raise UpdateError(f"a file in the update is too large ({i.filename[:80]!r})")
+        if i.file_size > limits.ratio_from and i.file_size > limits.ratio * max(i.compress_size, 1):
+            raise UpdateError(f"a file in the update is suspiciously compressed "
+                              f"({i.filename[:80]!r}) - possible ZIP bomb")
+        total += i.file_size
+        if total > limits.extracted_bytes:
+            raise UpdateError("the update would unpack to more than allowed - possible ZIP bomb")
+        files.append(i)
+    if total > limits.ratio_from and total > limits.total_ratio * max(zip_size, 1):
+        raise UpdateError("the update is suspiciously compressed - possible ZIP bomb")
+    # entries must not share or overlap their data (another ZIP-bomb trick)
+    end_of_data = getattr(z, "start_dir", None)
+    spans = []
+    for i in infos:
+        z.fp.seek(i.header_offset)
+        head = z.fp.read(30)
+        if len(head) != 30 or head[:4] != b"PK\x03\x04":
+            raise UpdateError("the update package is malformed")
+        n, e = struct.unpack("<HH", head[26:30])
+        spans.append((i.header_offset, i.header_offset + 30 + n + e + i.compress_size))
+    spans.sort()
+    for (s1, e1), (s2, _) in zip(spans, spans[1:]):
+        if s2 < e1:
+            raise UpdateError("the update package has overlapping files - possible ZIP bomb")
+    if spans and end_of_data is not None and spans[-1][1] > end_of_data:
+        raise UpdateError("the update package is malformed")
+    return files
+
+
+def _extract(z: zipfile.ZipFile, files: List[zipfile.ZipInfo], staging: str,
+             limits: Limits) -> None:
+    """Unpack, counting the real bytes (never trusting the declared sizes)."""
+    root = os.path.realpath(staging)
+    os.makedirs(root, exist_ok=True)
+    total = 0
+    for i in files:
+        dest = os.path.join(root, *i.filename.split("/"))
+        if os.path.commonpath([root, os.path.realpath(dest)]) != root:
+            raise UpdateError("unsafe file name in the update")
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        written = 0
+        with z.open(i) as src, open(dest, "xb") as out:
+            while True:
+                chunk = src.read(256 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                total += len(chunk)
+                if written > min(i.file_size, limits.file_bytes) or \
+                        total > limits.extracted_bytes:
+                    raise UpdateError("the update unpacks to more than it declares - "
+                                      "possible ZIP bomb")
+                out.write(chunk)
+        if written != i.file_size:
+            raise UpdateError(f"the update package is damaged ({i.filename[:80]!r})")
+
+
+def stage(zip_path: str, target: str, expected_version: Optional[str] = None,
+          limits: Limits = LIMITS) -> str:
     """Unpack and check the update in `target`/_update_staging. Returns the
     folder holding the new program files. Raises UpdateError (nothing in the
     installation has changed) when the package is not usable."""
@@ -332,19 +604,10 @@ def stage(zip_path: str, target: str, expected_version: Optional[str] = None) ->
     try:
         try:
             with zipfile.ZipFile(zip_path) as z:
-                names = z.namelist()
-                if not names:
-                    raise UpdateError("the update package is empty")
-                for n in names:                   # no paths outside the folder
-                    norm = n.replace("\\", "/")
-                    if norm.startswith("/") or ":" in norm or ".." in norm.split("/"):
-                        raise UpdateError("unsafe file name in the update")
-                bad = z.testzip()                 # every file's CRC
-                if bad is not None:
-                    raise UpdateError(f"the update package is damaged ({bad})")
-                z.extractall(staging)
+                files = _inspect_zip(z, os.path.getsize(zip_path), limits)
+                _extract(z, files, staging, limits)   # CRC of every file is checked here
         except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError) as exc:
-            raise UpdateError(f"the update package is not a valid ZIP file ({exc})")
+            raise UpdateError(f"the update package is damaged or not a valid ZIP file ({exc})")
         tops = [d for d in os.listdir(staging) if os.path.isdir(os.path.join(staging, d))]
         src = os.path.join(staging, tops[0]) if len(tops) == 1 and \
             len(os.listdir(staging)) == 1 else staging
@@ -419,13 +682,16 @@ _BUSY = "An update is being installed by another SK Assistant window right now."
 
 
 def install(zip_path: str, target: Optional[str] = None, expected_version: Optional[str] = None,
-            packages: Optional[Callable[[List[str], str], None]] = None) -> List[str]:
+            packages: Optional[Callable[[List[str], str], None]] = None,
+            release: Optional[Release] = None, limits: Limits = LIMITS) -> List[str]:
     """Install the verified ZIP into `target` as one transaction. Returns the
     files that changed (added, replaced or removed). The ZIP is deleted
     afterwards. On failure raises UpdateError after putting everything back.
 
     `packages(changed, target)` (default: update_packages) runs before the
-    update is committed; if it fails the program files are restored too."""
+    update is committed; if it fails the program files are restored too.
+    `release` (from check(): signed) makes the ZIP be checked against its
+    signed size and SHA-256 once more before anything is unpacked."""
     target = target or app_dir()
     packages = update_packages if packages is None else packages
     lock = _Lock(target)
@@ -441,8 +707,12 @@ def install(zip_path: str, target: Optional[str] = None, expected_version: Optio
             if os.path.exists(os.path.join(target, JOURNAL)):
                 raise UpdateError(f"{note} The new update was not started.",
                                   installed_changed=True)
+            if release is not None:
+                expected_version = expected_version or release.version
             try:
-                src = stage(zip_path, target, expected_version)
+                if release is not None:
+                    verify_package(zip_path, release)
+                src = stage(zip_path, target, expected_version, limits)
             except UpdateError as exc:
                 raise UpdateError(_NOT_INSTALLED.format(exc)) from None
             try:

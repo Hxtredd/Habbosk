@@ -298,12 +298,12 @@ class SettingsWindow:
                 try:
                     say("Downloading… 0 %")
                     path = updater.download(rel, lambda x: say(f"Downloading… {x * 100:.0f} %"))
-                except Exception as exc:
+                except Exception as exc:          # the download is deleted; nothing installed
                     say(f"The download failed ({exc}). Nothing was changed.", WARN)
                     return
                 try:
                     say("Checking and installing…")
-                    changed = updater.install(path, expected_version=rel.version)
+                    changed = updater.install(path, release=rel)
                 except updater.UpdateError as exc:      # says exactly what was changed
                     say(str(exc), WARN)
                     return
