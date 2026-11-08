@@ -11,7 +11,7 @@ Design rules (owner's requirements):
     can be added later without redesign (no accounts / sync yet).
 """
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 -- who did something: the local user, the importer, SK itself, later other users
@@ -132,13 +132,87 @@ CREATE TABLE IF NOT EXISTS claim_index (
     subject_norm TEXT NOT NULL DEFAULT '',
     positive INTEGER NOT NULL DEFAULT 1   -- 0 = negated statement ("is not", "no está")
 );
+
+-- B5 knowledge model ----------------------------------------------------------------
+-- relations are DATA: B3's five are built in; more can be added without code
+CREATE TABLE IF NOT EXISTS relations (
+    key TEXT PRIMARY KEY,
+    value_type TEXT NOT NULL,          -- place | person | number | text
+    cardinality TEXT NOT NULL,         -- one | many (used for conflicts from B9 on)
+    changes INTEGER NOT NULL DEFAULT 0,   -- 1 = changes over time
+    labels TEXT NOT NULL DEFAULT '{}',    -- {"en": "who looks after it", "es": ...}
+    sentence_forms TEXT NOT NULL DEFAULT '[]',   -- added relations: "{value} opens the {place}"
+    question_forms TEXT NOT NULL DEFAULT '[]',   -- added relations: "when does {place} open"
+    builtin INTEGER NOT NULL DEFAULT 0,
+    added_by TEXT,
+    added_at TEXT
+);
+
+-- the structured fact each claim states: DERIVED data (like claim_index), rebuilt
+-- from claims; a fact has no status, evidence or owner of its own - its claim's
+CREATE TABLE IF NOT EXISTS claim_facts (
+    claim_id INTEGER PRIMARY KEY REFERENCES claims(id),
+    claim_version INTEGER NOT NULL,
+    text_sha TEXT NOT NULL,            -- the wording the fact was read from
+    relation TEXT,                     -- NULL = this claim states no fact
+    place TEXT,
+    value TEXT,
+    absent INTEGER NOT NULL DEFAULT 0, -- 1 = documented absence
+    qualifier TEXT NOT NULL DEFAULT '',
+    display TEXT NOT NULL DEFAULT '',
+    as_of TEXT,                        -- reserved for dates (later milestones)
+    valid_until TEXT,
+    method TEXT NOT NULL               -- how it was read, e.g. 'b3-forms-v1'
+);
+
+-- people / places / things, created by a person (never merged automatically)
+CREATE TABLE IF NOT EXISTS entities (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    key TEXT NOT NULL,                 -- normalised name (as facts compare names)
+    kind TEXT NOT NULL DEFAULT '',     -- free label: "room", "person", "city"...
+    status TEXT NOT NULL,              -- approved | proposed (automatic contributors)
+    scope TEXT NOT NULL DEFAULT 'personal',
+    owner_id TEXT REFERENCES contributors(id),
+    created TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entities_key ON entities(key);
+CREATE TABLE IF NOT EXISTS aliases (
+    id INTEGER PRIMARY KEY,
+    entity_id INTEGER NOT NULL REFERENCES entities(id),
+    alias TEXT NOT NULL,
+    key TEXT NOT NULL,
+    language TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,              -- approved | proposed - only approved ones are used
+    scope TEXT NOT NULL DEFAULT 'personal',
+    owner_id TEXT REFERENCES contributors(id),
+    added_by TEXT NOT NULL,
+    added_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_aliases_key ON aliases(key);
+-- "same as" between two entities: only added by a person, reversible (kept as history)
+CREATE TABLE IF NOT EXISTS entity_links (
+    id INTEGER PRIMARY KEY,
+    a INTEGER NOT NULL REFERENCES entities(id),
+    b INTEGER NOT NULL REFERENCES entities(id),
+    scope TEXT NOT NULL DEFAULT 'personal',
+    owner_id TEXT REFERENCES contributors(id),
+    active INTEGER NOT NULL DEFAULT 1,
+    added_by TEXT NOT NULL,
+    added_at TEXT NOT NULL,
+    removed_by TEXT,
+    removed_at TEXT
+);
 """
 
 # v1 -> v2: owner of each claim (= who created it) and the status of old versions
 # v2 -> v3: the search index (claim_index above, created by SCHEMA; filled by
 #           the store) and claim_events.related_claim - additive, no existing
 #           row is changed
+# v3 -> v4: the B5 tables above (created by SCHEMA, additive). An older file is
+#           NEVER upgraded in place: brain/migrate.py upgrades a verified copy.
 MIGRATIONS = {
+    4: [],
     3: ["ALTER TABLE claim_events ADD COLUMN related_claim INTEGER"],
     2: [
         "ALTER TABLE claims ADD COLUMN owner_id TEXT REFERENCES contributors(id)",

@@ -23,17 +23,23 @@ from __future__ import annotations
 
 import datetime as _dt
 import functools
+import hashlib
 import json
 import os
 import re
+import shutil
 import sqlite3
+import tempfile
 import threading
 import uuid
 from typing import Dict, List, Optional
 
 from .model import (AUTOMATIC_KINDS, EVIDENCE_KINDS, MODERATOR_KINDS, ORIGINS, SCOPES,
                     SOURCE_KINDS, STATUSES)
+from .facts import compile_form, extract_all, key as name_key
+from .relations import BUILTIN, CARDINALITIES, FACTS_METHOD, KEY_RE, VALUE_TYPES
 from .schema import MIGRATIONS, SCHEMA, SCHEMA_VERSION
+from .sqlite_ro import connect_readonly
 from .text import INDEX_VERSION, index_text, normalize, polarity
 
 SYSTEM = "system"
@@ -42,6 +48,58 @@ IMPORTER = "importer"
 
 class BrainError(ValueError):
     """A request that would break the Brain's rules (nothing was changed)."""
+
+
+class NeedsMigration(BrainError):
+    """An older knowledge database: it is never upgraded in place. Make an
+    upgraded, verified copy with brain.migrate.migrate_file(); the original
+    is left exactly as it is."""
+
+
+FACTS_VERSION = "1"
+
+
+def _text_sha(text: str, subject: str) -> str:
+    return hashlib.sha256(f"{text or ''}\0{subject or ''}".encode("utf-8")).hexdigest()[:16]
+
+
+def peek_schema_version(path: str) -> Optional[int]:
+    """The schema version of an existing database WITHOUT changing it (None
+    for a missing / empty / brand-new file). Read-only connection; if that
+    cannot read it (e.g. a leftover journal that would need recovery), the
+    file and its sidecars are copied to a private temporary folder and the
+    COPY is read - the original is never written."""
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return None
+
+    def read(con) -> Optional[int]:
+        has = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'"
+                          ).fetchone()
+        if not has:
+            return None
+        r = con.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+        return int(r[0]) if r and str(r[0]).isdigit() else None
+    try:
+        con = connect_readonly(path)
+        try:
+            return read(con)
+        finally:
+            con.close()
+    except sqlite3.OperationalError:
+        pass
+    tmp = tempfile.mkdtemp(prefix="sk_brain_peek_")
+    try:
+        copy = os.path.join(tmp, "k.db")
+        for suffix in ("", "-journal", "-wal"):
+            if os.path.isfile(path + suffix):
+                shutil.copyfile(path + suffix, copy + suffix)
+        con = sqlite3.connect(copy)
+        try:
+            return read(con)
+        finally:
+            con.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _now() -> str:
@@ -73,11 +131,24 @@ def _atomic(fn):
 
 
 class KnowledgeStore:
-    def __init__(self, path: str):
+    def __init__(self, path: str, _upgrade: bool = False):
+        """`_upgrade` is only used by brain.migrate on its own new COPY: an
+        existing older file is otherwise refused, unchanged (NeedsMigration)."""
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         self.path = path
         self._lock = threading.RLock()
         self._depth = 0
+        self._forms = None
+        v = peek_schema_version(path)
+        if v is not None and v > SCHEMA_VERSION:
+            raise BrainError(f"this knowledge database was made by a newer SK Assistant (format "
+                             f"{v}, this version knows {SCHEMA_VERSION}); it was not opened, "
+                             "so nothing in it was changed - please update SK Assistant")
+        if v is not None and v < SCHEMA_VERSION and not _upgrade:
+            raise NeedsMigration(
+                f"this knowledge database is in an older format ({v}); it was not opened and "
+                f"nothing in it was changed. Make an upgraded copy with "
+                f"brain.migrate.migrate_file() - the original is kept as it is")
         self._db = sqlite3.connect(path, check_same_thread=False)
         try:
             self._open()
@@ -100,8 +171,10 @@ class KnowledgeStore:
             self._db.execute("INSERT INTO contributors VALUES (?,?,?,?)",
                              (uid, "Local user", "local_user", _now()))
             self._set_meta("local_user", uid)
+        self._ensure_relations()
         self._db.commit()
         self._ensure_index()
+        self._ensure_facts()
 
     def close(self) -> None:
         with self._lock:
@@ -124,6 +197,7 @@ class KnowledgeStore:
         self._set_meta("fts_stale", "1")
 
     def _index_claim(self, claim_id: int, text: str, subject: str, category: str) -> None:
+        self._store_fact(claim_id, text, subject)
         t = index_text(text, subject or "", category or "")
         self._db.execute("INSERT OR REPLACE INTO claim_index (claim_id, terms, subject_terms, norm, "
                          "subject_norm, positive) VALUES (?,?,?,?,?,?)",
@@ -172,6 +246,294 @@ class KnowledgeStore:
                 self._db.execute("DELETE FROM meta WHERE key='fts_stale'")
             self._db.commit()
 
+    # -- structured facts (B5): derived from claims, like the search index -------
+    def _store_fact(self, claim_id: int, text: str, subject: str) -> None:
+        r = self._db.execute("SELECT version FROM claims WHERE id=?", (claim_id,)).fetchone()
+        f = extract_all(text or "", subject or "", self.custom_forms())
+        method = FACTS_METHOD if f is None or f.relation in BUILTIN else f"relation:{f.relation}"
+        self._db.execute(
+            "INSERT OR REPLACE INTO claim_facts (claim_id, claim_version, text_sha, relation, "
+            "place, value, absent, qualifier, display, method) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (claim_id, r[0] if r else 1, _text_sha(text, subject),
+             None if f is None else f.relation, None if f is None else f.place,
+             None if f is None else f.value, int(bool(f and f.absent)),
+             "" if f is None else f.qualifier, "" if f is None else f.display, method))
+
+    def _facts_stamp(self) -> str:
+        rows = self._db.execute("SELECT key, value_type, sentence_forms FROM relations "
+                                "WHERE builtin=0 ORDER BY key").fetchall()
+        return FACTS_VERSION + ":" + hashlib.sha256(
+            json.dumps([list(r) for r in rows]).encode()).hexdigest()[:12]
+
+    def _ensure_facts(self) -> None:
+        """Rebuild the stored facts if missing, incomplete, or read with other
+        rules (version / added relations). Only claim_facts is written."""
+        with self._lock:
+            if self._meta("facts_stamp") != self._facts_stamp():
+                self._rebuild_facts()
+                self._db.commit()
+                return
+            stale = [r for r in self._db.execute(
+                "SELECT c.id, c.text, c.subject, c.version, f.text_sha, f.claim_version "
+                "FROM claims c LEFT JOIN claim_facts f ON f.claim_id = c.id").fetchall()
+                if r[4] != _text_sha(r[1], r[2]) or r[5] != r[3]]
+            if not stale:
+                return
+            for r in stale:              # missing, or the claim changed outside the Brain
+                self._store_fact(r[0], r[1], r[2])
+            from .retrieve import forget_cache
+            forget_cache(self)
+            self._db.commit()
+
+    def _rebuild_facts(self) -> None:
+        self._forms = None
+        self._db.execute("DELETE FROM claim_facts")
+        for r in self._db.execute("SELECT id, text, subject FROM claims").fetchall():
+            self._store_fact(r[0], r[1], r[2])
+        self._set_meta("facts_stamp", self._facts_stamp())
+        from .retrieve import forget_cache            # cached facts are now out of date
+        forget_cache(self)
+
+    def stored_fact(self, claim_id: int) -> Optional[dict]:
+        """The stored fact row of a claim (no viewer: callers check visibility)."""
+        with self._lock:
+            r = self._db.execute("SELECT * FROM claim_facts WHERE claim_id=?",
+                                 (claim_id,)).fetchone()
+        return dict(r) if r else None
+
+    # -- relations as data (B5) --------------------------------------------------
+    def _ensure_relations(self) -> None:
+        for k, (vtype, card, changes, labels) in BUILTIN.items():
+            self._db.execute(
+                "INSERT OR IGNORE INTO relations (key, value_type, cardinality, changes, labels, "
+                "builtin, added_by, added_at) VALUES (?,?,?,?,?,1,?,?)",
+                (k, vtype, card, int(changes), json.dumps(labels, ensure_ascii=False), SYSTEM,
+                 _now()))
+
+    def relations(self) -> List[dict]:
+        with self._lock:
+            out = []
+            for r in self._db.execute("SELECT * FROM relations ORDER BY builtin DESC, key"):
+                d = dict(r)
+                for k in ("labels", "sentence_forms", "question_forms"):
+                    d[k] = json.loads(d[k] or "null")
+                out.append(d)
+            return out
+
+    def custom_forms(self) -> list:
+        """Compiled sentence forms of the ADDED relations (none by default)."""
+        if self._forms is None:
+            forms = []
+            for r in self._db.execute("SELECT key, value_type, sentence_forms FROM relations "
+                                      "WHERE builtin=0 ORDER BY key").fetchall():
+                for t in json.loads(r[2] or "[]"):
+                    forms.append(compile_form(r[0], r[1], t))
+            self._forms = forms
+        return self._forms
+
+    def question_forms(self) -> List[tuple]:
+        """(relation, template) of the ADDED relations' question forms."""
+        with self._lock:
+            out = []
+            for r in self._db.execute("SELECT key, question_forms FROM relations WHERE builtin=0 "
+                                      "ORDER BY key").fetchall():
+                out += [(r[0], t) for t in json.loads(r[1] or "[]")]
+            return out
+
+    def relation_labels(self) -> Dict[str, dict]:
+        with self._lock:
+            return {r[0]: json.loads(r[1] or "{}") for r in
+                    self._db.execute("SELECT key, labels FROM relations")}
+
+    @_atomic
+    def add_relation(self, key: str, value_type: str, sentence_forms: List[str],
+                     question_forms: List[str], labels: Optional[dict] = None,
+                     cardinality: str = "one", changes: bool = False,
+                     by: Optional[str] = None) -> None:
+        """Add a relation as data. Only the installation's own user or a
+        moderator may (it changes how every claim is read); the stored facts
+        are re-read at once. B3's built-in relations cannot be changed."""
+        by = by or self.local_user
+        with self._lock:
+            kind = self._known_contributor(by)
+            if kind not in ("local_user",) + MODERATOR_KINDS:
+                raise BrainError("only the owner of this installation or a moderator can add a "
+                                 "relation")
+            if not KEY_RE.match(key or "") or key in BUILTIN:
+                raise BrainError(f"bad or built-in relation key {key!r}")
+            if self._db.execute("SELECT 1 FROM relations WHERE key=?", (key,)).fetchone():
+                raise BrainError(f"relation {key!r} exists already")
+            if value_type not in VALUE_TYPES or cardinality not in CARDINALITIES:
+                raise BrainError("unknown value type or cardinality")
+            if not sentence_forms:
+                raise BrainError("a relation needs at least one sentence form")
+            try:
+                for t in sentence_forms:
+                    compile_form(key, value_type, t)
+            except ValueError as exc:
+                raise BrainError(str(exc))
+            for q in question_forms:
+                if (q or "").count("{place}") != 1 or "{value}" in q:
+                    raise BrainError("a question form needs exactly one {place} and no {value}")
+            self._db.execute(
+                "INSERT INTO relations (key, value_type, cardinality, changes, labels, "
+                "sentence_forms, question_forms, builtin, added_by, added_at) "
+                "VALUES (?,?,?,?,?,?,?,0,?,?)",
+                (key, value_type, cardinality, int(changes),
+                 json.dumps(labels or {"en": key.replace("_", " ")}, ensure_ascii=False),
+                 json.dumps(list(sentence_forms), ensure_ascii=False),
+                 json.dumps(list(question_forms), ensure_ascii=False), by, _now()))
+            self._rebuild_facts()
+
+    # -- entities, aliases, "same as" (B5): created by a person, never merged
+    #    automatically ------------------------------------------------------------
+    def _person_or_proposal(self, by: str) -> str:
+        """'approved' for a person, 'proposed' for an automatic contributor."""
+        return "proposed" if self._known_contributor(by) in AUTOMATIC_KINDS else "approved"
+
+    def _entity(self, entity_id: int) -> Optional[dict]:
+        r = self._db.execute("SELECT * FROM entities WHERE id=?", (entity_id,)).fetchone()
+        return dict(r) if r else None
+
+    def _sees(self, row: Optional[dict], viewer: str) -> bool:
+        return row is not None and (row["scope"] == "shared" or row["owner_id"] == viewer)
+
+    @_atomic
+    def add_entity(self, name: str, kind: str = "", scope: str = "personal",
+                   by: Optional[str] = None) -> int:
+        """A person, place or thing. Never merged with another one, even with
+        the same name (two people can share a name). Automatic contributors
+        only propose; shared entities are created by moderators."""
+        by = by or self.local_user
+        if not name_key(name or ""):
+            raise BrainError("an entity needs a name")
+        if scope not in ("personal", "shared"):
+            raise BrainError("an entity is personal or shared")
+        with self._lock:
+            status = self._person_or_proposal(by)
+            if scope == "shared" and self._known_contributor(by) not in MODERATOR_KINDS:
+                raise BrainError("shared entities are created by moderators")
+            cur = self._db.execute(
+                "INSERT INTO entities (name, key, kind, status, scope, owner_id, created) "
+                "VALUES (?,?,?,?,?,?,?)", (name.strip(), name_key(name), (kind or "").strip(),
+                                           status, scope, by, _now()))
+            return cur.lastrowid
+
+    @_atomic
+    def add_alias(self, entity_id: int, alias: str, language: str = "",
+                  by: Optional[str] = None) -> int:
+        """Another name for an entity. Approved at once when a person who may
+        change the entity adds it; an automatic contributor (importer, SK
+        itself) only PROPOSES it - to the entity's owner, who must approve it."""
+        by = by or self.local_user
+        with self._lock:
+            e = self._entity(entity_id)
+            automatic = self._known_contributor(by) in AUTOMATIC_KINDS
+            if e is None or not (automatic or self._sees(e, by)):
+                raise BrainError(f"no entity {entity_id}")
+            if e["scope"] == "shared" and not automatic and \
+                    self._known_contributor(by) not in MODERATOR_KINDS:
+                raise BrainError("aliases of shared entities are added by moderators")
+            k = name_key(alias or "")
+            if not k or k == e["key"]:
+                raise BrainError("an alias needs a different name")
+            status = self._person_or_proposal(by)
+            cur = self._db.execute(
+                "INSERT INTO aliases (entity_id, alias, key, language, status, scope, owner_id, "
+                "added_by, added_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (entity_id, alias.strip(), k, language, status, e["scope"], e["owner_id"], by,
+                 _now()))
+            return cur.lastrowid
+
+    @_atomic
+    def approve_alias(self, alias_id: int, by: Optional[str] = None) -> None:
+        by = by or self.local_user
+        with self._lock:
+            if self._known_contributor(by) in AUTOMATIC_KINDS:
+                raise BrainError("aliases are approved by a person")
+            a = self._db.execute("SELECT * FROM aliases WHERE id=?", (alias_id,)).fetchone()
+            if a is None or not self._sees(dict(a), by):
+                raise BrainError(f"no alias {alias_id}")
+            if a["scope"] == "shared" and self._known_contributor(by) not in MODERATOR_KINDS:
+                raise BrainError("aliases of shared entities are approved by moderators")
+            self._db.execute("UPDATE aliases SET status='approved' WHERE id=?", (alias_id,))
+
+    @_atomic
+    def link_entities(self, a: int, b: int, by: Optional[str] = None) -> int:
+        """"Same as": only a person adds it, never the Brain on its own. Kept
+        as history; unlink_entities() makes it inactive again."""
+        by = by or self.local_user
+        with self._lock:
+            if self._known_contributor(by) in AUTOMATIC_KINDS:
+                raise BrainError("only a person can say two entities are the same")
+            ea, eb = self._entity(a), self._entity(b)
+            if a == b or not self._sees(ea, by) or not self._sees(eb, by):
+                raise BrainError("no such pair of entities")
+            shared = ea["scope"] == eb["scope"] == "shared"
+            if shared and self._known_contributor(by) not in MODERATOR_KINDS:
+                raise BrainError("shared entities are linked by moderators")
+            cur = self._db.execute(
+                "INSERT INTO entity_links (a, b, scope, owner_id, active, added_by, added_at) "
+                "VALUES (?,?,?,?,1,?,?)", (a, b, "shared" if shared else "personal", by, by, _now()))
+            return cur.lastrowid
+
+    @_atomic
+    def unlink_entities(self, link_id: int, by: Optional[str] = None) -> None:
+        by = by or self.local_user
+        with self._lock:
+            row = self._db.execute("SELECT * FROM entity_links WHERE id=?", (link_id,)).fetchone()
+            if row is None or not self._sees(dict(row), by) or not row["active"]:
+                raise BrainError(f"no active link {link_id}")
+            if row["scope"] == "shared" and self._known_contributor(by) not in MODERATOR_KINDS:
+                raise BrainError("shared links are removed by moderators")
+            self._db.execute("UPDATE entity_links SET active=0, removed_by=?, removed_at=? "
+                             "WHERE id=?", (by, _now(), link_id))
+
+    def entities(self, viewer: Optional[str] = None) -> List[dict]:
+        viewer = viewer or self.local_user
+        with self._lock:
+            return [dict(r) for r in self._db.execute(
+                "SELECT * FROM entities WHERE scope='shared' OR owner_id=? ORDER BY id", (viewer,))]
+
+    def alias_map(self, viewer: Optional[str] = None) -> Dict[str, List[str]]:
+        """name key -> the canonical name key(s) it stands for, for `viewer`:
+        approved entities and aliases the viewer may see (shared, or their
+        own), joined by active "same as" links. A name standing for more than
+        one canonical name is ambiguous - reasoning never picks one."""
+        viewer = viewer or self.local_user
+        with self._lock:
+            ents = {r["id"]: dict(r) for r in self._db.execute(
+                "SELECT * FROM entities WHERE status='approved' AND (scope='shared' OR owner_id=?)",
+                (viewer,))}
+            aliases = [dict(r) for r in self._db.execute(
+                "SELECT * FROM aliases WHERE status='approved' AND (scope='shared' OR owner_id=?)",
+                (viewer,))]
+            links = [dict(r) for r in self._db.execute(
+                "SELECT * FROM entity_links WHERE active=1 AND (scope='shared' OR owner_id=?)",
+                (viewer,))]
+        parent = {i: i for i in ents}
+
+        def root(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+        for l in links:
+            if l["a"] in ents and l["b"] in ents:
+                ra, rb = root(l["a"]), root(l["b"])
+                if ra != rb:
+                    parent[max(ra, rb)] = min(ra, rb)
+        out: Dict[str, set] = {}
+
+        def add(k, canon):
+            out.setdefault(k, set()).add(canon)
+        for i, e in ents.items():
+            add(e["key"], ents[root(i)]["key"])
+        for a in aliases:
+            if a["entity_id"] in ents:
+                add(a["key"], ents[root(a["entity_id"])]["key"])
+        return {k: sorted(v) for k, v in out.items() if v != {k}}
+
     def _visible_sql(self, viewer: Optional[str], alias: str = "c", review: bool = True):
         """WHERE-clause part that keeps only claims `viewer` may see. With
         review=False (search), other people's proposals are left out even for
@@ -215,7 +577,11 @@ class KnowledgeStore:
                 out += [dict(r) for r in self._db.execute(
                     "SELECT c.id, c.text, c.subject, c.category, c.status, c.origin, c.scope, "
                     "c.owner_id, c.version, i.terms, i.subject_terms, i.norm, i.subject_norm, "
-                    "i.positive FROM claims c JOIN claim_index i ON i.claim_id = c.id "
+                    "i.positive, f.claim_version AS f_version, f.text_sha AS f_sha, "
+                    "f.relation AS f_relation, f.place AS f_place, f.value AS f_value, "
+                    "f.absent AS f_absent, f.qualifier AS f_qualifier, f.display AS f_display "
+                    "FROM claims c JOIN claim_index i ON i.claim_id = c.id "
+                    "LEFT JOIN claim_facts f ON f.claim_id = c.id "
                     f"WHERE {vis} AND c.id IN ({','.join('?' * len(chunk))})", args + chunk)]
         return out
 

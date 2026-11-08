@@ -605,6 +605,7 @@ Milestone log (approved commits only):
 |---|---|---|---|
 | (start) | 39fad57 | - | release branch head |
 | B3.5 | code 9b94600 + this validation record (the commit that adds this row) | 47a1858 | owner, 2026-11-08 |
+| B4 | 17fa8b3 | da891e9 | owner, 2026-11-08 |
 
 ### B3.5 (APPROVED by the owner, 2026-11-08)
 
@@ -660,7 +661,7 @@ Work done in B3.5:
   22/22 deliberate breaks of the audit safeguards caught (Linux).
 - Brain code unchanged (fingerprint 2055eb8cd979c00b = 39fad57).
 
-### B4 Answer reliability (in review - not approved yet)
+### B4 Answer reliability (APPROVED by the owner; integrated at 17fa8b3)
 
 Owner-approved design (all five decisions): Documented only under the
 strict support rule; questions outside B3's grammar are Unknown with
@@ -716,6 +717,51 @@ Limits (by design, for later milestones): Documented needs a quote in B3's
 exact sentence forms (passages: B6); no AI answers (B8); no memory /
 confirmation flow (B7); small question grammar (B9/B10); quiz memory and
 World Atlas never answer yet.
+
+### B5 Knowledge model (in review - not approved yet)
+
+Branch claude/brain-b5 from claude/brain-integration at 17fa8b3. B2 search
+reference, B3 ask() reference (109 results) and B4 scored sets (45/45, zero
+false Established / Documented) all identical. Schema v4 (additive tables).
+- Stored facts (`claim_facts`): derived from claims like the search index,
+  written with every claim change (in `_index_claim`), with the wording's
+  hash + claim version and the method (`b3-forms-v1` / `relation:<key>`).
+  A record uses its stored fact only if it was read from exactly the
+  current wording and version - otherwise it is read again (never written
+  while answering). Changed or missing facts are re-read at start. A fact
+  still has no status, evidence or owner of its own.
+- Relations as data (`relations`, `brain/relations.py`): B3's five built in
+  (value type, cardinality, changes-over-time, EN/ES labels). add_relation()
+  adds one with sentence forms ("The {place} opens at {value}") and
+  question forms ("when does the {place} open") - no code. B3's forms always
+  win: added forms are tried only when no B3 form matched; the first
+  matching added form decides; hedged / negative claims state no fact.
+  Only the installation's own user or a moderator may add a relation; the
+  facts are re-read at once. Cardinality is recorded, used from B9.
+- Entities / aliases / "same as": an explicit registry. Created by a person
+  (automatic contributors only PROPOSE); NEVER merged automatically, not
+  even identical names; "same as" only by a person, reversible (kept as
+  history). Reasoning uses approved aliases and active links the asker may
+  see (shared, or their own); a name standing for more than one entity is
+  ambiguous, never resolved; partial names stay ambiguous. Facts keep
+  their names; resolution happens when answering.
+- Safe migration (`brain/migrate.py`): an older file is NEVER upgraded in
+  place - KnowledgeStore refuses it unchanged (NeedsMigration; its version
+  is read read-only, or from a temporary copy if a leftover journal would
+  need recovery). migrate_file(src, dst) byte-copies the file (+ -journal /
+  -wal) into a NEW file (never overwrites), upgrades only the copy, verifies
+  every original table row by row against a second copy (only additions
+  allowed: new columns, SK's two built-in contributors), meta, integrity,
+  facts and relations, and checks the original's fingerprints before and
+  after; on any failure the new file is removed. The bench sandbox uses it
+  for older files. (B3.5: the owner has no knowledge.db - nothing to migrate.)
+- The Brain refuses habbosk.db / atlas.db / the adapters' files as its
+  own database.
+Tests: tests/test_brain_b5.py (29); two older tests changed from in-place
+upgrade to refuse + migrate_file. Deliberate breaks 24/24 (Linux). Speed,
+~10,000 claims: open ~28 ms, first answer 220-290 ms (B3: ~360 ms), no claim
+re-read at start. Limits: homonym entities are not told apart in reasoning
+(names, as in B3); dates (as_of / valid_until) are reserved, not used.
 
 ## Known limits / ideas
 

@@ -131,7 +131,12 @@ class Session:
         if mode == "sandbox":
             self._tmp = tempfile.mkdtemp(prefix="sk_brain_sandbox_")
             path = os.path.join(self._tmp, "knowledge.db")
-            if os.path.exists(real_path):       # copy the real knowledge (read-only access)
+            v = schema_version_of(real_path) if os.path.exists(real_path) else None
+            if v is not None and v < SCHEMA_VERSION:
+                # an older format: an upgraded COPY (the real file is never opened)
+                from ..brain.migrate import migrate_file
+                migrate_file(real_path, path)
+            elif os.path.exists(real_path):     # copy the real knowledge (read-only access)
                 src = connect_readonly(real_path)
                 dst = sqlite3.connect(path)
                 try:

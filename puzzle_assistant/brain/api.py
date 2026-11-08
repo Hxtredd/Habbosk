@@ -43,7 +43,14 @@ class Brain:
     def __init__(self, knowledge_path: Optional[str] = None, quiz_path: Optional[str] = None,
                  atlas_path: Optional[str] = None):
         k, q, a = _default_paths() if knowledge_path is None else (knowledge_path, None, None)
-        self.store = KnowledgeStore(knowledge_path or k)
+        path = knowledge_path or k
+        quiz = quiz_path if quiz_path is not None else (q or "")
+        atlas = atlas_path if atlas_path is not None else (a or "")
+        # the Brain writes only its OWN database: never the quiz memory or World Atlas
+        if os.path.basename(path).lower() in ("habbosk.db", "atlas.db") or any(
+                p and os.path.abspath(p) == os.path.abspath(path) for p in (quiz, atlas)):
+            raise BrainError("the Brain's database cannot be the quiz memory or World Atlas file")
+        self.store = KnowledgeStore(path)
         # other modules, read-only (never created, migrated or modified here)
         self.sources = [QuizMemoryAdapter(quiz_path if quiz_path is not None else (q or "")),
                         AtlasAdapter(atlas_path if atlas_path is not None else (a or ""))]
@@ -149,16 +156,15 @@ class Brain:
         """Answer from connected facts (B3, brain/reason.py), only from claims
         the viewer may see. Answered only when every claim used is verified;
         otherwise it says why it cannot establish the answer. Never invents."""
-        from .reason import FactIndex, answer, plan, steps_of
-        from .retrieve import visible_library_docs
+        from .reason import answer, steps_of
         hits = self.search(question, viewer=viewer)
-        p = plan(question)
+        p = self._plan(question)
         if p is None:
             return BrainAnswer(question, answered=False, basis="insufficient", confidence="none",
                                hits=hits, trace=[f"found {len(hits)} related records",
                                                  "not a question SK can reason about (yet): "
                                                  "no answer given"])
-        r = answer(p, FactIndex(visible_library_docs(self.store, viewer)))
+        r = answer(p, self._fact_index(viewer))
         steps = [{"ask": st.ask, "outcome": st.outcome, "value": st.display or st.value,
                   "verified": st.verified, "candidates": st.candidates,
                   "claims": [{"id": s.claim_id, "text": s.text, "status": s.status,
@@ -174,6 +180,50 @@ class Brain:
                            ("unverified" if r.status == "unverified" else "none"),
                            hits=hits, trace=r.explanation, status=r.status, possible=r.possible,
                            steps=steps, audience=r.audience if answered or r.possible else "")
+
+    # -- B5: the reasoning's view of the knowledge model ------------------------------
+    def _plan(self, question: str):
+        from .reason import plan
+        return plan(question, self.store.question_forms())
+
+    def _fact_index(self, viewer: Optional[str] = None, docs=None):
+        """Facts of what the viewer may see, with the aliases the viewer may see."""
+        from .reason import FactIndex
+        from .retrieve import visible_library_docs
+        labels = {k: v.get("en", k) for k, v in self.store.relation_labels().items()}
+        return FactIndex(visible_library_docs(self.store, viewer) if docs is None else docs,
+                         aliases=self.store.alias_map(viewer), labels=labels)
+
+    # -- B5: relations, entities, aliases --------------------------------------------
+    def relations(self) -> List[dict]:
+        return self.store.relations()
+
+    def add_relation(self, key: str, value_type: str, sentence_forms: List[str],
+                     question_forms: List[str], labels: Optional[dict] = None,
+                     cardinality: str = "one", changes: bool = False,
+                     by: Optional[str] = None) -> None:
+        self.store.add_relation(key, value_type, sentence_forms, question_forms, labels,
+                                cardinality, changes, by)
+
+    def add_entity(self, name: str, kind: str = "", scope: str = "personal",
+                   by: Optional[str] = None) -> int:
+        return self.store.add_entity(name, kind, scope, by)
+
+    def add_alias(self, entity_id: int, alias: str, language: str = "",
+                  by: Optional[str] = None) -> int:
+        return self.store.add_alias(entity_id, alias, language, by)
+
+    def approve_alias(self, alias_id: int, by: Optional[str] = None) -> None:
+        self.store.approve_alias(alias_id, by)
+
+    def link_entities(self, a: int, b: int, by: Optional[str] = None) -> int:
+        return self.store.link_entities(a, b, by)
+
+    def unlink_entities(self, link_id: int, by: Optional[str] = None) -> None:
+        self.store.unlink_entities(link_id, by)
+
+    def entities(self, viewer: Optional[str] = None) -> List[dict]:
+        return self.store.entities(viewer)
 
     def respond(self, question: str, viewer: Optional[str] = None):
         """The answer in exactly one category (B4, brain/respond.py):

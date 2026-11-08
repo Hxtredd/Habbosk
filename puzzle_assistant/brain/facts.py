@@ -183,7 +183,14 @@ _add("quest_reward", A + r"(?P<place>.+?) quest gives (?P<value>[0-9]+) (?:coins
 
 
 def extract(text: str, subject: str = "") -> Optional[Fact]:
-    """The one fact this claim states, or None. The FIRST form that matches
+    """The one fact this claim states, or None (B3's sentence forms only)."""
+    return _extract_b3(text, subject)[1]
+
+
+def _extract_b3(text: str, subject: str = "") -> Tuple[bool, Optional[Fact]]:
+    """(decided, fact). `decided` is True when B3's rules settled the claim -
+    a hedge, or one of B3's forms matched (even if it then gave no fact) - so
+    no other form may be tried. The FIRST form that matches
     decides: if its place / value are not plain names, the claim states no
     fact (later forms are not tried - trying them turned run-on sentences
     into junk facts such as room_id("capitana irene"); see DEVELOPMENT_NOTES,
@@ -192,7 +199,7 @@ def extract(text: str, subject: str = "") -> Optional[Fact]:
     subject as the place - and gives no fact without one."""
     n = " ".join(tokens(text or ""))
     if not n or _HEDGES.search(normalize(text)):
-        return None                 # hedged / reported / past / future: not a fact
+        return True, None           # hedged / reported / past / future: not a fact
     positive = polarity(text)
     for relation, rx, absent in _P:
         if not positive and not absent:
@@ -204,10 +211,10 @@ def extract(text: str, subject: str = "") -> Optional[Fact]:
         place = _place(g["place"], text) if "place" in g else \
             (_place(subject, subject) if subject else None)
         if place is None:
-            return None
+            return True, None
         qual = _q(g.get("q")) or _q(g.get("q2"))
         if absent:
-            return Fact(relation, place, None, qual)
+            return True, Fact(relation, place, None, qual)
         raw = g["value"]
         if relation in ("leads_to",):
             value = _place(raw, text)
@@ -216,9 +223,79 @@ def extract(text: str, subject: str = "") -> Optional[Fact]:
         else:
             value = raw.strip()
         if not value:
-            return None
+            return True, None
         shown = display(text, value)
         if relation == "quest_reward":
             shown = f"{value} coins"
-        return Fact(relation, place, value, qual, shown)
+        return True, Fact(relation, place, value, qual, shown)
+    return False, None
+
+
+# -- relations added as data (B5) ---------------------------------------------------
+@dataclass(frozen=True)
+class Form:
+    """A sentence form of an added relation, compiled from a template such as
+    "{value} opens the {place}" (words compared normalised, like B3's forms)."""
+    relation: str
+    value_type: str             # place | person | number | text
+    rx: "re.Pattern"
+
+
+_SLOT = {"{place}": "zzslotplacezz", "{value}": "zzslotvaluezz"}
+
+
+def compile_form(relation: str, value_type: str, template: str) -> Form:
+    """Raises ValueError for a template that is not exactly one {place}, one
+    {value} and at least one fixed word."""
+    t = template or ""
+    if t.count("{place}") != 1 or t.count("{value}") != 1:
+        raise ValueError("a sentence form needs exactly one {place} and one {value}")
+    for slot, word in _SLOT.items():
+        t = t.replace(slot, f" {word} ")
+    words = tokens(t)
+    if not [w for w in words if w not in _SLOT.values()]:
+        raise ValueError("a sentence form needs at least one fixed word")
+    parts = []
+    for w in words:
+        if w == _SLOT["{place}"]:
+            parts.append(r"(?P<place>.+?)")
+        elif w == _SLOT["{value}"]:
+            parts.append(r"(?P<value>.+?)")
+        else:
+            parts.append(re.escape(w))
+    return Form(relation, value_type, re.compile("^" + " ".join(parts) + "$"))
+
+
+def _typed(value_type: str, raw: str, text: str) -> Optional[str]:
+    raw = raw.strip()
+    if value_type == "place":
+        return _place(raw, text)
+    if value_type == "person":
+        return _person(raw, text)
+    if value_type == "number":
+        return raw if re.fullmatch(r"[0-9]+", raw) else None
+    words = raw.split()                 # text: a short plain value, nothing joined
+    if 1 <= len(words) <= 6 and not set(words) & {"and", "or", "y", "o", "is", "are", "es",
+                                                  "son", "not", "no"}:
+        return raw
+    return None
+
+
+def extract_all(text: str, subject: str = "", forms=()) -> Optional[Fact]:
+    """B3's forms first - if they decide, nothing else is tried (so B3 results
+    never change); otherwise the added relations' forms, the FIRST matching
+    one deciding. Hedged or negative claims state no fact here either."""
+    decided, fact = _extract_b3(text, subject)
+    if decided or not forms or not polarity(text):
+        return fact
+    n = " ".join(tokens(text or ""))
+    for f in forms:
+        m = f.rx.match(n)
+        if not m:
+            continue
+        place = _place(m.group("place"), text)
+        value = _typed(f.value_type, m.group("value"), text)
+        if place is None or not value:
+            return None
+        return Fact(f.relation, place, value, "", display(text, value))
     return None

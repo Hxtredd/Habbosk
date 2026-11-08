@@ -448,16 +448,27 @@ class MigrationAndSpeedTests(unittest.TestCase):
         events = con.execute("SELECT id, claim_id, event, old_status, new_status, by, at, note "
                              "FROM claim_events ORDER BY id").fetchall()
         con.close()
-        b = Brain(path, "", "")
-        self.assertEqual(b.store.schema_version, 3)
+        # B5: the v2 file is never upgraded in place; a NEW file gets the upgrade
+        import hashlib
+        from puzzle_assistant.brain.migrate import migrate_file
+        from puzzle_assistant.brain.store import NeedsMigration
+        sha = hashlib.sha256(open(path, "rb").read()).hexdigest()
+        with self.assertRaises(NeedsMigration):
+            Brain(path, "", "")
+        new = path + ".v4.db"
+        migrate_file(path, new)
+        self.assertEqual(hashlib.sha256(open(path, "rb").read()).hexdigest(), sha)
+        b = Brain(new, "", "")
+        self.assertEqual(b.store.schema_version, 4)
         self.assertEqual(b.search(QUESTIONS[1])[0].record_id, str(ids[0]))     # index rebuilt
         b.close()
-        con = sqlite3.connect(path)
-        for t in self.TABLES:
-            self.assertEqual(con.execute(f"SELECT * FROM {t} ORDER BY 1").fetchall(), dump[t], t)
-        self.assertEqual(con.execute("SELECT id, claim_id, event, old_status, new_status, by, at, "
-                                     "note FROM claim_events ORDER BY id").fetchall(), events)
-        con.close()
+        for f in (path, new):                                    # every row kept, in both
+            con = sqlite3.connect(f)
+            for t in self.TABLES:
+                self.assertEqual(con.execute(f"SELECT * FROM {t} ORDER BY 1").fetchall(), dump[t], t)
+            self.assertEqual(con.execute("SELECT id, claim_id, event, old_status, new_status, by, "
+                                         "at, note FROM claim_events ORDER BY id").fetchall(), events)
+            con.close()
 
     def test_speed_with_10000_claims(self):
         """Measured, not just bounded. The 50 ms goal is reported against."""

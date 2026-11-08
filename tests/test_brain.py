@@ -121,7 +121,7 @@ class LibraryRulesTests(unittest.TestCase):
 
     def test_contributors_and_schema(self):
         self.assertTrue(self.b.local_user)
-        self.assertEqual(self.b.store.schema_version, 3)
+        self.assertEqual(self.b.store.schema_version, 4)
         with self.assertRaises(BrainError):
             self.b.learn("x", "user", by="nobody")           # unknown contributor
         # reopening keeps the same local user
@@ -303,8 +303,21 @@ class MigrationTests(unittest.TestCase):
         cols = [r[1] for r in db.execute("PRAGMA table_info(claims)")]
         self.assertNotIn("owner_id", cols)                       # really a v1 file
         db.close()
-        b = Brain(path)
-        self.assertEqual(b.store.schema_version, 3)
+        # B5: never upgraded in place - refused, unchanged; upgraded into a NEW file
+        import hashlib
+        from puzzle_assistant.brain.migrate import migrate_file
+        from puzzle_assistant.brain.store import NeedsMigration
+        sha = lambda: hashlib.sha256(open(path, "rb").read()).hexdigest()  # noqa: E731
+        before, folder = sha(), sorted(os.listdir(os.path.dirname(path)))
+        with self.assertRaises(NeedsMigration):
+            Brain(path)
+        self.assertEqual((sha(), sorted(os.listdir(os.path.dirname(path)))), (before, folder))
+        new = tmp("knowledge-v4.db")
+        report = migrate_file(path, new)
+        self.assertEqual((report["from_version"], report["to_version"]), (1, 4))
+        self.assertEqual(sha(), before)                          # the original, untouched
+        b = Brain(new)
+        self.assertEqual(b.store.schema_version, 4)
         self.assertEqual(b.claim(1)["owner_id"], "u1")
         self.assertEqual(b.claim(1)["text"], "old claim")
         b.close()

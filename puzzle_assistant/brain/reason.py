@@ -148,8 +148,10 @@ def _describe(text: str, depth: int):
     return k if k and len(k.split()) <= 6 else None
 
 
-def plan(question: str) -> Optional[Ask]:
-    """The steps for a question, or None if it is outside the grammar."""
+def plan(question: str, extra=()) -> Optional[Ask]:
+    """The steps for a question, or None if it is outside the grammar.
+    `extra`: (relation, template) question forms of relations added as data
+    (B5), tried only when none of B3's own forms matched."""
     n = " ".join(tokens(question))
     for rx, relation in _OUTER:
         m = rx.match(n)
@@ -158,7 +160,23 @@ def plan(question: str) -> Optional[Ask]:
             if place is None:
                 return None
             return Ask(relation, place, _qual(m))
+    for relation, template in extra:
+        rx = _question_rx(template)
+        m = rx.match(n) if rx else None
+        if m:
+            place = _describe(m.group("r"), 1)
+            return None if place is None else Ask(relation, place)
     return None
+
+
+def _question_rx(template: str):
+    """"when does the {place} open" -> a pattern over the normalised question."""
+    t = (template or "").replace("{place}", " zzslotplacezz ")
+    words = tokens(t)
+    if words.count("zzslotplacezz") != 1:
+        return None
+    return re.compile("^" + " ".join("(?P<r>.+)" if w == "zzslotplacezz" else re.escape(w)
+                                     for w in words) + "$")
 
 
 def steps_of(a) -> int:
@@ -200,25 +218,38 @@ def _verified_only(ss: List[Support]) -> Tuple[bool, List[Support], List[Support
 
 
 class FactIndex:
-    """Facts of the claims one viewer's search may see."""
+    """Facts of the claims one viewer's search may see.
 
-    def __init__(self, docs):
+    B5: `aliases` (store.alias_map(viewer): name key -> canonical key(s) from
+    approved entities, aliases and "same as" links the viewer may see) lets
+    another name reach the same place. A name standing for MORE than one
+    canonical name is never resolved: it stays as written, and a question
+    using it is ambiguous. With no aliases everything is exactly as in B3."""
+
+    def __init__(self, docs, aliases: Optional[Dict[str, List[str]]] = None, labels=None):
         self.by_place: Dict[Tuple[str, str], List[Support]] = {}
         self.by_value: Dict[Tuple[str, str], List[Support]] = {}
         self.places = set()
         self._shown: Dict[str, str] = {}
+        self.aliases = aliases or {}
+        self.labels = labels or {}
         for d in docs:
             f = d.fact
             if f is None or d.status in ("rejected", "outdated"):
                 continue
+            written = f.place                       # the name as this claim has it
+            if self.aliases:
+                f = Fact(f.relation, self.canon(f.place),
+                         self.canon(f.value) if f.relation == "leads_to" and f.value else f.value,
+                         f.qualifier, f.display)
             s = Support(int(d.record_id), d.text, d.status, (d.detail or {}).get("scope", ""), f)
             self.by_place.setdefault((f.relation, f.place), []).append(s)
             if f.value is not None:
                 self.by_value.setdefault((f.relation, f.value), []).append(s)
             self.places.add(f.place)
-            shown = display(d.text, f.place)
-            if shown == f.place and d.subject:          # place taken from the claim's subject
-                shown = display(d.subject, f.place)
+            shown = display(d.text, written)
+            if shown == written and d.subject:          # place taken from the claim's subject
+                shown = display(d.subject, written)
             self._shown.setdefault(f.place, shown)
             if f.relation == "leads_to" and f.value:
                 self.places.add(f.value)
@@ -227,6 +258,16 @@ class FactIndex:
     def shown(self, place: str) -> str:
         """A place name as written in a claim (capitals, accents)."""
         return self._shown.get(place, place)
+
+    def canon(self, name: str) -> str:
+        """The canonical name key for `name` (itself unless ONE approved
+        entity / alias says otherwise)."""
+        c = self.aliases.get(name)
+        return c[0] if c and len(c) == 1 else name
+
+    def ambiguous_alias(self, name: str) -> List[str]:
+        c = self.aliases.get(name)
+        return list(c) if c and len(c) > 1 else []
 
 
 def _settle(label: str, sups: List[Support]) -> StepResult:
@@ -258,6 +299,12 @@ def resolve(a, index: FactIndex, out: List[StepResult]) -> Optional[str]:
     """Resolve `a`, appending each step's result to `out`; returns the place /
     value key it found, or None if the chain stops (the reason is in out[-1])."""
     if isinstance(a, str):
+        several = index.ambiguous_alias(a)
+        if several:
+            out.append(StepResult(f"the place called '{a}'", "ambiguous",
+                                  candidates=[index.shown(p) for p in several]))
+            return None
+        a = index.canon(a)
         parts = _ambiguous_name(index, a)
         if len(parts) >= 2:
             out.append(StepResult(f"the place called '{a}'", "ambiguous",
@@ -303,7 +350,8 @@ def resolve(a, index: FactIndex, out: List[StepResult]) -> Optional[str]:
     place = resolve(a.place, index, out)
     if place is None:
         return None
-    label = f"{_LABEL[a.relation]} ({index.shown(place)}" + \
+    label = f"{_LABEL.get(a.relation) or index.labels.get(a.relation, a.relation)} " \
+        f"({index.shown(place)}" + \
         (f", {a.qualifier} side" if a.qualifier else "") + ")"
     sups = [s for s in index.by_place.get((a.relation, place), [])
             if not a.qualifier or s.fact.qualifier == a.qualifier]

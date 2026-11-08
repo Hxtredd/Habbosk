@@ -37,7 +37,7 @@ from typing import List, Optional, Tuple
 
 from .facts import extract
 from .model import Citation, Response
-from .reason import FactIndex, answer as reason_answer, plan
+from .reason import answer as reason_answer
 from .retrieve import visible_library_docs
 from .text import tokens
 
@@ -172,15 +172,15 @@ class _AsCurrent:
         return getattr(self._d, name)
 
 
-def _outdated_possibility(store, question: str, viewer) -> Tuple[Optional[str], List[dict]]:
-    p = plan(question)
+def _outdated_possibility(brain, question: str, viewer) -> Tuple[Optional[str], List[dict]]:
+    p = brain._plan(question)
     if p is None:
         return None, []
-    docs = visible_library_docs(store, viewer)
+    docs = visible_library_docs(brain.store, viewer)
     outdated = {int(d.record_id) for d in docs if d.status == "outdated"}
     if not outdated:
         return None, []
-    r = reason_answer(p, FactIndex([_AsCurrent(d) for d in docs]))
+    r = reason_answer(p, brain._fact_index(viewer, [_AsCurrent(d) for d in docs]))
     used = [s for st in r.steps for s in st.supports]
     if r.status not in ("established", "unverified", "absent") or \
             not any(s.claim_id in outdated for s in used):
@@ -246,7 +246,7 @@ def respond(brain, question: str, viewer: Optional[str] = None) -> Response:
         return r
 
     if a.status == "missing":
-        possible, claims = _outdated_possibility(store, question, viewer)
+        possible, claims = _outdated_possibility(brain, question, viewer)
         if possible:
             possible = _localise(possible, lang)
             r.reason, r.possible = "only_outdated", possible

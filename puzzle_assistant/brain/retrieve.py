@@ -25,7 +25,7 @@ import re
 import weakref
 from typing import Dict, List, Optional, Set, Tuple
 
-from .facts import extract as extract_fact
+from .facts import Fact, extract as extract_fact
 from .lexicon import SYNONYM_WEIGHT, synonyms
 from .model import Hit
 from .query import INTENT_EVIDENCE, Entity, Query, analyze, make_entities
@@ -71,7 +71,7 @@ _UNSET = object()
 class Doc:
     __slots__ = ("module", "record_id", "text", "subject", "status", "origin", "category",
                  "sources", "detail", "terms", "norm", "owner", "positive", "subject_norm",
-                 "has_digit", "absence", "_fact")
+                 "has_digit", "absence", "_fact", "stored")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -83,11 +83,22 @@ class Doc:
 
     @property
     def fact(self):
-        """The structured fact this record states (B3, brain/facts.py), or None.
-        Read once; cached with the record, so it follows the same invalidation."""
+        """The structured fact this record states, or None. B5: the fact
+        stored with the claim (claim_facts) when it was read from exactly this
+        wording and version; otherwise read again with B3's forms (never
+        written back here - answering only reads). Cached with the record."""
         if self._fact is _UNSET:
-            self._fact = extract_fact(self.text or "", self.subject or "") \
-                if self.module == "library" else None
+            if self.module != "library":
+                self._fact = None
+            else:
+                st = self.stored
+                if st and st["f_sha"] == _text_sha(self.text or "", self.subject or "") and \
+                        st["f_version"] == (self.detail or {}).get("version"):
+                    self._fact = None if st["f_relation"] is None else Fact(
+                        st["f_relation"], st["f_place"], None if st["f_absent"] else st["f_value"],
+                        st["f_qualifier"] or "", st["f_display"] or "")
+                else:
+                    self._fact = extract_fact(self.text or "", self.subject or "")
         return self._fact
 
 
@@ -98,7 +109,22 @@ def _library_doc(r: dict) -> Doc:
                detail={"version": r["version"], "scope": r["scope"]},
                terms=frozenset(r["terms"].split()), norm=" " + r["norm"] + " ",
                owner=r["owner_id"], positive=bool(r["positive"]),
-               subject_norm=r["subject_norm"])
+               subject_norm=r["subject_norm"],
+               stored={k: r[k] for k in _STORED} if r.get("f_sha") else None)
+
+
+_STORED = ("f_version", "f_sha", "f_relation", "f_place", "f_value", "f_absent", "f_qualifier",
+           "f_display")
+
+
+def _text_sha(text: str, subject: str) -> str:
+    from .store import _text_sha as sha
+    return sha(text, subject)
+
+
+def forget_cache(store) -> None:
+    """Drop the store's search cache (B5: after the stored facts are rebuilt)."""
+    _CACHES.pop(store, None)
 
 
 class _StoreCache:
