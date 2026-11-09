@@ -1,0 +1,11 @@
+SK AI Speed Check 1.1 --compare
+started 2026-11-09T18:52:34, finished 2026-11-09T18:57:01
+Python 3.14.10 on win32
+SK would pick today: gemini-3.5-flash-lite; tested as current: gemini-3.5-flash-lite
+Flash-Lite models available: gemini-3.5-flash-lite, gemini-3.1-flash-lite, gemini-2.5-flash-lite
+Comparison                                             first  median     p90  slowest   right  err
+before: SK v3.3 (new connection, v3.3 parsing)         0.60s   0.60s   0.74s    0.86s  16/20     1
+after: SK dev copy (A-D)                               0.00s   0.65s   0.80s    1.17s  19/20     0
+question changed: before (one lane)                    0.58s   0.98s   1.06s    1.10s   5/5      0
+question changed: after (newest wins)                  0.00s   0.63s   0.72s    0.73s   5/5      0
+first = time to first response (streamed: first text). Times include the connection.
