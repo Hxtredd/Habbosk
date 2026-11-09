@@ -49,6 +49,7 @@ def scopes_in_steps(steps):
 
 class SharedVerifiedAnswer(World):
     """Ana's claim, shared by a moderator and verified: Established for everybody."""
+    LEVELS = ["quote", "full_text"]                    # what Ana grants (details: title, date)
 
     def setUp(self):
         super().setUp()
@@ -62,7 +63,7 @@ class SharedVerifiedAnswer(World):
         self.ana_claim = c
         self.ana_sid = sid
         m = self.open("mod")
-        self.shared = m.approve(self.fid("ana"), ana.propose(c, {sid: ["quote", "full_text"]}))
+        self.shared = m.approve(self.fid("ana"), ana.propose(c, {sid: self.LEVELS}))
         ssid = m.store._db.execute("SELECT source_id FROM evidence WHERE claim_id=?",
                                    (self.shared,)).fetchone()[0]
         m.attest_source(ssid, "publisher page checked by a moderator")
