@@ -64,6 +64,11 @@ class Tmp(unittest.TestCase):
         os.makedirs(self.folder)
         self.path = os.path.join(self.folder, "host.key")
         self.addCleanup(shutil.rmtree, self.d, True)
+        # a damaged key file is refused only after a bounded wait (another caller may still
+        # be writing it); the tests keep that wait short unless they test the waiting itself
+        patcher = mock.patch.object(keystore, "WAIT_FOR_WINNER", 0.05)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def write_key_file(self, blob, mode=0o600):
         with open(self.path, "wb") as fh:
@@ -410,7 +415,7 @@ class NeverOverwrites(Tmp):
         t = threading.Thread(target=finish)
         t.start()
         try:
-            with self.saw_nothing_yet():
+            with mock.patch.object(keystore, "WAIT_FOR_WINNER", 5.0), self.saw_nothing_yet():
                 self.assertEqual(keystore.load_or_create_key(self.path), good)
         finally:
             t.join()
@@ -428,6 +433,117 @@ class NeverOverwrites(Tmp):
         after = snapshot(self.folder)
         self.assertEqual(after[os.path.basename(self.path)], before[os.path.basename(self.path)])
         self.assertTrue(os.path.exists(tmp))                           # the caller removes it
+
+
+class ArrivingDuringPublication(Tmp):
+    """Review finding on 9196ef1: with hard links unavailable the winner creates the final
+    file and only THEN fills it. A caller arriving in that interval used to read the empty
+    or half-written file at once and fail. It must wait for the key and return the same
+    key; a key that never completes (a crash) must be refused after a bounded wait,
+    unchanged; a genuinely damaged key is never replaced."""
+
+    def pause_after_creating_the_final_file(self):
+        """The publisher stops right after it created the (still empty) final file."""
+        created, proceed = threading.Event(), threading.Event()
+        real = keystore._create_exclusive
+
+        def create(p):
+            fd = real(p)
+            if p == self.path:
+                created.set()
+                if not proceed.wait(30):
+                    raise RuntimeError("the test did not release the publisher")
+            return fd
+        return created, proceed, create
+
+    def caller(self, out, name):
+        def run():
+            try:
+                out[name] = keystore.load_or_create_key(self.path)
+            except BaseException as exc:                              # noqa: BLE001
+                out[name] = exc
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        return t
+
+    @POSIX_ONLY
+    def test_a_caller_arriving_during_publication_waits_and_gets_the_same_key(self):
+        created, proceed, create = self.pause_after_creating_the_final_file()
+        out = {}
+        with no_hard_links(), mock.patch.object(keystore, "_create_exclusive", create), \
+                mock.patch.object(keystore, "WAIT_FOR_WINNER", 10.0):
+            a = self.caller(out, "a")
+            self.assertTrue(created.wait(10), "the publisher never created the final file")
+            self.assertEqual(os.path.getsize(self.path), 0)            # exists, not yet filled
+            b = self.caller(out, "b")
+            b.join(0.7)
+            self.assertTrue(b.is_alive(), "the second caller did not wait for the key: %r"
+                            % (out.get("b"),))
+            self.assertNotIn("b", out)
+            proceed.set()
+            a.join(30)
+            b.join(30)
+        self.assertIsInstance(out["a"], bytes)
+        self.assertEqual(out["a"], out["b"], "the two callers ended with different keys")
+        self.assertEqual(out["a"], self.stored_key())
+        self.only_the_key_file()
+
+    @POSIX_ONLY
+    def test_a_waiting_caller_recovers_when_the_publisher_fails(self):
+        """The publisher fails while filling the file and removes it: a caller waiting for
+        it must not crash - it starts over and creates the key itself."""
+        created, proceed, create = self.pause_after_creating_the_final_file()
+        real_fsync, out, publisher = os.fsync, {}, []
+
+        def fsync(fd):
+            if proceed.is_set() and threading.current_thread() is publisher[0]:
+                raise OSError(errno.EIO, "disk trouble")              # only the publisher's fill
+            return real_fsync(fd)
+        with no_hard_links(), mock.patch.object(keystore, "_create_exclusive", create), \
+                mock.patch.object(os, "fsync", fsync), \
+                mock.patch.object(keystore, "WAIT_FOR_WINNER", 10.0):
+            a = self.caller(out, "a")
+            publisher.append(a)
+            self.assertTrue(created.wait(10))
+            b = self.caller(out, "b")
+            b.join(0.7)
+            self.assertTrue(b.is_alive(), "the second caller did not wait: %r" % (out.get("b"),))
+            proceed.set()
+            a.join(30)
+            b.join(30)
+        self.assertIsInstance(out["a"], OSError)                      # the publisher failed
+        self.assertIsInstance(out["b"], bytes, "the waiting caller did not recover: %r" % (out,))
+        self.assertEqual(out["b"], self.stored_key())
+        self.only_the_key_file()
+
+    def test_a_partial_key_left_by_a_crash_is_refused_after_a_bounded_wait(self):
+        cases = {"empty": b"", "partial": plain(KEY)[:20], "garbage": b"x" * 50,
+                 "one byte too many": plain(KEY + b"\x00"), "just the magic": keystore.MAGIC_PLAIN}
+        for name, blob in cases.items():
+            with self.subTest(name):
+                self.write_key_file(blob)
+                before = snapshot(self.folder)
+                out = {}
+                with mock.patch.object(keystore, "WAIT_FOR_WINNER", 0.4):
+                    t0 = time.monotonic()
+                    t = self.caller(out, "x")
+                    t.join(10)
+                    elapsed = time.monotonic() - t0
+                self.assertFalse(t.is_alive(), "the caller waits for ever")
+                self.assertIsInstance(out["x"], keystore.KeyFileDamaged)
+                self.assertGreaterEqual(elapsed, 0.35, "it gave up without waiting")
+                self.assertLess(elapsed, 5.0)
+                self.assertEqual(snapshot(self.folder), before)       # byte-identical, unmade
+                self.only_the_key_file()
+
+    def test_a_damaged_key_is_never_replaced_while_waiting_either(self):
+        """Even with no other caller around, the wait never ends in a new key."""
+        self.write_key_file(plain(KEY[:31]))
+        before = snapshot(self.folder)
+        with mock.patch.object(keystore, "WAIT_FOR_WINNER", 0.3):
+            with self.assertRaises(keystore.KeyFileDamaged):
+                keystore.load_or_create_key(self.path)
+        self.assertEqual(snapshot(self.folder), before)
 
 
 class Concurrent(Tmp):

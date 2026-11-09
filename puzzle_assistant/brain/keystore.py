@@ -35,7 +35,7 @@ MAGIC_DPAPI = b"SKK1D"
 MAGIC_PLAIN = b"SKK1P"
 KEY_BYTES = 32
 MAX_FILE_BYTES = 4096        # a key file is ~40 bytes (plain) or a few hundred (DPAPI)
-WAIT_FOR_WINNER = 2.0        # seconds a losing caller waits for a half-written key file
+WAIT_FOR_WINNER = 2.0        # seconds a caller waits for a key file another caller is writing
 
 # Windows: rename refuses an existing target, so it is the no-overwrite publication
 # there; elsewhere a hard link is (os.rename / os.replace would overwrite silently).
@@ -106,9 +106,13 @@ def _read_key_file(path: str) -> bytes:
 
 
 def _read_published(path: str) -> bytes:
-    """The key another caller published. Where hard links are unavailable that caller
-    creates the final file and then fills it, so a half-written file may be seen for a
-    moment: wait for it (a damaged file that stays damaged is refused, unchanged)."""
+    """The key in a key file that may be being written by another caller right now.
+    Where hard links are unavailable the publisher creates the final file and only then
+    fills it, so an empty or half-written file can be seen - by the caller that lost the
+    race and by any caller that arrives in between. Wait for it, for at most
+    WAIT_FOR_WINNER seconds. A file that stays damaged after that (a crash left it, or it
+    was damaged all along) is refused, unchanged; it is never replaced. A complete key is
+    exactly KEY_BYTES long, so a partial write is never mistaken for a key."""
     end = time.monotonic() + WAIT_FOR_WINNER
     while True:
         try:
@@ -220,18 +224,28 @@ def _publish(tmp: str, path: str) -> bool:
 def load_or_create_key(path: str) -> bytes:
     """The key stored at `path`, created (32 random bytes) if missing. Never
     printed or logged; only its protected form is written. An existing key file that
-    is damaged or of the wrong length raises and is left untouched. If another caller
-    publishes a key first, this caller's key is discarded and the published key returned."""
-    if os.path.exists(path):
-        return _read_key_file(path)
-    key = os.urandom(KEY_BYTES)
-    folder = os.path.dirname(os.path.abspath(path))
-    os.makedirs(folder, exist_ok=True)
-    tmp = _write_temp(folder, os.path.basename(path), key)
-    try:
-        won = _publish(tmp, path)
-    finally:
-        _remove(tmp)                           # published (the data lives on at `path`) or lost
-    if won:
-        return key
-    return _read_published(path)
+    is damaged or of the wrong length raises (after a short, bounded wait in case another
+    caller is still writing it) and is left untouched. If another caller publishes a key
+    first, this caller's key is discarded and the published key returned."""
+    for _ in range(3):
+        if os.path.exists(path):
+            try:
+                return _read_published(path)
+            except FileNotFoundError:
+                continue                       # the caller that was writing it failed and
+                                               # removed its half-made file: start over
+        key = os.urandom(KEY_BYTES)
+        folder = os.path.dirname(os.path.abspath(path))
+        os.makedirs(folder, exist_ok=True)
+        tmp = _write_temp(folder, os.path.basename(path), key)
+        try:
+            won = _publish(tmp, path)
+        finally:
+            _remove(tmp)                       # published (the data lives on at `path`) or lost
+        if won:
+            return key
+        try:
+            return _read_published(path)
+        except FileNotFoundError:
+            continue                           # as above
+    raise OSError("could not create or read the key file " + path)
