@@ -1,0 +1,49 @@
+# Linux tests for every pushed development version of the Brain branches.
+# Runs the whole suite through tools/version_record.py and keeps the record as
+# an artifact. Tests only: it never deploys, releases, tags or pushes anything.
+name: Linux tests
+
+on:
+  push:
+    branches:
+      - "claude/brain-**"
+      - "claude/agent-team-setup"
+  workflow_dispatch:
+    inputs:
+      milestone:
+        description: "Milestone label for the record (e.g. B7)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tesseract (for the desktop OCR tests)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr
+      - name: Packages (Brain packages hash-checked)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install --require-hashes -r requirements-brain.txt
+      - name: Whole suite + version record
+        run: python tools/version_record.py --milestone "${{ inputs.milestone }}" --out record
+      - name: Keep the record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-test-record-${{ github.sha }}
+          path: record/
+          retention-days: 90

@@ -1,0 +1,31 @@
+{
+  "_about": "Permanent regression suite. Every module listed here must exist and keep AT LEAST its floor of tests, so a new milestone cannot silently drop earlier capabilities. Adding tests or modules is free. Lowering a floor or removing a module is a reviewed change: give the reason in 'changes' (owner-visible in the diff). Groups follow the module names; floors are the counts at f688383 (B6 integrated).",
+  "groups": {
+    "Brain core B1-B3.5 (store, retrieval, reasoning, evaluation, safety)": {
+      "test_brain": 30, "test_brain_retrieval": 44, "test_brain_reason": 39,
+      "test_brain_eval": 15, "test_brain_validation": 24, "test_brain_bench": 3,
+      "test_brain_speed": 15, "test_bench_safety": 8, "test_knowledge_audit": 26
+    },
+    "B4 answer reliability": {
+      "test_brain_respond": 18, "test_brain_b4_guards": 9, "test_brain_answer_eval": 7
+    },
+    "B5 knowledge model": {"test_brain_b5": 29},
+    "B5.1 question understanding": {"test_brain_understanding": 28},
+    "B5.2 personal / shared separation": {"test_brain_b52": 69},
+    "B6 sources and passages (incl. PDF)": {
+      "test_brain_b6": 40, "test_brain_b6_import": 101, "test_brain_b6_pdf": 65,
+      "test_brain_b6_process_guard": 14, "test_brain_b6_upgrade": 10,
+      "test_brain_b6_citations": 10
+    },
+    "Desktop app (as on the Brain branches)": {
+      "test_ai": 18, "test_engine_lock": 1, "test_express": 4, "test_mathread": 7,
+      "test_money": 6, "test_navigate": 5, "test_overlay": 4, "test_pipeline": 2,
+      "test_qa_memory": 10, "test_question_marks": 4, "test_questions": 5,
+      "test_solver": 14, "test_solvers": 19, "test_storage": 3, "test_updater": 5,
+      "test_world_atlas": 15
+    }
+  },
+  "changes": [
+    "2026-11-09 created at f688383 (726 tests)"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "ask": [
+      "Bash(git push origin claude/brain-integration:*)",
+      "Bash(git push -u origin claude/brain-integration:*)",
+      "Bash(git push origin claude/windows-puzzle-assistant-1lxjat:*)",
+      "Bash(git push -u origin claude/windows-puzzle-assistant-1lxjat:*)",
+      "Bash(git push origin main:*)",
+      "Bash(git push -u origin main:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git tag:*)",
+      "Bash(git push --tags:*)"
+    ]
+  }
+}

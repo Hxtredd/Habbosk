@@ -7,3 +7,4 @@
 *.traineddata binary
 *.zip binary
 README.txt text eol=crlf
+COMMIT export-subst
