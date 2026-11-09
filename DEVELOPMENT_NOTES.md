@@ -1063,7 +1063,9 @@ imported in the Brain under any name or form, and getattr / setattr / delattr /
 hasattr / vars / globals / locals / breakpoint may only be CALLED by name - never
 used as a value (g = getattr, passed along, put in a container) and never
 reached as an attribute (b.getattr, helpers.getattr). 15 new bypass sources;
-8 new deliberate breaks. Deliberate
+8 new deliberate breaks. Results (Linux, 04fe365): whole suite 716 OK; B4 + B6 +
+PDF + process-guard regressions 239 OK; deliberate breaks 141/141 caught. Brain
+code fingerprint 2fcd0d66dcff19ea (unchanged). Not run on Windows. Deliberate
 breaks: 98/98 caught (35 PDF). Found and fixed by the tests: tables with no line
 spanning them were read as prose columns; short-piece columns are now
 layout-uncertain.
