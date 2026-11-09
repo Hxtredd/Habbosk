@@ -5,9 +5,16 @@ There is no sharing feature: these tests only prepare and inspect copies."""
 import copy
 import dataclasses
 import json
+import os
+import sys
 import unittest
 
-from test_brain_b6 import World, Q_MG
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+sys.path.insert(0, ROOT)
+sys.path.insert(0, HERE)
+
+from tests.test_brain_b6 import World, Q_MG  # noqa: E402
 from puzzle_assistant.brain.model import BrainAnswer, Citation, Hit, Response
 from puzzle_assistant.brain.shareable import NotShareable
 
@@ -42,7 +49,9 @@ def contaminated(**over) -> Response:
                 "alias_note": "MY-NOTES-PUBLISHER"}],
         related=[{"text": "Luis visits SECRET-VISIT", "label": "x", "status": "unverified",
                   "module": "library"}],
-        audience="shared", understood_as="read 'Lantern Gardn' as 'LUIS-SECRET-ROOM'",
+        audience="shared",
+        clarification={"question": "Which one: LUIS-SECRET-ROOM?", "options": ["LUIS-SECRET-ROOM"]},
+        understood_as="read 'Lantern Gardn' as 'LUIS-SECRET-ROOM'",
         interpretation={"relation": "caretaker", "entity": "LUIS-SECRET-ROOM",
                         "corrections": [["Lantern Gardn", "LUIS-SECRET-ROOM"]]},
         challenges=[
@@ -116,7 +125,7 @@ class Contaminated(unittest.TestCase):
 
     def test_a_clean_response_passes_unchanged_apart_from_the_asker_only_fields(self):
         r = contaminated(related=[], understood_as="", interpretation=None, question="q",
-                         challenges=[], sides=[], citations=[], steps=[])
+                         challenges=[], sides=[], citations=[], steps=[], clarification=None)
         s = r.shareable()
         self.assertEqual(dataclasses.replace(s, question="q"), r)
 
