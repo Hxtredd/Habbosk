@@ -1095,6 +1095,48 @@ from a passage alone; quotes already cited from a purged version stay in your
 own evidence (reported); copies outside SK, disk remnants and file-system
 journals are outside SK's reach.
 
+#### Windows check of f688383 and the binary-mode fix (90741c3; in review, not approved)
+The owner's BRAIN_WINDOWS_CHECK on f688383 (Windows 11 10.0.26200, Python 3.14.10,
+SQLite 3.50.4): 11 passed, 2 failed. All Windows-only steps passed (B5.2 DPAPI
+keys / sharing / withdrawal / migration, B6 sources, B6 PDF, B6 upgrade with
+power loss). Brain tests 578: 2 failures, 20 errors; whole suite 726: 3
+failures, 20 errors - every one a synthetic PDF refused as "damaged or not
+standard (PdfReadError)", including 2 of the 10 encrypted-PDF variants.
+Cause: on Windows os.open opens a file in TEXT mode unless O_BINARY is given.
+importer.read_file had no O_BINARY, so CR LF was read as LF and reading stopped
+at the first 0x1A byte: PDFs whose (compressed / encrypted, effectively random)
+bytes held either were damaged on the way in - hence only SOME tests, and the
+check step's own PDFs passing by chance. The same would silently cut a TXT /
+MD / HTML file at a 0x1A byte. keystore.load_or_create_key wrote its key file
+the same way, so every LF byte of the protected key would become CR LF and the
+key could not be loaded again (the check's one key probably held no LF byte).
+Not a pypdf, Python 3.14 or zlib-ng problem: reproduced on Linux by applying
+text mode's translation to 200 test PDFs (16 changed, 16 refused with exactly
+that message; untouched they all read); Linux Python 3.14 + zlib-ng pass.
+Fix (owner-approved): O_BINARY in both os.open calls (getattr(os, "O_BINARY",
+0): nothing changes on Linux / macOS). Audit: these are the only os.open calls
+in the Brain; everything else uses Python's open() (always binary underneath,
+text mode only for SK's own JSON files, read back the same way), shutil or
+SQLite; the PDF child's stdin / stdout are binary pipes (subprocess; Python
+sets its standard streams to binary on Windows). No database or user data is
+touched; a key file already damaged by the old code is not repaired (none
+outside tests: the desktop app does not use the Brain yet; the candidate lab
+runs on Linux).
+tests/test_brain_b6_binary_mode.py (11; real text mode on Windows, emulated
+elsewhere inside the module under test only): exact bytes and complete
+imports for PDFs (raw and compressed) and TXT / UTF-16 TXT / MD / HTML holding
+CR LF and 0x1A; 64 keys (LF / CR LF / 0x1A ones first) created, closed,
+reloaded twice, unchanged; static check that every os.open names O_BINARY
+(also through a flags variable, every assignment); deliberate breaks against
+copies without it (the PC's exact PdfReadError refusal); the Windows report
+lists every failure. Without O_BINARY in the real files: 16 failures, 3 errors.
+BRAIN_WINDOWS_CHECK: new step "Windows binary mode" (first shows text mode
+really alters such a file on the PC); both test sections list every failure
+with its traceback (was cut at 20 / 10, hiding 3 failures).
+Linux (90741c3): whole suite 737 tests OK; deliberate breaks 163/163 caught
+(12 new). Brain code fingerprint 2e6025b6fd6d5961. Windows: NOT yet re-run -
+Windows validation of B5.2 key reload and B6 / PDF import remains outstanding.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the
