@@ -163,6 +163,7 @@ class Engine(threading.Thread):
 
         active = False
         last_seen = 0.0
+        puzzle_at = 0.0                        # last time the weapon puzzle was on screen
         # Locked = a verified reading of the puzzle on screen. It is kept until
         # the puzzle closes or changes; cards turning green (mounted) only
         # update the progress, they never trigger a new reading.
@@ -231,6 +232,15 @@ class Engine(threading.Thread):
                             self._sleep(tick)
                             continue
                     money_pending = None
+                    # v3.1: the weapon puzzle has closed - its marks go now, whatever
+                    # else is on screen (a window that MIGHT be a quiz, e.g. the job
+                    # panel's task list changing as the player walks, used to keep
+                    # the finished puzzle's marks on screen indefinitely)
+                    if placed is not None and \
+                            tick - puzzle_at > self.cfg.disappear_after_ms / 1000.0:
+                        locked, tried, placed = None, None, None
+                        self._emit(state="overlay_clear")
+                        self._emit(state="waiting", msg="Waiting for puzzle…")
                     if money is not None:
                         last_target = _key(money[0])
                         active, locked, tried, placed = False, None, None, None
@@ -255,9 +265,16 @@ class Engine(threading.Thread):
                     # counts as nothing on screen, so old marks are cleared
                     if qhit is not None and self._question_tick(qhit, analyzer, force, qstate):
                         last_target = _key(qhit[0])
+                        if placed is not None:
+                            # v3.1: the puzzle's marks were left on screen here (its
+                            # position was forgotten without clearing them)
+                            self._emit(state="overlay_clear")
                         locked, tried, placed = None, None, None
                         active, last_seen = True, tick
-                        self._sleep(tick)
+                        # v3.1: only a confirmed quiz keeps the World Atlas waiting; a
+                        # window not yet known to be one (the job panel) does not
+                        self._sleep(tick, busy=bool(qstate.get("read") or qstate.get("shown")
+                                                    or qstate.get("announced")))
                         continue
                     if active and tick - last_seen > self.cfg.disappear_after_ms / 1000.0:
                         active, locked, tried, placed = False, None, None, None
@@ -268,7 +285,7 @@ class Engine(threading.Thread):
                     self._sleep(tick, idle=True)
                     continue
 
-                last_seen = tick
+                last_seen = puzzle_at = tick
                 (x, y, w, h), cards = hit
                 panel = frame[y:y + h, x:x + w]
                 hashes = fingerprints(panel, cards)
@@ -543,8 +560,8 @@ class Engine(threading.Thread):
             if delay > 0:
                 self._stop.wait(delay)
 
-    def _sleep(self, tick: float, idle: bool = False) -> None:
-        self.busy = not idle                   # the World Atlas waits while busy
+    def _sleep(self, tick: float, idle: bool = False, busy: Optional[bool] = None) -> None:
+        self.busy = (not idle) if busy is None else busy   # the World Atlas waits while busy
         ms = self.cfg.idle_poll_ms if idle else self.cfg.poll_interval_ms
         delay = ms / 1000.0 - (time.monotonic() - tick)
         if delay > 0:

@@ -1,7 +1,7 @@
 {
- "version": "3.1.0",
- "zip": "dist/SK_Assistant_v3.1.zip",
- "sha256": "ab76b725581afe2c14c904e164dcb28a2d2f145262a39f3f478ba75661d85dcf",
- "size": 11932848,
- "notes": "World Atlas: reads the right monitor with two screens (a yellow emoji in Discord was taken for the room-name bar), so the room is recognised again; Go to Room finds the chat box on any monitor. Puzzle marks staying after a finished puzzle is NOT fixed yet."
+ "version": "3.2.0",
+ "zip": "dist/SK_Assistant_v3.2.zip",
+ "sha256": "a2eed42d3a594da6a6559c83907334b776107dec26a315cf1bd77065e15af7ef",
+ "size": 11935196,
+ "notes": "Puzzle marks now disappear when the puzzle closes, also while the job panel (Armería task list) is open - it was taken for a possible quiz and kept the old marks on screen. That panel no longer pauses the room explorer either. (v3.1: right monitor with two screens; Go to Room finds the chat on any monitor.)"
 }

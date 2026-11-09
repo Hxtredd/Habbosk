@@ -1,4 +1,4 @@
-SK ASSISTANT  (v3.1 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v3.2 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
