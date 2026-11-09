@@ -231,6 +231,7 @@ class FactIndex:
         self.by_value: Dict[Tuple[str, str], List[Support]] = {}
         self.places = set()
         self._shown: Dict[str, str] = {}
+        self._shown_by_shared: Dict[str, bool] = {}   # B6.1: was the name taken from a shared claim?
         self.aliases = aliases or {}
         self.labels = labels or {}
         for d in docs:
@@ -250,10 +251,21 @@ class FactIndex:
             shown = display(d.text, written)
             if shown == written and d.subject:          # place taken from the claim's subject
                 shown = display(d.subject, written)
-            self._shown.setdefault(f.place, shown)
+            self._name(f.place, shown, s.scope)
             if f.relation == "leads_to" and f.value:
                 self.places.add(f.value)
-                self._shown.setdefault(f.value, f.display)
+                self._name(f.value, f.display, s.scope)
+
+    def _name(self, key: str, name: str, scope: str) -> None:
+        """The first name wins - except that a name from a SHARED claim replaces one that came
+        from a personal claim. A step label ("who looks after it (<place>)") is part of the
+        answer and of its explanation: it must not show a name the asker's own personal claim
+        (or personal entity) gave the place, in an answer that is marked shared. Where no
+        scope is known (a single-file store) the old rule is unchanged: the first name wins."""
+        known = self._shown_by_shared.get(key)
+        if known is None or (scope == "shared" and not known):
+            self._shown[key] = name
+            self._shown_by_shared[key] = scope == "shared"
 
     def shown(self, place: str) -> str:
         """A place name as written in a claim (capitals, accents)."""

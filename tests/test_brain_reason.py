@@ -352,7 +352,11 @@ class ReasoningTests(unittest.TestCase):
         b.approve_share(ids[0], mod)
         dup = b.learn("Olga maintains the Rose Garden.", "user", "Rose Garden")   # unverified
         r = b.ask("Who maintains the Rose Garden?")
-        self.assertEqual((r.status, r.answer, r.audience), ("established", "Olga", "shared"))
+        # B6.1 (the owner's requested correction F1, 2026-11-09): the audience covers every claim
+        # whose text the answer carries - also the unverified duplicate shown "also stated". It
+        # is the viewer's OWN personal claim, so the answer is no longer "shared" (before: the
+        # audience counted the supporting claims only). Status, answer and steps are unchanged.
+        self.assertEqual((r.status, r.answer, r.audience), ("established", "Olga", "personal"))
         self.assertEqual([c["id"] for c in r.steps[0]["claims"]], [ids[0]])
         self.assertEqual([c["id"] for c in r.steps[0]["also_unverified"]], [dup])
         self.assertTrue(any("not used as evidence" in t for t in r.trace))
