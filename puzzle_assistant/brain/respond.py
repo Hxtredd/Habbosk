@@ -189,6 +189,13 @@ def _cite(store, claims: List[dict], viewer, check_support: bool) -> List[Citati
     return out
 
 
+def _personal_details(store, claims, viewer) -> bool:
+    """B6.1: does any citation show source details (title, date) from the viewer's OWN
+    personal file although the claim is shared? Then the response is the viewer's alone."""
+    return any(e.get("personal_source") for c in claims
+               for e in store.cited_evidence(c["id"], viewer))
+
+
 def _source_of(citations: List[Citation]) -> str:
     for c in citations:
         if c.supports:
@@ -411,6 +418,8 @@ def _categorise(brain, a, p, lang, viewer, question) -> Response:
     if a.status in ("established", "absent"):
         r.category, r.audience = "established", a.audience
         r.citations = _cite(store, _all_claims(a.steps), viewer, False)
+        if _personal_details(store, _all_claims(a.steps), viewer):
+            r.audience = "personal"
         r.value = _say(lang, "none") if absent else _localise(a.answer, lang)
         r.sentence = _say(lang, "established_none") if absent else \
             _say(lang, "established", value=r.value)
@@ -424,6 +433,8 @@ def _categorise(brain, a, p, lang, viewer, question) -> Response:
                                         for st in weak)
         if documented:
             r.category, r.audience = "documented", a.audience
+            if _personal_details(store, _all_claims(a.steps), viewer):
+                r.audience = "personal"
             r.value = _say(lang, "none") if absent else _localise(a.possible, lang)
             src = _source_of(r.citations)
             r.sentence = _say(lang, "documented_none", source=src) if absent else \

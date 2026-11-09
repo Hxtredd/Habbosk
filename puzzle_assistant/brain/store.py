@@ -1394,6 +1394,7 @@ class KnowledgeStore:
                 r["evidence_id"] = r.pop("ev_id")
                 r["page"] = self._cited_page(r["evidence_id"])
                 r["withheld"] = self._withheld(r["source_id"], r["title"])
+                r["personal_source"] = self._personal_details(c, r)
         out = []
         for r in rows:
             if r["source_id"] is not None and r["private"] and \
@@ -1402,6 +1403,19 @@ class KnowledgeStore:
             r.pop("added_by")
             out.append(r)
         return out
+
+    def _personal_details(self, claim: dict, row: dict) -> bool:
+        """B6.1: True when a SHARED claim is cited with a source title / date taken from the
+        viewer's OWN full row of that source. A library migrated from one file keeps the
+        owner's full row under the SAME id as the shared stub (whose details were never
+        granted), and the union view lets the owner's row win: the owner sees their title and
+        date, and a response carrying them must not be marked shared."""
+        if claim["scope"] != "shared" or self.role != "personal" or row["source_id"] is None:
+            return False
+        if not (row["title"] or row["captured_at"]):
+            return False
+        return self._db.execute("SELECT 1 FROM main.sources WHERE id=?",
+                                (row["source_id"],)).fetchone() is not None
 
     def _cited_page(self, evidence_id: int) -> Optional[int]:
         """B6: the PDF page of a located quotation (None if none / not a PDF)."""
