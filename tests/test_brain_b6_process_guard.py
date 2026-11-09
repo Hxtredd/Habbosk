@@ -446,6 +446,7 @@ class Static(unittest.TestCase):
                                         "bi.hasattr(os, 'spawnv')",
             "aliased builtins globals": "import builtins as b\nb.globals()['os']",
             "__builtin__": "import __builtin__",
+            "from builtins import a non-lookup name": "from builtins import print as p",
             "from helpers import getattr as lookup": "from helpers import getattr as lookup\n"
                                                      "import shutil\n"
                                                      "lookup(shutil, 'os').system('x')",

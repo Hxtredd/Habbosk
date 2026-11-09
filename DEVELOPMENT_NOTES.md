@@ -1069,7 +1069,8 @@ code fingerprint 2fcd0d66dcff19ea (unchanged). Not run on Windows.
 Review fix (04fe365, lookup imports): importing getattr / setattr / delattr /
 hasattr / vars / globals / locals / breakpoint from ANY module, under its own
 name or an alias, is refused (also relative imports and among other names).
-12 new bypass sources, 1 new allowed pattern; 4 new deliberate breaks. Deliberate
+12 new bypass sources (+1 so the builtins rule is tested on its own), 1 new
+allowed pattern; 4 new deliberate breaks. Deliberate
 breaks: 98/98 caught (35 PDF). Found and fixed by the tests: tables with no line
 spanning them were read as prose columns; short-piece columns are now
 layout-uncertain.
