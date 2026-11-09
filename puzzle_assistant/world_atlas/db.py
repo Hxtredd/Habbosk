@@ -394,6 +394,39 @@ class Atlas:
         return {k: len(v) for k, v in data.items() if isinstance(v, list)}
 
     # -- first start: what was collected during calibration -----------------
+    def repair_stale_renames(self) -> List[dict]:
+        """v3.3, once: undo automatic renames made from a share-panel address
+        left over from the previous room (e.g. Hospital (2) renamed to "Tienda de
+        Armas" after walking on). A room is repaired only when its current name
+        is ANOTHER known room's name and its earlier name is still kept as an
+        alias; the earlier name comes back, and the correction is recorded."""
+        tag = "repair_stale_renames_v1"
+        if self.get_meta(tag):
+            return []
+        fixed = []
+        with self._lock:
+            rows = [_room(r) for r in self._db.execute("SELECT * FROM rooms")]
+            for r in rows:
+                if not r["aliases"]:
+                    continue
+                k = name_key(r["name"])
+                taken = any(o["room_id"] != r["room_id"] and name_key(o["name"]) == k
+                            for o in rows)
+                if not taken:
+                    continue
+                restored = r["aliases"][-1]          # the name it had before
+                aliases = [a for a in r["aliases"][:-1] if name_key(a) != k]
+                self._db.execute("UPDATE rooms SET name=?, aliases=? WHERE room_id=?",
+                                 (restored, json.dumps(aliases, ensure_ascii=False),
+                                  r["room_id"]))
+                self._db.execute(
+                    "INSERT INTO corrections (room_id, detected, corrected, at) VALUES (?,?,?,?)",
+                    (r["room_id"], r["name"], restored, _now()))
+                fixed.append({"room_id": r["room_id"], "was": r["name"], "now": restored})
+            self._db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (tag, _now()))
+            self._db.commit()
+        return fixed
+
     def import_input(self, folder: str = INPUT_DIR) -> Optional[dict]:
         if self.get_meta(IMPORT_TAG) or not os.path.isdir(folder):
             return None

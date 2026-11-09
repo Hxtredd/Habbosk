@@ -149,6 +149,10 @@ class App:
             done = self.atlas.import_input()
             if done:
                 self._startup_notes.append(f"World Atlas: {done['rooms']} rooms imported")
+            fixed = self.atlas.repair_stale_renames()          # v3.3, once
+            if fixed:
+                self._startup_notes.append("World Atlas: names restored - " + ", ".join(
+                    f"{f['room_id']} {f['now']} (was {f['was']})" for f in fixed))
             self.engine.ai.atlas = self.atlas    # the AI can use map / room knowledge
             self.atlas_q: "queue.Queue[dict]" = queue.Queue()
             self.explorer = ExplorerThread(self.atlas, lambda: Tesseract(self.cfg), self.cfg,

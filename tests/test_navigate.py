@@ -108,6 +108,30 @@ class TripTests(unittest.TestCase):
         self.assertEqual(msgs[-1][1], "fail")
         self.assertFalse([e for e in self.win.log if e[0] in ("type", "enter")])
 
+    def test_a_click_right_before_typing(self):
+        # v3.3 (owner's request): the chat box is clicked again just before typing
+        nav, msgs = self.run_trip([IDLE, TYPING], 4, {"room_id": 4, "name": "Supermercado Eleven"})
+        self.assertEqual(msgs[-1][1], "ok")
+        kinds = [e[0] for e in self.win.log]
+        self.assertEqual(kinds[kinds.index("type") - 1], "click")
+        self.assertEqual(kinds.count("click"), 2)
+        self.assertEqual(kinds[-3:], ["type", "enter", "move"])
+
+    def test_a_second_try_when_the_first_click_does_not_take(self):
+        # the first click only brought the browser forward: SK clicks again
+        nav, msgs = self.run_trip([IDLE, IDLE, TYPING], 4,
+                                  {"room_id": 4, "name": "Supermercado Eleven"})
+        self.assertEqual(msgs[-1][1], "ok")
+        typed = [e for e in self.win.log if e[0] in ("type", "enter")]
+        self.assertEqual(typed, [("type", ":taxi 4"), ("enter",)])
+        self.assertEqual([e[0] for e in self.win.log].count("click"), 3)
+
+    def test_nothing_typed_after_two_failed_tries(self):
+        _, msgs = self.run_trip([IDLE, IDLE, IDLE], 4)
+        self.assertEqual(msgs[-1][1], "fail")
+        self.assertIn("didn't take the keyboard", msgs[-1][0])
+        self.assertFalse([e for e in self.win.log if e[0] in ("type", "enter")])
+
     def test_already_there(self):
         _, msgs = self.run_trip([IDLE], 13)
         self.assertEqual(msgs[-1][1], "ok")

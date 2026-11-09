@@ -86,8 +86,11 @@ class TrackerTests(unittest.TestCase):
         room = np.random.RandomState(1).randint(0, 255, (54, 96)).astype(np.uint8)
         flat = np.full((54, 96), 150, np.uint8)
         t = 0.0
-        for img, view in [(room, RoomView(name="A", room_id=13, in_room=True))] * 3 + \
-                         [(flat, RoomView(name="B", room_id=65, in_room=True))] * 16:
+        # (v3.3: the rooms' real names - an ID whose known room has another name is
+        # no longer trusted, see test_atlas_stale_id.py)
+        for img, view in [(room, RoomView(name="Ayuntamiento de Ensenada", room_id=13,
+                                          in_room=True))] * 3 + \
+                         [(flat, RoomView(name="El Bingo", room_id=65, in_room=True))] * 16:
             tr.motion(img, t)
             tr.feed(view)
             t += 0.25

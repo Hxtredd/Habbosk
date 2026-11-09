@@ -72,6 +72,14 @@ class Tracker:
             self._flat_at = -1e9
         return True
 
+    def _id_fits(self, rid: int, name: str) -> bool:
+        """The ID read on screen belongs to the room whose name is read (or to a
+        room SK doesn't know yet)."""
+        known = self.atlas.room(rid)
+        if known is None or known.get("status") == "pending":
+            return not any(r["room_id"] != rid for r in self.atlas.find_by_name(name))
+        return any(_same_name(name, n) for n in [known["name"]] + list(known["aliases"]))
+
     def _undecided(self) -> bool:
         """A flat screen appeared moments ago: it may be a loading screen
         (walking) or a plain room (taxi). Wait until that is clear."""
@@ -103,6 +111,12 @@ class Tracker:
         rid, name = self._cand
         cur = self.current
         how = "id"
+        if rid is not None and not self._id_fits(rid, name):
+            # v3.3: the share panel can still show the PREVIOUS room's address after
+            # walking on. An ID whose known room has another name is not trusted:
+            # the name decides (or the owner is asked) - never an automatic rename
+            # (it renamed Hospital (2) to "Tienda de Armas").
+            rid = None
         if rid is None:
             found = self.atlas.find_by_name(name)
             if len(found) == 1:
@@ -111,16 +125,6 @@ class Tracker:
             self.state = "In room"
             self.need_id = False
             self._loading_since_room = False     # a flash without a room change
-            # same ID, different name: a rename (only if seen several times)
-            if how == "id" and not _same_name(name, cur["name"]):
-                key, n = self._rename
-                n = n + 1 if key == name else 1
-                self._rename = (name, n)
-                if n >= 3:
-                    self.atlas.add_room(rid, name)
-                    cur["name"] = name
-                    self._rename = (None, 0)
-                    return {"event": "renamed", "room_id": rid, "name": name}
             return None
         if cur is not None and rid is None and _same_name(name, cur["name"]):
             return None                          # still in the same (unidentified) room

@@ -110,7 +110,7 @@ class _Win:
                 u = self.INPUT._fields_[1][1]()
                 u.ki = self.KEYBDINPUT(0, ord(ch), flags, 0, None)
                 self._send(self.INPUT(type=1, u=u))
-            time.sleep(0.01)
+            time.sleep(0.025)                                  # v3.3: steadier
 
     def enter(self) -> None:
         for flags in (0, 0x0002):
@@ -219,13 +219,24 @@ class Navigator:
         back = win.cursor()
         sx, sy = b["left"] + icon[0] + 6 * nb[3], b["top"] + icon[1]
         try:
-            win.click(sx, sy)                          # put the keyboard in the chat box
-            time.sleep(0.25)
-            img2, _ = self._grab() if same else self._grab_at(b)
-            if not chat_focused(img2, icon, nb[3]):
+            focused = False
+            for _attempt in range(2):                  # v3.3: a second try if needed
+                win.click(sx, sy)                      # put the keyboard in the chat box
+                time.sleep(0.3)
+                img2, _ = self._grab() if same else self._grab_at(b)
+                if chat_focused(img2, icon, nb[3]):
+                    focused = True
+                    break
+            if not focused:
                 status("The chat box didn't take the keyboard - nothing was typed.", "fail")
                 return
+            # v3.3 (owner's request): one more click right before typing, so the
+            # text surely lands in the chat box (the first click may only have
+            # brought the browser to the front)
+            win.click(sx, sy)
+            time.sleep(0.15)
             win.type_text(f":taxi {room_id}")
+            time.sleep(0.1)
             win.enter()
         finally:
             win.move(*back)
