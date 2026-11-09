@@ -1178,6 +1178,34 @@ byte-identical to 90741c3. Open observation: Windows ran 737 tests where Linux
 collects 740 at 5497fbe (Brain section 589 vs 592): 3 fewer on Windows, cause
 not found (no platform-dependent test definition located); not a failure.
 
+#### Correction, and the Windows check of 03e5180 (owner's PC, 2026-11-09)
+CORRECTION: the run recorded above as "Windows check of 5497fbe" actually tested
+23ed6b6. The report prints only the Brain fingerprint (identical for 90741c3,
+23ed6b6, 5497fbe and 03e5180), not the commit; I assumed it matched the zip I had
+sent, but its folder name (Habbosk-claude-brain-b6) shows a GitHub branch download.
+Evidence for 23ed6b6: its test counts (Brain 589, whole 737) equal the counts AT
+23ed6b6 (5497fbe has 592 / 740) and its binary-mode lines carry the 23ed6b6 check
+wording (no "(2)" after UTF-16 TXT). So the "Windows ran 737, Linux 740" gap noted
+above was a comparison of two different commits, not an unexplained difference.
+The finding of that run (the key-store test premise was false) is unchanged.
+THIS RUN: Windows 11 10.0.26200, Python 3.14.10, SQLite 3.50.4 (FTS5), Brain
+fingerprint 2e6025b6fd6d5961, 2287 s: 15 passed, 0 failed, 3 info. Brain tests:
+ran 593, passed 586, failed 0, errors 0, skipped 7. Whole suite: Ran 741 tests in
+1108.6 s, OK (skipped=8). Every Windows-only step PASSED (B5.2, B6 sources, B6 PDF,
+B6 upgrade with power loss, binary mode with 64 DPAPI keys and 38 key files holding
+an LF byte, real-data check). Commit: not printed by the report; its test counts
+(593 / 741) and its wording (no "used to break") match 03e5180 exactly - or 4d75b31,
+which has identical code and tests and differs only in these notes.
+Skips (consistent with, not itemised by, the report): the AES encrypted-PDF cases
+need the `cryptography` package, which is not installed on that PC (6), one test
+that is skipped by design on Windows (1, Brain), and one POSIX-only permission test
+in test_knowledge_audit (1, whole suite only). Not covered: other Python versions
+(requirements.txt says 3.9 or newer; only 3.14 has run on Windows), other Windows
+versions, AES-encrypted PDF refusal on Windows, deliberate breaks (Linux only).
+STATUS: Windows validation of B5.2 key persistence, B6 sources / PDF import /
+upgrade and the binary-mode fix PASSED on the owner's PC at 03e5180 with the
+limits above. Integration of the Windows fix still needs the owner's approval.
+
 #### Team trial on the Windows fix (commit 23ed6b6 reviewed; session of 2026-11-09)
 First use of the agent-team roles. The four named agent definitions (branch
 claude/agent-team-setup) could NOT be invoked: Claude Code loads project agents
