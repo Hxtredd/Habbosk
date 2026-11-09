@@ -229,7 +229,9 @@ def _prose(lines, idx, cols) -> bool:
                 if c[0] - 0.01 <= sgm.x0 and sgm.x1 <= c[1] + 0.01 and c[1] > c[0]:
                     fills.append((sgm.x1 - sgm.x0) / (c[1] - c[0]))
     fills.sort()
-    return bool(fills) and fills[len(fills) // 2] >= 0.6
+    words = sorted(len(sgm.text.split()) for i in idx for sgm in lines[i])
+    # prose fills its column AND has sentences' worth of words; table cells are short
+    return bool(fills) and fills[len(fills) // 2] >= 0.6 and words[len(words) // 2] >= 4
 
 
 def _tables(lines, cols=None):
@@ -268,6 +270,10 @@ def _page_blocks(pi, lines, furniture, page_flags, body_size, box):
     cols = _columns([lines[i] for i in body])
     if cols and table_rows:
         flags.add("pdf_layout_uncertain")       # tables inside columns: order uncertain
+    if cols:
+        words = sorted(len(sg.text.split()) for i in body for sg in lines[i])
+        if words and words[len(words) // 2] < 4:
+            flags.add("pdf_layout_uncertain")   # "columns" of short pieces: maybe a table
     # furniture and table rows keep their own lines
     for i, segs in enumerate(lines):
         bb = (min(s.x0 for s in segs), min(s.y for s in segs), max(s.x1 for s in segs),
