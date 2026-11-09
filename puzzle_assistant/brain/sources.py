@@ -715,7 +715,8 @@ def challenges(store, fact: dict, viewer_owner: Optional[str]) -> List[dict]:
     if not _b6(store) or not fact or fact.get("relation") is None:
         return []
     rows = store._db.execute(
-        "SELECT pf.value, pf.absent, pf.display, p.id AS pid, "
+        "SELECT pf.value, pf.absent, pf.display, p.id AS pid, p.start_pos, p.end_pos, "
+        "v.id AS vid, v.fmt, "
         "substr(v.text, p.start_pos + 1, p.end_pos - p.start_pos) AS seg, "
         "p.source_id, v.text_tag, v.publisher, v.author_kind, v.author_name, "
         "v.provenance, s.title FROM passage_facts pf JOIN passages p ON p.id=pf.passage_id "
@@ -746,8 +747,15 @@ def challenges(store, fact: dict, viewer_owner: Optional[str]) -> List[dict]:
         if scope == "personal":
             d["scope"] = "personal"
         if len(d["examples"]) < 3:
+            page = None
+            if r["fmt"] == "pdf":                  # B6: the page of a PDF passage
+                from .pdf_import import page_of
+                st = store._db.execute("SELECT structure FROM source_versions WHERE id=?",
+                                       (r["vid"],)).fetchone()
+                pg = page_of(st[0] if st else "[]", r["start_pos"], r["end_pos"])
+                page = pg["page"] if pg else None
             d["examples"].append({"text": r["seg"],
-                                  "source": r["title"] or ""})
+                                  "source": r["title"] or "", "page": page})
     out = []
     for g, d in sorted(groups.items()):
         d["internal"] = g in agree_groups

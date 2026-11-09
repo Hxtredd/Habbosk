@@ -1372,7 +1372,13 @@ class KnowledgeStore:
         Read-only. Nothing for a claim the viewer's answers may not use (the
         search rule: shared or their own). A private source is cited only on
         its owner's own personal claim - never on shared knowledge (a shared
-        answer must be safe to pass on) and never to anyone else."""
+        answer must be safe to pass on) and never to anyone else.
+
+        B6 (presentation only, nothing new is revealed): `page` - the PDF page of
+        a quotation located in a version the viewer may read, else None;
+        `withheld` - True when the source is a shared copy whose owner did not
+        grant its details (title / reference / date). Only the source's own
+        date (captured_at) is given - never when a copy was made."""
         viewer = viewer or self.local_user
         with self._lock:
             c = self._claim(claim_id)
@@ -1381,11 +1387,13 @@ class KnowledgeStore:
             gone = self.withdrawn_evidence(claim_id)
             rows = [dict(r) for r in self._db.execute(
                 "SELECT e.id AS ev_id, e.kind, e.locator, s.id AS source_id, s.kind AS source_kind, "
-                "s.title, s.captured_at, s.added_at AS source_added, s.private, s.added_by "
+                "s.title, s.captured_at, s.private, s.added_by "
                 "FROM evidence e LEFT JOIN sources s ON s.id = e.source_id "
                 "WHERE e.claim_id=? ORDER BY e.id", (claim_id,)) if r["ev_id"] not in gone]
             for r in rows:
                 r["evidence_id"] = r.pop("ev_id")
+                r["page"] = self._cited_page(r["evidence_id"])
+                r["withheld"] = self._withheld(r["source_id"], r["title"])
         out = []
         for r in rows:
             if r["source_id"] is not None and r["private"] and \
@@ -1394,6 +1402,27 @@ class KnowledgeStore:
             r.pop("added_by")
             out.append(r)
         return out
+
+    def _cited_page(self, evidence_id: int) -> Optional[int]:
+        """B6: the PDF page of a located quotation (None if none / not a PDF)."""
+        if self.role == "file":
+            return None
+        r = self._db.execute("SELECT l.start_pos, l.end_pos, v.fmt, v.structure FROM "
+                             "evidence_locations l JOIN source_versions v ON v.id=l.version_id "
+                             "WHERE l.evidence_id=?", (evidence_id,)).fetchone()
+        if r is None or r["fmt"] != "pdf":
+            return None
+        from .pdf_import import page_of
+        pg = page_of(r["structure"], r["start_pos"], r["end_pos"])
+        return pg["page"] if pg else None
+
+    def _withheld(self, source_id: Optional[int], title: Optional[str]) -> bool:
+        """B6: a shared copy of someone's source whose details were not granted."""
+        sh = self._shared_schema()
+        if source_id is None or title is not None or sh is None:
+            return False
+        return self._db.execute(f"SELECT 1 FROM {sh}.source_opaque WHERE source_id=?",
+                                (source_id,)).fetchone() is not None
 
     # -- review (the only way to 'verified' / 'rejected' / ...) ---------------------
     @_atomic

@@ -165,7 +165,8 @@ def _supports(store, e: dict, c: dict, full: dict) -> bool:
 
 # -- citations ----------------------------------------------------------------------
 def _date(ev: dict) -> str:
-    return (ev.get("captured_at") or ev.get("source_added") or "")[:10]
+    """The source's own date only (B6: never when it was added or copied)."""
+    return (ev.get("captured_at") or "")[:10]
 
 
 def _cite(store, claims: List[dict], viewer, check_support: bool) -> List[Citation]:
@@ -179,7 +180,8 @@ def _cite(store, claims: List[dict], viewer, check_support: bool) -> List[Citati
         cit = Citation(c["id"], c["text"], c["status"], c["scope"],
                        [{"kind": e["kind"], "quote": e["locator"] or "",
                          "source": e["title"] or "", "source_kind": e["source_kind"] or "",
-                         "date": _date(e)} for e in evs])
+                         "date": _date(e), "page": e.get("page"),
+                         "withheld": bool(e.get("withheld"))} for e in evs])
         if check_support:
             full = store.claim(c["id"], viewer) or {}
             cit.supports = any(_supports(store, e, c, full) for e in evs)

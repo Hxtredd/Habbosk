@@ -1070,7 +1070,15 @@ Review fix (04fe365, lookup imports): importing getattr / setattr / delattr /
 hasattr / vars / globals / locals / breakpoint from ANY module, under its own
 name or an alias, is refused (also relative imports and among other names).
 12 new bypass sources (+1 so the builtins rule is tested on its own), 1 new
-allowed pattern; 4 new deliberate breaks. Deliberate
+allowed pattern; 4 new deliberate breaks.
+Candidate review fix (citation presentation; nothing new revealed): cited
+evidence (store.cited_evidence, viewer-checked) carries `page` - the PDF page of
+a quotation located in a version the viewer may read (None for text formats,
+legacy sources, quote-only shares) - and `withheld` - True for a shared copy of
+someone's source whose details were not granted (migration stubs, stub / quote
+grants). Dates come ONLY from the source's own date (captured_at); the date a
+source or copy was added is never shown. Challenge examples carry their page.
+tests/test_brain_b6_citations.py (10); 6 new deliberate breaks. Deliberate
 breaks: 98/98 caught (35 PDF). Found and fixed by the tests: tables with no line
 spanning them were read as prose columns; short-piece columns are now
 layout-uncertain.
