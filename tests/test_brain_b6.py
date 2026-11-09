@@ -473,6 +473,26 @@ class SecureDelete(World):
             self.assertEqual(con.execute("PRAGMA secure_delete").fetchone()[0], 1)
 
 
+class SingleFileInert(unittest.TestCase):
+    """B6 reads (challenges, passage gates) happen only in library files, where a
+    session's database holds nothing but the viewer's own file and shared.db. A
+    development file holding several people's records never uses them."""
+
+    def test_b6_paths_are_off_for_a_development_file(self):
+        from puzzle_assistant.brain import Brain
+        d = tempfile.mkdtemp(prefix="sk_b6_file_")
+        try:
+            b = Brain(os.path.join(d, "k.db"), "", "")
+            self.assertFalse(B6._b6(b.store))
+            self.assertEqual(B6.challenges(b.store, {"relation": "maintained_by", "place": "x",
+                                                     "value": "y"}, None), [])
+            self.assertEqual(B6.search_passages(b.store, "anything"), [])
+            self.assertFalse(B6.is_imported(b.store, 1))
+            b.close()
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 class Separation(World):
     def test_personal_passages_stay_in_their_owners_file(self):
         ana, luis = self.open("ana"), self.open("luis")

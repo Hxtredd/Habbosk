@@ -283,13 +283,16 @@ def _language(question: str, ctx: _Context) -> str:
     return language(question)
 
 
-def _final_fact(store, steps: List[dict]) -> Optional[dict]:
-    """The stored fact of the claims behind the answer's last step."""
+def _final_fact(store, steps: List[dict], viewer) -> Optional[dict]:
+    """The fact (B3's built-in reading) of the claims behind the answer's last
+    step - read through the viewer-checked store.claim()."""
     last = steps[-1] if steps else {}
     for c in last.get("claims", []):
-        f = store.stored_fact(c["id"])
-        if f and f.get("relation"):
-            return f
+        full = store.claim(c["id"], viewer)
+        f = extract(full["text"], full.get("subject") or "") if full else None
+        if f is not None:
+            return {"relation": f.relation, "place": f.place, "value": f.value,
+                    "absent": f.absent, "qualifier": f.qualifier}
     return None
 
 
@@ -300,7 +303,7 @@ def _challenge(brain, r: Response, viewer) -> Response:
     if r.category not in ("established", "documented"):
         return r
     store = brain.store
-    fact = _final_fact(store, r.steps)
+    fact = _final_fact(store, r.steps, viewer)
     if fact is None:
         return r
     ch = B6.challenges(store, fact, viewer)
