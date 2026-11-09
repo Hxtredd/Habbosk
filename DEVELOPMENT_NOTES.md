@@ -1108,8 +1108,12 @@ at the first 0x1A byte: PDFs whose (compressed / encrypted, effectively random)
 bytes held either were damaged on the way in - hence only SOME tests, and the
 check step's own PDFs passing by chance. The same would silently cut a TXT /
 MD / HTML file at a 0x1A byte. keystore.load_or_create_key wrote its key file
-the same way, so every LF byte of the protected key would become CR LF and the
-key could not be loaded again (the check's one key probably held no LF byte).
+the same way, but READ the key back in binary: on Windows, a key file written
+by the pre-90741c3 code whose protected (DPAPI) bytes held an LF (0x0A) byte -
+roughly half of them - holds CR LF instead and can never be read again (a key
+without an LF byte loads unchanged, before and after the fix). The check's key
+probably held no LF byte, so B5.2 key persistence on Windows has not really been
+shown yet.
 Not a pypdf, Python 3.14 or zlib-ng problem: reproduced on Linux by applying
 text mode's translation to 200 test PDFs (16 changed, 16 refused with exactly
 that message; untouched they all read); Linux Python 3.14 + zlib-ng pass.
@@ -1119,9 +1123,14 @@ in the Brain; everything else uses Python's open() (always binary underneath,
 text mode only for SK's own JSON files, read back the same way), shutil or
 SQLite; the PDF child's stdin / stdout are binary pipes (subprocess; Python
 sets its standard streams to binary on Windows). No database or user data is
-touched; a key file already damaged by the old code is not repaired (none
-outside tests: the desktop app does not use the Brain yet; the candidate lab
-runs on Linux).
+touched. Exposure, stated precisely: a host.key / library.key created on
+Windows by pre-90741c3 code OUTSIDE the check's and the tests' temporary
+folders; such a file cannot be repaired, only replaced, and what was signed or
+protected with it is lost. UNVERIFIED by the owner: nothing in the repository
+creates such files (the desktop app and the Render lab do not use the key
+store; only devtools and tests do), but the owner has not confirmed they never
+ran the Brain outside BRAIN_WINDOWS_CHECK.bat. An unreadable key file raises and
+is never replaced (tested).
 tests/test_brain_b6_binary_mode.py (11; real text mode on Windows, emulated
 elsewhere inside the module under test only): exact bytes and complete
 imports for PDFs (raw and compressed) and TXT / UTF-16 TXT / MD / HTML holding
@@ -1136,6 +1145,58 @@ with its traceback (was cut at 20 / 10, hiding 3 failures).
 Linux (90741c3): whole suite 737 tests OK; deliberate breaks 163/163 caught
 (12 new). Brain code fingerprint 2e6025b6fd6d5961. Windows: NOT yet re-run -
 Windows validation of B5.2 key reload and B6 / PDF import remains outstanding.
+
+#### Team trial on the Windows fix (commit 23ed6b6 reviewed; session of 2026-11-09)
+First use of the agent-team roles. The four named agent definitions (branch
+claude/agent-team-setup) could NOT be invoked: Claude Code loads project agents
+at session start and this session began before they existed; the branch was not
+merged into B6 to load them. Instead the Lead used built-in agent types with the
+role definition as the brief: Security Auditor = Plan type on Opus (no edit /
+write tools, but a shell: read-only by instruction), Architecture Reviewer = Plan
+type on Opus (same), Test Engineer = general-purpose agent on Sonnet in its own
+worktree. No Brain Builder run (the Lead made the small in-scope changes).
+Reports (not committed to a branch): scratchpad of the session.
+Findings and what was done:
+- Architecture Reviewer: verdict "proceed after changes"; code fix correct and
+  right-sized, principles untouched. Required: Windows re-run at the fix commit
+  (outstanding); precise key-exposure record (done above); add
+  test_brain_b6_binary_mode to tests/regression_manifest.json when the setup
+  branch and B6 meet (open - the manifest is on claude/agent-team-setup).
+  Considered for B7: one file-access layer (fileio.py: binary read, atomic write
+  with unique temp name and O_EXCL, retry on Windows sharing errors, long paths);
+  Python floor (requirements.txt says 3.9, Windows only ever ran 3.14).
+- Security Auditor: claim verified (the two os.open calls were the only exposure;
+  text-mode JSON reads are never byte-compared; PDF child stdin/stdout binary;
+  nothing user-written could be damaged). F4 (static guard blind to text-mode
+  writes / aliases) and F5 (unreadable key file untested) FIXED in scope. NOT
+  fixed - older key-store weaknesses outside the Windows-fix scope, awaiting the
+  owner: F1 MEDIUM first-run race (two processes can use different keys: shared
+  ".tmp" name, no exclusive create); F2 LOW unprotect() does not require exactly
+  32 bytes (a damaged plain key can become an empty key); F3 LOW key temp file
+  without O_EXCL / O_NOFOLLOW (stale 0644 tmp keeps its mode; a symlinked tmp
+  redirects the write).
+- Test Engineer (Linux): full suite 737 OK, 12/12 harness breaks caught,
+  fingerprint 2e6025b6fd6d5961 reproduced; 4 of its own 15 breaks MISSED (alias
+  imports, os = os_mod, Path.read_text, text-mode keystore read, `from os import
+  open`); weak spots: UTF-16 file had no CR LF byte pair, "O_BINARY" inside a
+  string counted as named. All fixed below.
+Fixes in this commit (tests and guard only; production code is identical to
+90741c3): the static guard now checks every module of the Brain recursively on
+the syntax tree - os.open flags only ORed constants naming O_BINARY as a real
+reference, every plain assignment to a flags variable too, only `|=` may change it;
+any aliased import of os / io / tempfile / pathlib, `from os import open`,
+`x = os`, getattr(os, <not O_*>), text-mode open / io.open / codecs.open /
+os.fdopen / Path.open writes and un-encoded reads, Path.read_text / write_text,
+text-mode temporary files, mkstemp(text=...) are refused (21 bypass sources and
+16 safe spellings tested). New tests: UTF-16 big-endian file with a real CR LF
+byte pair (also in the Windows check), the PDF reader process receives every
+byte (probe process counts and hashes its stdin), unreadable key files raise and
+stay byte-identical. 14 new deliberate breaks.
+Results (Linux): see the commit message of this record. Windows: NOT run.
+Decisions waiting for the owner: key-store hardening F1-F3 (separate small
+change before B7, or part of B7's file-access layer); Python floor / oldest
+Windows Python run; policy for an unreadable key (refuse and explain is the
+current behaviour); regression manifest entry at the next merge.
 
 ## Known limits / ideas
 

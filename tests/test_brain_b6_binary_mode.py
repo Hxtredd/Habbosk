@@ -168,12 +168,19 @@ TEXT_FILES = {
     "utf16.txt": (TEXT.encode("utf-16"), "text",
                   "Line one.\nAfter \x1a the byte, the text goes on.\nMira maintains the "
                   "Lantern Garden.\nEnd line.\n"),
+    # UTF-16 stores CR as 0D 00, so only a big-endian U+0D0A (a Malayalam letter) puts the
+    # byte pair 0D 0A (CR LF) into the file: that is what Windows text mode would alter
+    "utf16be.txt": (b"\xfe\xff" + (TEXT + "Note \u0d0a end.\r\n").encode("utf-16-be"),
+                    "text", None),
     "guide.md": (("# Garden\r\n\r\n" + TEXT).encode("utf-8"), "markdown",
                  "# Garden\n\nLine one.\nAfter \x1a the byte, the text goes on.\nMira "
                  "maintains the Lantern Garden.\nEnd line.\n"),
     "page.html": (("<html><body>\r\n<p>" + TEXT + "</p>\r\n</body></html>\r\n").encode("utf-8"),
                   "html", None),            # html: checked against parse() of the same bytes
 }
+
+
+assert b"\r\n" in TEXT_FILES["utf16be.txt"][0] and b"\x1a" in TEXT_FILES["utf16be.txt"][0]
 
 
 def _write(path, data):
@@ -183,71 +190,206 @@ def _write(path, data):
 
 
 # ===================================================================== static check
-class EveryLowLevelOpenIsBinary(unittest.TestCase):
-    """Every os.open in SK Brain names O_BINARY in its flags (Python's own
-    open() is always binary underneath; only os.open descriptors are not)."""
+RISKY_MODULES = ("os", "io", "posix", "nt", "_io", "codecs", "tempfile", "pathlib", "builtins")
+FLAG_NODES = (ast.BinOp, ast.BitOr, ast.Attribute, ast.Call, ast.Constant, ast.Name, ast.Load,
+              ast.keyword)
 
-    @staticmethod
-    def missing_binary(src, filename="<src>"):
-        """[(line, call)] for every low-level open whose flags do not name O_BINARY.
-        A flags VARIABLE counts only if every assignment to it in the same
-        function names O_BINARY."""
-        tree = ast.parse(src, filename)
-        bad = {}
 
-        def assigns_in(scope):
-            out = {}
-            for a in ast.walk(scope):
-                if isinstance(a, (ast.Assign, ast.AugAssign, ast.AnnAssign)) and \
-                        a.value is not None:
-                    for t in (a.targets if isinstance(a, ast.Assign) else [a.target]):
-                        if isinstance(t, ast.Name):
-                            out.setdefault(t.id, []).append(ast.unparse(a.value))
-            return out
+def file_access_problems(src, filename="<src>"):
+    """[(line, reason)] for every way of touching a file that Windows text mode could
+    change, in the source text of ONE module. Rules (checked on the syntax tree):
+      * os.open: its flags are only ORed constants (os.O_*, getattr(os, "O_...", 0)) and
+        name O_BINARY as a real reference (a string, masking, ~, & or a conditional does
+        not count); a flags variable must obey this at EVERY assignment, and only `|=`
+        may change it;
+      * open / io.open / codecs.open / os.fdopen / Path.open: the mode is a literal; a
+        write or append mode needs "b"; text reads only with encoding="utf-8";
+      * no Path.read_text / write_text; no text-mode temporary files; no mkstemp(text=True);
+      * no aliased import of os / io / posix / nt / tempfile ..., no `from os import open`
+        (or fdopen, read, write), no `x = os`, no getattr(os, <anything but O_...>)."""
+    tree = ast.parse(src, filename)
+    found = {}
 
-        scopes = [tree] + [n for n in ast.walk(tree)
-                           if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-        for scope in scopes:                   # innermost function wins (visited last)
-            assigns = assigns_in(scope)
-            for node in ast.walk(scope):
-                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
-                    continue
-                f = node.func
-                if f.attr == "FileIO":
-                    bad[node.lineno] = "io.FileIO"
-                    continue
-                if not (isinstance(f.value, ast.Name) and f.value.id == "os"):
-                    continue
-                if f.attr == "openpty":
-                    bad[node.lineno] = "os.openpty"
-                elif f.attr == "open":
-                    flags = node.args[1] if len(node.args) > 1 else next(
-                        (k.value for k in node.keywords if k.arg == "flags"), None)
-                    if isinstance(flags, ast.Name):
-                        vals = assigns.get(flags.id, [])
-                        ok = bool(vals) and all("O_BINARY" in v for v in vals)
-                    else:
-                        ok = flags is not None and "O_BINARY" in ast.unparse(flags)
-                    if ok:
-                        bad.pop(node.lineno, None)
-                    else:
-                        bad[node.lineno] = ast.unparse(node)
-        return sorted(bad.items())
+    def bad(node, why):
+        found.setdefault(node.lineno, why)
 
-    def brain_sources(self):
-        out = {}
-        for n in sorted(os.listdir(BRAIN)):
+    def is_name(node, *names):
+        return isinstance(node, ast.Name) and node.id in names
+
+    def lit(node):
+        return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+            else None
+
+    def has_binary(expr):
+        for n in ast.walk(expr):
+            if isinstance(n, ast.Attribute) and n.attr == "O_BINARY" and is_name(n.value, "os"):
+                return True
+            if isinstance(n, ast.Call) and is_name(n.func, "getattr") and len(n.args) >= 2 \
+                    and is_name(n.args[0], "os") and lit(n.args[1]) == "O_BINARY":
+                return True
+        return False
+
+    def flag_expr_ok(expr, allow_name=False):
+        """only ORs of os.O_* / getattr(os, "O_*", 0) / integers"""
+        if isinstance(expr, ast.BinOp):
+            return isinstance(expr.op, ast.BitOr) and flag_expr_ok(expr.left, allow_name) and \
+                flag_expr_ok(expr.right, allow_name)
+        if isinstance(expr, ast.Attribute):
+            return is_name(expr.value, "os") and expr.attr.startswith("O_")
+        if isinstance(expr, ast.Constant):
+            return isinstance(expr.value, int) and not isinstance(expr.value, bool)
+        if isinstance(expr, ast.Call):
+            f = expr
+            return (is_name(f.func, "getattr") and len(f.args) == 3 and is_name(f.args[0], "os")
+                    and (lit(f.args[1]) or "").startswith("O_")
+                    and isinstance(f.args[2], ast.Constant) and f.args[2].value == 0)
+        return allow_name and isinstance(expr, ast.Name)
+
+    def mode_problem(call, mode_index):
+        mode = call.args[mode_index] if len(call.args) > mode_index else next(
+            (k.value for k in call.keywords if k.arg == "mode"), None)
+        enc = next((k.value for k in call.keywords if k.arg == "encoding"), None)
+        if mode is None:
+            return None if lit(enc) == "utf-8" else "text-mode read without encoding='utf-8'"
+        m = lit(mode)
+        if m is None:
+            return "file mode is not a literal"
+        if "b" in m:
+            return None
+        if set(m) & set("wax+"):
+            return "text-mode write"
+        return None if lit(enc) == "utf-8" else "text-mode read without encoding='utf-8'"
+
+    # imports and aliases of the modules that open files
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                if a.name.split(".")[0] in RISKY_MODULES and a.asname:
+                    bad(n, "aliased import of " + a.name)
+                if a.name.split(".")[0] in ("posix", "nt", "builtins"):
+                    bad(n, "import of " + a.name)
+        elif isinstance(n, ast.ImportFrom):
+            top = (n.module or "").split(".")[0]
+            names = {a.name for a in n.names}
+            if top == "os" and names & {"open", "fdopen", "read", "write", "openpty"}:
+                bad(n, "from os import " + ", ".join(sorted(names)))
+            if top in ("io", "_io", "codecs") and names & {"open", "FileIO"}:
+                bad(n, f"from {top} import open")
+            if top == "tempfile" and names & {"NamedTemporaryFile", "TemporaryFile",
+                                              "SpooledTemporaryFile", "mkstemp"}:
+                bad(n, "from tempfile import a temporary-file function")
+            if top in ("posix", "nt", "builtins"):
+                bad(n, "from " + top + " import ...")
+        elif isinstance(n, ast.Assign) and isinstance(n.value, ast.Name) and \
+                n.value.id in RISKY_MODULES:
+            bad(n, "alias of the module " + n.value.id)
+        elif isinstance(n, ast.Call) and is_name(n.func, "getattr", "hasattr") and n.args and \
+                is_name(n.args[0], "os", "io"):
+            if not (len(n.args) >= 2 and (lit(n.args[1]) or "").startswith("O_")):
+                bad(n, "getattr on os / io other than an O_ flag")
+
+    # flags variables, per function (innermost wins)
+    scopes = [tree] + [n for n in ast.walk(tree)
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    flags_ok = {}
+    for scope in scopes:
+        assigns = {}
+        for a in ast.walk(scope):
+            if isinstance(a, ast.AugAssign) and isinstance(a.target, ast.Name):
+                assigns.setdefault(a.target.id, []).append(
+                    (a.value, "or") if isinstance(a.op, ast.BitOr) else (None, "other"))
+            elif isinstance(a, (ast.Assign, ast.AnnAssign)) and a.value is not None:
+                for t in (a.targets if isinstance(a, ast.Assign) else [a.target]):
+                    if isinstance(t, ast.Name):
+                        assigns.setdefault(t.id, []).append((a.value, "set"))
+        for name, vals in assigns.items():
+            flags_ok[(id(scope), name)] = vals
+        for node in ast.walk(scope):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            f = node.func
+            if f.attr == "open" and is_name(f.value, "os"):
+                flags = node.args[1] if len(node.args) > 1 else next(
+                    (k.value for k in node.keywords if k.arg == "flags"), None)
+                if isinstance(flags, ast.Name):
+                    vals = assigns.get(flags.id, [])
+                    # every plain assignment names O_BINARY; `|=` may add other flags;
+                    # nothing may mask or replace them any other way
+                    ok = bool(vals) and all(v is not None and flag_expr_ok(v)
+                                            for v, _ in vals) and \
+                        any(k == "set" for _, k in vals) and \
+                        all(has_binary(v) for v, k in vals if k == "set")
+                else:
+                    ok = flags is not None and flag_expr_ok(flags) and has_binary(flags)
+                if ok:
+                    found.pop(node.lineno, None) if found.get(node.lineno, "").startswith(
+                        "os.open") else None
+                elif node.lineno not in found or found[node.lineno].startswith("os.open"):
+                    found[node.lineno] = "os.open without O_BINARY in plain ORed flags"
+
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, (ast.Name, ast.Attribute))):
+            continue
+        f = node.func
+        if isinstance(f, ast.Name) and f.id == "open":
+            why = mode_problem(node, 1)
+        elif isinstance(f, ast.Attribute) and f.attr == "open" and is_name(f.value, "io", "codecs"):
+            why = mode_problem(node, 1)
+        elif isinstance(f, ast.Attribute) and f.attr == "open" and not is_name(f.value, "os"):
+            why = mode_problem(node, 0)                       # Path(p).open(mode)
+        elif isinstance(f, ast.Attribute) and f.attr == "fdopen" and is_name(f.value, "os"):
+            why = mode_problem(node, 1)
+        elif isinstance(f, ast.Attribute) and f.attr in ("read_text", "write_text"):
+            why = "Path." + f.attr
+        elif isinstance(f, ast.Attribute) and f.attr in (
+                "NamedTemporaryFile", "TemporaryFile", "SpooledTemporaryFile"):
+            m = node.args[0] if node.args else next(
+                (k.value for k in node.keywords if k.arg == "mode"), None)
+            why = None if m is None else (
+                "temporary file mode is not a literal" if lit(m) is None
+                else (None if "b" in lit(m) else "text-mode temporary file"))
+        elif isinstance(f, ast.Attribute) and f.attr == "mkstemp" and any(
+                k.arg == "text" for k in node.keywords):
+            why = "mkstemp(text=...)"
+        else:
+            continue
+        if why:
+            bad(node, why)
+    return sorted(found.items())
+
+
+def brain_py_files():
+    for dirpath, _, names in os.walk(BRAIN):
+        for n in sorted(names):
             if n.endswith(".py"):
-                with open(os.path.join(BRAIN, n), encoding="utf-8") as fh:
-                    out[n] = fh.read()
-        return out
+                yield os.path.join(dirpath, n)
 
-    def test_every_os_open_in_the_brain_has_o_binary(self):
-        srcs = self.brain_sources()
-        seen = [n for n, s in srcs.items() if "os.open(" in s]
-        self.assertEqual(sorted(seen), ["importer.py", "keystore.py"])
-        for n, s in srcs.items():
-            self.assertEqual(self.missing_binary(s, n), [], n)
+
+class EveryLowLevelOpenIsBinary(unittest.TestCase):
+    """Every file access in SK Brain is binary (or, for UTF-8 JSON reads, explicit),
+    in every module and sub-package. Python's own open() is binary underneath unless
+    given a text mode; os.open descriptors and text modes are what Windows alters."""
+
+    missing_binary = staticmethod(file_access_problems)      # name kept for the break tests
+
+    def test_no_file_access_in_the_brain_can_be_text_mode(self):
+        files = list(brain_py_files())
+        self.assertGreater(len(files), 20)
+        for path in files:
+            with open(path, encoding="utf-8") as fh:
+                src = fh.read()
+            self.assertEqual(file_access_problems(src, path), [], path)
+
+    def test_only_importer_and_keystore_call_os_open(self):
+        using = []
+        for path in brain_py_files():
+            with open(path, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read())
+            if any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and
+                   n.func.attr == "open" and isinstance(n.func.value, ast.Name) and
+                   n.func.value.id == "os" for n in ast.walk(tree)):
+                using.append(os.path.relpath(path, BRAIN))
+        self.assertEqual(sorted(using), ["importer.py", "keystore.py"])
 
     def test_o_binary_is_the_real_flag_on_windows(self):
         if WINDOWS:
@@ -293,6 +435,23 @@ class ImportKeepsEveryByte(World):
         r = s.cite(c, sid, MG)
         self.assertTrue(r["supports"])
         self.assertEqual(r.get("page"), 1)
+
+    def test_the_pdf_reader_process_receives_every_byte(self):
+        """The data channel to the isolated reader is binary: a probe process that
+        only counts and hashes what arrives on its stdin sees exactly what was sent
+        (on Windows a text-mode stdin would stop at the first 0x1A byte)."""
+        from puzzle_assistant.brain import pdf_import
+        probe = ("import sys, json, hashlib\n"
+                 "d = sys.stdin.buffer.read()\n"
+                 "sys.stdout.write(json.dumps({'refused': 'probe', 'message': "
+                 "'n=%d sha=%s' % (len(d), hashlib.sha256(d).hexdigest())}))\n")
+        for data in (pdf_with_crlf_and_ctrl_z(), b"%PDF-1.7\r\n\x1a\r\n" * 500,
+                     b"\x1a" + bytes(range(256)) * 40):
+            with mock.patch.object(pdf_import, "_BOOT", probe):
+                with self.assertRaises(ImportRefused) as cm:
+                    pdf_import.read_in_child(data)
+            self.assertEqual(str(cm.exception), "n=%d sha=%s" % (
+                len(data), hashlib.sha256(data).hexdigest()))
 
     def test_txt_md_html_with_cr_lf_and_ctrl_z_decode_completely(self):
         s = self.open("ana")
@@ -346,6 +505,29 @@ class KeysSurviveClosingAndReloading(World):
                 self.assertEqual(fh.read(), blob)          # reloading never rewrites it
 
 
+class AnUnreadableKeyFileIsNeverReplaced(World):
+    """A key file that cannot be read (damaged by the old code, wrong format, another
+    Windows user's) must fail loudly and stay byte-identical: a new key made over it
+    would orphan everything signed or protected with the old one."""
+
+    def test_unreadable_key_files_raise_and_stay_unchanged(self):
+        d = os.path.join(self.d, "damaged")
+        os.makedirs(d)
+        cases = {"empty": b"", "garbage": b"not an sk key file at all",
+                 "dpapi-shaped": keystore.MAGIC_DPAPI + b"\x00\x01" * 40}
+        for name, blob in cases.items():
+            p = os.path.join(d, name + ".key")
+            with open(p, "wb") as fh:
+                fh.write(blob)
+            with self.subTest(name):
+                with self.assertRaises(OSError):
+                    keystore.load_or_create_key(p)
+                with open(p, "rb") as fh:
+                    self.assertEqual(fh.read(), blob)
+                self.assertFalse(os.path.exists(p + ".tmp"))
+        self.assertEqual(sorted(os.listdir(d)), sorted(n + ".key" for n in cases))
+
+
 # ===================================================================== deliberate breaks
 class DeliberateBreaks(World):
     """The same checks against copies with O_BINARY removed must FAIL."""
@@ -354,20 +536,71 @@ class DeliberateBreaks(World):
         for name in ("importer", "keystore"):
             with open(os.path.join(BRAIN, name + ".py"), encoding="utf-8") as fh:
                 src = fh.read()
-            self.assertEqual(EveryLowLevelOpenIsBinary.missing_binary(src), [])
+            self.assertEqual(file_access_problems(src), [])
             broken = without_binary(src)
             self.assertNotEqual(broken, src)
-            self.assertEqual(len(EveryLowLevelOpenIsBinary.missing_binary(broken)), 1, name)
-        # other spellings of an unchecked low-level open are caught too
-        for src in ("import os\nfd = os.open(p, os.O_RDONLY)\n",
-                    "import os\nfd = os.open(p, flags=os.O_RDONLY)\n",
-                    "import os\nfd = os.open(p)\n",
-                    "import io\nf = io.FileIO(p)\n",
-                    "import os\nos.openpty()\n",
-                    "import os\ndef f(p):\n    flags = os.O_RDONLY | os.O_BINARY\n"
-                    "    flags = os.O_RDONLY\n    return os.open(p, flags)\n",
-                    "import os\ndef f(p):\n    return os.open(p, flags)\n"):
-            self.assertTrue(EveryLowLevelOpenIsBinary.missing_binary(src), src)
+            self.assertEqual(len(file_access_problems(broken)), 1, name)
+        # every other way of opening a file in text mode (or hiding O_BINARY) is caught too
+        flagged = [
+            "import os\nfd = os.open(p, os.O_RDONLY)\n",
+            "import os\nfd = os.open(p, flags=os.O_RDONLY)\n",
+            "import os\nfd = os.open(p)\n",
+            "import os\ndef f(p):\n    flags = os.O_RDONLY | os.O_BINARY\n"
+            "    flags = os.O_RDONLY\n    return os.open(p, flags)\n",
+            "import os\ndef f(p):\n    return os.open(p, flags)\n",
+            # O_BINARY hidden: a string, masked, negated, conditional, multiplied
+            "import os\nos.open(p, os.O_RDONLY | len('O_BINARY') * 0)\n",
+            "import os\nos.open(p, os.O_RDONLY | (getattr(os, 'O_BINARY', 0) & 0))\n",
+            "import os\nos.open(p, os.O_RDONLY | (getattr(os, 'O_BINARY', 0) * 0))\n",
+            "import os\nos.open(p, os.O_RDONLY | (getattr(os, 'O_BINARY', 0) if p else 0))\n",
+            "import os\ndef f(p):\n    flags = os.O_RDONLY | getattr(os, 'O_BINARY', 0)\n"
+            "    flags &= ~getattr(os, 'O_BINARY', 0)\n    return os.open(p, flags)\n",
+            "import os\ndef f(p):\n    flags = os.O_RDONLY | getattr(os, 'O_BINARY', 0)\n"
+            "    flags ^= getattr(os, 'O_BINARY', 0)\n    return os.open(p, flags)\n",
+            # aliases of os / os.open
+            "import os as _os\n_os.open(p, _os.O_RDONLY | _os.O_BINARY)\n",
+            "from os import open as _o\n_o(p, 0)\n",
+            "from os import open, read, O_RDONLY\n",
+            "import os\nm = os\nm.open(p, m.O_RDONLY)\n",
+            "import os\ngetattr(os, 'open')(p, 0)\n",
+            "import os\nname = 'open'\ngetattr(os, name)(p, 0)\n",
+            "import posix\n",
+            "from posix import open\n",
+            # text-mode builtin / io / codecs / fdopen / Path
+            "open(p, 'w')\n", "open(p, 'a')\n", "open(p, 'r+')\n", "open(p)\n", "open(p, 'r')\n",
+            "open(p, mode)\n", "open(p, 'w', encoding='utf-8')\n",
+            "open(p, encoding='latin-1')\n",
+            "import io\nio.open(p, 'w')\n", "import io\nio.open(p)\n",
+            "import codecs\ncodecs.open(p)\n", "from io import open\n",
+            "import os\nos.fdopen(fd, 'w')\n", "import os\nos.fdopen(fd)\n",
+            "from pathlib import Path\nPath(p).read_text()\n",
+            "from pathlib import Path\nPath(p).write_text('x')\n",
+            "from pathlib import Path\nPath(p).open('w')\n",
+            "import tempfile\ntempfile.NamedTemporaryFile('w')\n",
+            "import tempfile\ntempfile.NamedTemporaryFile(mode='w+')\n",
+            "import tempfile as t\nt.mkstemp()\n",
+            "from tempfile import NamedTemporaryFile\n",
+            "import tempfile\ntempfile.mkstemp(text=True)\n",
+        ]
+        for src in flagged:
+            self.assertTrue(file_access_problems(src), src)
+        # and the safe spellings (all used by the Brain today) are NOT flagged
+        safe = [
+            "import os\nos.open(p, os.O_RDONLY | getattr(os, 'O_BINARY', 0))\n",
+            "import os\nos.open(p, os.O_WRONLY | os.O_CREAT | getattr(os, 'O_BINARY', 0), 0o600)\n",
+            "import os\ndef f(p):\n    flags = os.O_RDONLY | getattr(os, 'O_BINARY', 0) | \\\n"
+            "        getattr(os, 'O_NOFOLLOW', 0)\n    return os.open(p, flags)\n",
+            "open(p, 'rb')\n", "open(p, 'wb')\n", "open(p, 'rb+')\n", "open(p, 'ab')\n",
+            "open(p, encoding='utf-8')\n", "open(p, 'r', encoding='utf-8')\n",
+            "import os\nos.fdopen(fd, 'wb')\n",
+            "import io\nio.open(p, 'rb', buffering=0)\n",
+            "import tempfile\ntempfile.mkdtemp()\n",
+            "import tempfile\ntempfile.NamedTemporaryFile()\n",
+            "from pathlib import Path\nPath(p).read_bytes()\n",
+            "import io\nf = io.FileIO(p)\n",
+        ]
+        for src in safe:
+            self.assertEqual(file_access_problems(src), [], src)
 
     def test_an_importer_without_o_binary_loses_bytes(self):
         broken, _ = load_copy("importer", without_binary)

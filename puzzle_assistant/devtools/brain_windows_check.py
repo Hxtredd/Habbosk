@@ -665,6 +665,8 @@ def binary_mode():
             break
     files = {"crlf.pdf": plain, "zipped.pdf": zipped, "plain.txt": text.encode("utf-8"),
              "utf16.txt": text.encode("utf-16"),
+             # big-endian U+0D0A is the byte pair 0D 0A (CR LF) inside UTF-16 text
+             "utf16be.txt": b"\xfe\xff" + (text + "Note \u0d0a end.\r\n").encode("utf-16-be"),
              "guide.md": ("# Garden\r\n\r\n" + text).encode("utf-8"),
              "page.html": ("<html><body>\r\n<p>" + text + "</p>\r\n</body></html>\r\n"
                            ).encode("utf-8")}
@@ -751,7 +753,7 @@ def binary_mode():
               (text_mode_alters or sys.platform != "win32"))
         return ok, (f"text mode alters such a file on this PC (so the check means something): "
                     f"{text_mode_alters}; O_BINARY available: {bool(getattr(os, 'O_BINARY', 0))}"
-                    f"\nPDF (2) / TXT / UTF-16 TXT / MD / HTML with CR LF and 0x1A: every byte "
+                    f"\nPDF (2) / TXT / UTF-16 TXT (2) / MD / HTML with CR LF and 0x1A: every byte "
                     f"kept and fully imported: {not bad} {bad}; PDF quote supports with page 1: "
                     f"{supports}\n64 keys created, closed, reloaded twice, unchanged: "
                     f"{not key_bad and distinct} {key_bad[:5]} ({with_lf} of the 64 stored "
