@@ -30,4 +30,4 @@ Conditions or limits:
 
 ## Decisions
 
-No decisions recorded yet.
+Decisions are appended below this line, oldest first.

@@ -35,4 +35,4 @@ Open items, and what is waiting for the owner.
 
 ## Responses
 
-No responses recorded yet.
+Responses are appended below this line, oldest first.
