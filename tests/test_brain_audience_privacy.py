@@ -413,16 +413,19 @@ class UnderstoodAsEchoesOnlyTheAskersWords(SharedVerifiedAnswer):
         e = luis.add_entity("Lantern Gardens Annex", "room")
         luis.approve_alias(luis.add_alias(e, "Lantern Gardens"))
         luis.learn("Odo runs the Lantern Gardens Annex.", "user", "Lantern Gardens Annex")
+        seen = 0
         for q in ("Who maintains the Lantern Gardn?", "Who maintains the Lantern Gardens?",
                   "Who is in charge of the Lantern Gardn?", "Who maintiains the Lantern Gardn?",
                   "who looks after the lantern garden"):
             r = luis.respond(q)
             if r.audience == "shared":
+                seen += 1
                 text = r.understood_as + json.dumps(r.interpretation or {}) + \
                     json.dumps(r.clarification or {}, ensure_ascii=False)
                 for word in ("Gardens", "Annex"):
                     if word in text:
                         self.assertIn(word, q, (q, "personal name shown but not typed"))
+        self.assertGreater(seen, 0, "no response was marked shared: this test checked nothing")
 
     def test_every_response_marked_shared_has_an_understood_as_with_only_typed_words(self):
         luis = self.open("luis")
@@ -430,11 +433,14 @@ class UnderstoodAsEchoesOnlyTheAskersWords(SharedVerifiedAnswer):
         luis.approve_alias(luis.add_alias(e, "Lantern Garden"))
         e2 = luis.add_entity("Lantern Garden", "room")
         luis.approve_alias(luis.add_alias(e2, "SECRET-ALIAS-LUIS"))
+        seen = 0
         for q, r in self.run_all(luis, ["Lantern Garden", "SECRET-ALIAS-LUIS"]):
             if r.audience == "shared":
+                seen += 1
                 for mark in ("SECRET-CANON-LUIS", "SECRET-ALIAS-LUIS"):
                     if mark in self.blob_all(r):
                         self.assertIn(mark, q, (q, "personal name shown but not typed"))
+        self.assertGreater(seen, 0, "no response was marked shared: this test checked nothing")
 
 
 if __name__ == "__main__":
