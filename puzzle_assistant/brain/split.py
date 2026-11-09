@@ -687,9 +687,9 @@ def _check_with_log(path: str) -> Tuple[str, str]:
     w = wal_state(path + "-wal")
     if w == "damaged":
         return "damaged", "its write-ahead log is damaged (committed changes would be lost)"
-    ok = _db_ok(path)
+    ok, _ = _integrity_on_copy(path, with_log=True)      # the file + its log, together
     if not ok:
-        return "damaged", "it fails its integrity check"
+        return "damaged", "it fails its integrity check (with its write-ahead log applied)"
     return "ok", w
 
 
@@ -742,24 +742,41 @@ def verify_library(root: str, host_key: bytes) -> str:
 
 
 # -- recovery: read-only check, options, never automatic deletion ------------------------------------
-def _db_ok(path: str) -> Optional[bool]:
-    """Integrity of a database checked on a TEMPORARY byte copy (None: missing)."""
+def _integrity_on_copy(path: str, with_log: bool = True, probe: Optional[str] = None):
+    """PRAGMA integrity_check on a TEMPORARY byte copy of the database AND (by
+    default) its write-ahead log, so SQLite checks the combined state - the
+    pages committed in the log included. The originals are only read as bytes.
+    Returns (ok, probe result) - ok None if the database is missing; `probe`
+    (tests) is one query run on the same combined copy."""
     if not os.path.isfile(path):
-        return None
+        return None, None
     tmp = tempfile.mkdtemp(prefix="sk_brain_check_")
     try:
         c = os.path.join(tmp, "c.db")
-        _copy(path, c)
+        shutil.copyfile(path, c)
+        log = path + "-wal"
+        if with_log and os.path.isfile(log) and os.path.getsize(log) > 0:
+            shutil.copyfile(log, c + "-wal")
+            if sha256_file(c + "-wal") != sha256_file(log):
+                raise BrainError("the write-ahead log changed while it was being copied")
         try:
             con = sqlite3.connect(c)
             try:
-                return con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+                ok = con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+                out = con.execute(probe).fetchall() if probe else None
+                return ok, out
             finally:
                 con.close()
         except sqlite3.DatabaseError:
-            return False
+            return False, None
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _db_ok(path: str) -> Optional[bool]:
+    """Integrity of a database TOGETHER WITH its write-ahead log, checked on a
+    temporary copy of both (None: missing)."""
+    return _integrity_on_copy(path)[0]
 
 
 def recovery_check(data_dir: str, host_key: Optional[bytes]) -> dict:

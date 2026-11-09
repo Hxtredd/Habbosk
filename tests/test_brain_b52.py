@@ -1034,6 +1034,85 @@ class Recovery(Tmp):
         finally:
             holder.close()
 
+    def _hashes(self, path):
+        return {x: _sha(path + x) for x in ("", "-wal") if os.path.exists(path + x)}
+
+    def test_the_integrity_check_includes_a_valid_non_empty_log(self):
+        holder, path = self._writes_in_the_log()
+        try:
+            before = self._hashes(path)
+            live = holder.execute("SELECT COUNT(*) FROM claims").fetchone()[0]
+            ok, rows = S._integrity_on_copy(path, probe="SELECT COUNT(*) FROM claims")
+            ok0, rows0 = S._integrity_on_copy(path, with_log=False,
+                                              probe="SELECT COUNT(*) FROM claims")
+            self.assertTrue(ok)
+            self.assertEqual(rows[0][0], live)              # the log's 30 rows are seen
+            self.assertEqual(rows[0][0] - rows0[0][0], 30)  # (not in the main file alone)
+            self.assertEqual(self._hashes(path), before)    # originals byte-identical
+        finally:
+            holder.close()
+
+    def _corrupt_a_committed_page_in_the_log(self, path):
+        """Garbage in a b-tree page held in a COMMITTED log frame, with every
+        frame checksum recomputed: SQLite accepts and applies the log, so only an
+        integrity check of the combined state can see the damage."""
+        import struct
+        with open(path + "-wal", "rb") as fh:
+            data = bytearray(fh.read())
+        magic, _v, psize, _q, salt1, salt2, c1, c2 = struct.unpack(">8I", data[:32])
+        big = magic & 1 == 1
+        fsize = 24 + psize
+        frames = (len(data) - 32) // fsize
+        target = None
+        for n in range(frames):                             # a table b-tree leaf page, not page 1
+            off = 32 + n * fsize
+            pg = struct.unpack(">I", data[off:off + 4])[0]
+            if pg > 1 and data[off + 24] == 0x0D:
+                target = off
+        self.assertIsNotNone(target)
+        page = target + 24
+        data[page + 1:page + 8] = b"\xff\xff\x7f\xff\x00\x00\x00"  # freeblock / cell count junk
+        s0, s1 = c1, c2
+        for n in range(frames):
+            off = 32 + n * fsize
+            if struct.unpack(">II", data[off + 8:off + 16]) != (salt1, salt2):
+                break
+            s0, s1 = S._wal_sum(bytes(data[off:off + 8]), big, s0, s1)
+            s0, s1 = S._wal_sum(bytes(data[off + 24:off + fsize]), big, s0, s1)
+            data[off + 16:off + 24] = struct.pack(">II", s0, s1)
+        with open(path + "-wal", "wb") as fh:
+            fh.write(data)
+
+    def test_corruption_committed_in_the_log_is_found_though_the_file_alone_passes(self):
+        holder, path = self._writes_in_the_log()
+        try:
+            self._corrupt_a_committed_page_in_the_log(path)
+            before = self._hashes(path)
+            self.assertEqual(S.wal_state(path + "-wal"), "ok")          # checksums valid
+            self.assertTrue(S._integrity_on_copy(path, with_log=False)[0])  # file alone: fine
+            self.assertFalse(S._integrity_on_copy(path)[0])             # file + log: damaged
+            with self.assertRaises(S.RecoveryNeeded):
+                S.verify_library(os.path.join(self.data, "brain"), self.hk)
+            rep = S.recovery_check(self.data, self.hk)
+            name = os.path.relpath(path, os.path.join(self.data, "brain"))
+            self.assertFalse(rep["brain_files"][name]["integrity"])
+            self.assertEqual(self._hashes(path), before)                # never changed
+        finally:
+            holder.close()
+
+    def test_a_healthy_log_passes_and_nothing_is_changed(self):
+        holder, path = self._writes_in_the_log()
+        try:
+            before = self._hashes(path)
+            self.assertEqual(S.verify_library(os.path.join(self.data, "brain"), self.hk),
+                             "verified")
+            rep = S.recovery_check(self.data, self.hk)
+            name = os.path.relpath(path, os.path.join(self.data, "brain"))
+            self.assertTrue(rep["brain_files"][name]["integrity"])
+            self.assertEqual(self._hashes(path), before)
+        finally:
+            holder.close()
+
     def test_wal_reader_rejects_bad_headers(self):
         p = os.path.join(self.d, "x.db")
         for blob, want in ((b"", "empty"), (b"short", "damaged"), (b"\0" * 64, "damaged")):
