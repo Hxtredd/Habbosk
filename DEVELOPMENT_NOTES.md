@@ -985,7 +985,10 @@ Independent review fixes (after 4abe9ee):
    HTML: reference only". Consequence: in B6 no HTML source can support a
    claim. Import tests updated to require the warning on HTML passages.
 Regression tests reproduce both issues on 4abe9ee (16 failures there).
-Linux: whole suite 628 tests OK (3ec01df); 49/49 deliberate B6 breaks caught
+Linux after the fixes (2923feb): whole suite 637 tests OK; 63/63 deliberate B6
+breaks caught (14 new for the two fixes; two older breaks re-aimed because the
+fixes moved / doubled their target checks). Brain code fingerprint
+66641becce5351da. Before the fixes (3ec01df): 628 OK, 49/49
 (the search-index secure-delete and the index merge each remove deleted words
 on their own - only breaking both is caught, by the marker scan).
 Not run on Windows yet (BRAIN_WINDOWS_CHECK.bat has two new B6 steps).
