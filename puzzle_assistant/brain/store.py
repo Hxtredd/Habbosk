@@ -50,6 +50,60 @@ class BrainError(ValueError):
     """A request that would break the Brain's rules (nothing was changed)."""
 
 
+class NeedsUpgrade(BrainError):
+    """A library in an older format (B5.2): it was not opened and nothing in it
+    was changed. Make a verified, upgraded COPY with brain.upgrade.upgrade_library()."""
+
+
+def install_b6(con, role: str) -> None:
+    """The B6 tables in ONE library database of `role` (personal | shared), in the
+    caller's transaction: passages etc. everywhere, the original-path and
+    suggestion tables only in personal files. The passage search index deletes
+    for real (FTS5 secure-delete), so withdrawn / purged words don't linger in
+    its segments. Sets meta layout=b6."""
+    from .schema import LAYOUT, PASSAGE_SCHEMA, PERSONAL_SCHEMA
+    for stmt in PASSAGE_SCHEMA.split(";") + (PERSONAL_SCHEMA.split(";") if role == "personal"
+                                              else []):
+        if stmt.strip():
+            con.execute(stmt)
+    try:
+        con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS passage_fts USING fts5(terms)")
+        con.execute("INSERT INTO passage_fts(passage_fts, rank) VALUES('secure-delete', 1)")
+    except sqlite3.Error:
+        pass                                      # no FTS5: plain search, same results
+    con.execute("INSERT OR REPLACE INTO meta VALUES ('layout', ?)", (LAYOUT,))
+
+
+def _refuse_old_library_file(path: str) -> None:
+    """NeedsUpgrade for an existing library file of an older format - checked
+    through a READ-ONLY connection, so the refused file is not touched."""
+    from .schema import LAYOUT
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return
+    try:
+        # immutable: reads without creating -wal / -shm files next to an old file
+        con = sqlite3.connect(file_uri(path, "ro") + "&immutable=1", uri=True)
+    except sqlite3.Error:
+        return
+    try:
+        has = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'"
+                          ).fetchone()
+        if has and con.execute("SELECT 1 FROM meta WHERE key='role'").fetchone() and \
+                file_layout(con) != LAYOUT:
+            raise NeedsUpgrade("this library is in an older format (B5.2); it was not opened "
+                               "and nothing in it was changed - upgrade a copy with "
+                               "brain.upgrade.upgrade_library()")
+    except sqlite3.Error:
+        pass
+    finally:
+        con.close()
+
+
+def file_layout(con, schema: str = "main") -> Optional[str]:
+    r = con.execute(f"SELECT value FROM {schema}.meta WHERE key='layout'").fetchone()
+    return r[0] if r else None
+
+
 class NeedsMigration(BrainError):
     """An older knowledge database: it is never upgraded in place. Make an
     upgraded, verified copy with brain.migrate.migrate_file(); the original
@@ -134,11 +188,16 @@ def _atomic(fn):
 # personal file and the read-only shared file). meta is never combined.
 UNION_TABLES = ("contributors", "sources", "sections", "claims", "evidence", "claim_links",
                 "claim_versions", "claim_events", "claim_index", "claim_facts", "relations",
-                "entities", "aliases", "entity_links")
+                "entities", "aliases", "entity_links",
+                # B6
+                "source_versions", "passages", "passage_index", "passage_facts",
+                "evidence_locations")
 # tables whose new rows take an id from the library's allocator (unique across files)
 ALLOCATED = ("sources", "sections", "claims", "evidence", "claim_links", "claim_versions",
-             "claim_events", "entities", "aliases", "entity_links")
+             "claim_events", "entities", "aliases", "entity_links",
+             "source_versions", "passages", "claim_candidates")             # B6
 ROLES = ("file", "personal", "shared")
+PERSONAL_ONLY = ("source_files", "claim_candidates")          # B6: never in shared.db
 _WITHDRAWN_SQL = ("(e.id IN (SELECT evidence_id FROM shared.evidence_withdrawn) OR e.source_id IN "
                   "(SELECT o.source_id FROM shared.source_opaque o JOIN shared.withdrawals w "
                   "ON w.opaque_id = o.opaque_id))")
@@ -197,6 +256,8 @@ class KnowledgeStore:
         self._lock = threading.RLock()
         self._depth = 0
         self._forms = None
+        if role != "file":
+            _refuse_old_library_file(path)          # immutable read: nothing is created
         v = peek_schema_version(path)
         if v is not None and v > SCHEMA_VERSION:
             raise BrainError(f"this knowledge database was made by a newer SK Assistant (format "
@@ -210,6 +271,7 @@ class KnowledgeStore:
         if role == "file":
             self._db = sqlite3.connect(path, check_same_thread=False)
         else:
+            _refuse_old_library_file(path)          # read-only look, before any read-write open
             self._db = sqlite3.connect(file_uri(path, "rwc"), uri=True, check_same_thread=False)
         try:
             self._open()
@@ -220,6 +282,7 @@ class KnowledgeStore:
     def _open(self) -> None:
         self._db.row_factory = sqlite3.Row
         if self.role != "file":
+            self._refuse_old_layout()
             library_pragmas(self._db)
             self._db.execute("PRAGMA journal_mode = WAL")
         # cross-file references (personal -> shared) cannot be foreign keys: in a
@@ -248,6 +311,21 @@ class KnowledgeStore:
         self._ensure_facts()
 
     # -- B5.2: library files ------------------------------------------------------
+    def _refuse_old_layout(self) -> None:
+        """An EXISTING library file without layout=b6 is refused before anything
+        is written to it (B6: older libraries are upgraded only as a copy)."""
+        from .schema import LAYOUT
+        has = self._db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'"
+                               ).fetchone()
+        if not has:
+            return                                # a brand-new file
+        if self._db.execute("SELECT 1 FROM meta WHERE key='role'").fetchone() is None:
+            return
+        if file_layout(self._db) != LAYOUT:
+            raise NeedsUpgrade("this library is in an older format (B5.2); it was not opened "
+                               "and nothing in it was changed - upgrade a copy with "
+                               "brain.upgrade.upgrade_library()")
+
     def _open_library_file(self) -> None:
         from .schema import LIBRARY_SCHEMA
         self._db.executescript(LIBRARY_SCHEMA)
@@ -255,6 +333,7 @@ class KnowledgeStore:
         if role is None:
             self._set_meta("role", self.role)
             self._set_meta("namespace", self.namespace or uuid.uuid4().hex)
+            install_b6(self._db, self.role)
             if self.role == "personal":
                 oid, name, kind = self._owner_row
                 self._db.execute("INSERT OR IGNORE INTO main.contributors VALUES (?,?,?,?)",
@@ -278,6 +357,9 @@ class KnowledgeStore:
         vals = [x[0] for x in r]
         if vals != ["shared", str(V)]:
             raise BrainError("the shared file is missing, of another kind or another format")
+        from .schema import LAYOUT
+        if file_layout(self._db, "shared") != LAYOUT:
+            raise NeedsUpgrade("the shared file is in an older format (B5.2)")
         self.shared_namespace = self._db.execute(
             "SELECT value FROM shared.meta WHERE key='namespace'").fetchone()[0]
         try:
@@ -314,6 +396,8 @@ class KnowledgeStore:
         never happen; checked at every session start)."""
         out = []
         for t in ALLOCATED:
+            if t in PERSONAL_ONLY:
+                continue                          # never in shared.db
             for r in self._db.execute(f"SELECT id FROM main.{t} INTERSECT SELECT id FROM "
                                       f"shared.{t} WHERE id NOT IN (SELECT id FROM "
                                       f"shared.projections WHERE tbl=?)", (t,)):

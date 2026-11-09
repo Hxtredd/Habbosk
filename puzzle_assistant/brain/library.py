@@ -46,7 +46,9 @@ import uuid
 from typing import Dict, List, Optional
 
 from .model import AUTOMATIC_KINDS, MODERATOR_KINDS
-from .store import (ALLOCATED, BrainError, KnowledgeStore, _now, file_uri, library_pragmas)
+from .schema import LAYOUT, OUTBOX_B6_SCHEMA
+from .store import (ALLOCATED, BrainError, KnowledgeStore, NeedsUpgrade, _now, file_uri,
+                    library_pragmas)
 
 GRANT_TTL = 60            # seconds a grant may live
 CLOCK_SKEW = 30           # seconds of clock difference accepted
@@ -143,11 +145,30 @@ class Library:
         self.host_key = bytes(host_key)
         self.library_key = bytes(library_key)
         self.crash_at = os.environ.get("SK_TEST_CRASH_AT", "")     # tests: simulated power loss
-        for d in ("", "personal", "outbox"):
-            os.makedirs(os.path.join(self.root, d), exist_ok=True)
+
         self._lock = threading.RLock()
         self._blocks: Dict[str, List[int]] = {}
-        self._reg = sqlite3.connect(file_uri(self.path("registry.db"), "rwc"), uri=True,
+        from .upgrade import UpgradePending, unfinished
+        if unfinished(os.path.dirname(self.root)):
+            raise UpgradePending("an upgrade of this library was interrupted - run "
+                                 "brain.upgrade.recover_upgrade() first (nothing was opened)")
+        reg = self.path("registry.db")
+        if os.path.isfile(reg) and os.path.getsize(reg) > 0:      # read-only look first
+            # immutable: reads without creating -wal / -shm files next to an old library
+            look = sqlite3.connect(file_uri(reg, "ro") + "&immutable=1", uri=True)
+            try:
+                has = look.execute("SELECT 1 FROM sqlite_master WHERE name='meta'").fetchone()
+                layout = look.execute("SELECT value FROM meta WHERE key='layout'").fetchone() \
+                    if has else None
+            finally:
+                look.close()
+            if has and layout != (LAYOUT,):
+                raise NeedsUpgrade("this library is in an older format (B5.2); it was not opened "
+                                   "and nothing in it was changed - upgrade a copy with "
+                                   "brain.upgrade.upgrade_library()")
+        for d in ("", "personal", "outbox"):
+            os.makedirs(os.path.join(self.root, d), exist_ok=True)
+        self._reg = sqlite3.connect(file_uri(reg, "rwc"), uri=True,
                                     check_same_thread=False, timeout=5)
         library_pragmas(self._reg)
         self._reg.execute("PRAGMA journal_mode = WAL")
@@ -155,6 +176,7 @@ class Library:
         if self._meta("installation_id") is None:
             self._set_meta("installation_id", uuid.uuid4().hex)
             self._set_meta("epoch", "1")
+            self._set_meta("layout", LAYOUT)
         self._reg.commit()
         self._check_epoch()
         if not os.path.exists(self.path("shared.db")):
@@ -251,7 +273,9 @@ class Library:
         con = self._outbox(fid, write=True)
         try:
             con.executescript(OUTBOX_SCHEMA)
+            con.executescript(OUTBOX_B6_SCHEMA)
             con.execute("INSERT OR IGNORE INTO meta VALUES ('role', 'outbox')")
+            con.execute("INSERT OR IGNORE INTO meta VALUES ('layout', ?)", (LAYOUT,))
             con.execute("INSERT OR IGNORE INTO meta VALUES ('pseudonym', ?)", (pseudonym,))
             con.commit()
         finally:

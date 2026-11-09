@@ -285,3 +285,109 @@ CREATE TABLE IF NOT EXISTS proposal_decisions (
     at TEXT NOT NULL
 );
 """
+
+# B6 sources and passages ------------------------------------------------------------------
+# The library format. A library (registry + every file) carries meta layout=b6; an
+# older library is refused unchanged and upgraded only as a verified COPY
+# (brain/upgrade.py) - never in place.
+LAYOUT = "b6"
+
+# In every library database (personal and shared). A version's text is stored
+# once; a passage is (start_pos, end_pos) into it - its text is always
+# text[start_pos:end_pos]. In shared.db these rows exist only for sources whose
+# owner granted full_text, and text_tag / bytes_tag are KEYED tags there.
+PASSAGE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS source_versions (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER NOT NULL,
+    version INTEGER NOT NULL,
+    fmt TEXT NOT NULL,                     -- text | markdown | html
+    text TEXT,                             -- canonical text (NULL once purged)
+    text_tag TEXT NOT NULL,                -- sha256 of the text (personal) / keyed tag (shared)
+    bytes_tag TEXT,                        -- of the original file bytes (never in shared.db)
+    size INTEGER,
+    structure TEXT NOT NULL DEFAULT '[]',  -- blocks: [kind, start, end, heading_path, level]
+    author_kind TEXT NOT NULL,             -- named | unknown | self | ai_generated (DECLARED)
+    author_name TEXT,                      -- declared
+    publisher TEXT,                        -- declared
+    reference TEXT,                        -- declared, never fetched (query / fragment stripped)
+    captured_at TEXT,                      -- declared
+    provenance TEXT NOT NULL DEFAULT 'declared',   -- declared | attested (authorship only)
+    attested_by TEXT,
+    attested_at TEXT,
+    attest_note TEXT,
+    imported_by TEXT NOT NULL,             -- recorded by SK (a fact)
+    imported_at TEXT NOT NULL,
+    flags TEXT NOT NULL DEFAULT '[]',
+    state TEXT NOT NULL DEFAULT 'current', -- current | superseded | purged
+    UNIQUE (source_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_versions_source ON source_versions(source_id);
+CREATE TABLE IF NOT EXISTS passages (
+    id INTEGER PRIMARY KEY,
+    version_id INTEGER NOT NULL,
+    source_id INTEGER NOT NULL,
+    ordinal INTEGER NOT NULL,
+    kind TEXT NOT NULL,                    -- sentence | list_item | quote_sentence | heading | table_row | code
+    start_pos INTEGER NOT NULL,
+    end_pos INTEGER NOT NULL,
+    heading_path TEXT NOT NULL DEFAULT '',
+    sha TEXT NOT NULL,                     -- of the passage text (personal) / keyed (shared)
+    flags TEXT NOT NULL DEFAULT '[]'       -- suspicious | mixed_script
+);
+CREATE INDEX IF NOT EXISTS idx_passages_version ON passages(version_id);
+CREATE INDEX IF NOT EXISTS idx_passages_source ON passages(source_id);
+CREATE TABLE IF NOT EXISTS passage_index (     -- derived: search words of a passage
+    passage_id INTEGER PRIMARY KEY,
+    terms TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS passage_facts (     -- derived: the fact a passage states, if any
+    passage_id INTEGER PRIMARY KEY,
+    relation TEXT, place TEXT, value TEXT,
+    absent INTEGER NOT NULL DEFAULT 0,
+    qualifier TEXT NOT NULL DEFAULT '',
+    display TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_pfacts ON passage_facts(relation, place);
+CREATE TABLE IF NOT EXISTS evidence_locations (  -- where a quote was found, exactly
+    evidence_id INTEGER PRIMARY KEY,
+    version_id INTEGER NOT NULL,
+    passage_id INTEGER NOT NULL,
+    start_pos INTEGER NOT NULL,
+    end_pos INTEGER NOT NULL,
+    quote_sha TEXT NOT NULL
+);
+"""
+
+# Only in PERSONAL files (never in shared.db or an outbox): the original file path,
+# and suggestions read from the owner's passages (accepted only explicitly).
+PERSONAL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS source_files (
+    source_id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS claim_candidates (
+    id INTEGER PRIMARY KEY,
+    passage_id INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    subject TEXT,
+    state TEXT NOT NULL DEFAULT 'open',    -- open | accepted | dismissed
+    claim_id INTEGER,
+    created TEXT NOT NULL
+);
+"""
+
+# Outbox addition: a proposed source version (granted full_text only carries text).
+OUTBOX_B6_SCHEMA = """
+CREATE TABLE IF NOT EXISTS material_versions (
+    token TEXT NOT NULL,
+    opaque_id TEXT NOT NULL,
+    fmt TEXT NOT NULL,
+    structure TEXT NOT NULL,
+    text_tag TEXT NOT NULL,                -- keyed
+    author_kind TEXT NOT NULL,
+    provenance TEXT NOT NULL,
+    author_name TEXT, publisher TEXT, reference TEXT,   -- only with a details grant
+    PRIMARY KEY (token, opaque_id)
+);
+"""
