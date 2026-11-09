@@ -3,6 +3,7 @@ challenges without suppression, personal / shared separation, withdrawal
 and purging that leave no recoverable text in SK-managed files.
 
 Synthetic data only. No AI, no network."""
+import dataclasses
 import json
 import os
 import secrets
@@ -398,6 +399,135 @@ class Challenges(World):
                  "both.txt", publisher="Mixed")
         ch = self.s.respond(Q_MG).challenges
         self.assertEqual([g["internal"] for g in ch], [True])
+
+
+# ======================================================================== challenge audience
+class ChallengeAudience(World):
+    """B6.1 (the LOW finding of the final B6 audit): a response whose challenges carry text
+    from the asker's OWN personal material must never be marked audience="shared" -
+    Established or Documented. Another viewer must never receive that text, and
+    challenges that come from SHARED material keep the answer shared."""
+    PERSONAL = "Kai maintains the Lantern Garden."          # Luis's own note, nobody else's
+    SHARED_TEXT = ("Mira maintains the Lantern Garden.\n\n"
+                   "Odo maintains the Lantern Garden.\n")   # a shared source that contradicts itself
+
+    def setUp(self):
+        super().setUp()
+        # a third person with no material of their own (a moderator cannot ask questions;
+        # Ana, who shared the claim, sees her own passages as personal)
+        self.ids["rita"] = self.lib.create_user("Rita")
+
+    def share(self, established, text=None):
+        """Ana's claim shared by a moderator: Established (verified) or Documented."""
+        ana = self.open("ana")
+        sid = self.imp(ana, text or "Mira maintains the Lantern Garden.\n", "ana.txt",
+                       publisher="Harbour Press")
+        c = ana.learn("Mira maintains the Lantern Garden.", "imported", "Lantern Garden")
+        ana.cite(c, sid, "Mira maintains the Lantern Garden.")
+        levels = ["quote", "full_text"] if established else ["quote"]
+        if established:
+            ana.attest_source(sid, "checked by me")
+        m = self.open("mod")
+        shared = m.approve(self.fid("ana"), ana.propose(c, {sid: levels}))
+        if established:
+            ssid = m.store._db.execute("SELECT source_id FROM evidence WHERE claim_id=?",
+                                       (shared,)).fetchone()[0]
+            m.attest_source(ssid, "publisher page checked by a moderator")
+            m.review(shared, "verified")
+        return ana, m
+
+    def personal_note(self, who="luis"):
+        s = self.open(who)
+        self.imp(s, self.PERSONAL + "\n", "mine.txt", publisher="My Notes")
+        return s
+
+    def whole(self, r):
+        """Everything in the response except `related` (the asker's own labelled view)."""
+        d = dataclasses.asdict(r)
+        d.pop("related", None)
+        return json.dumps(d, ensure_ascii=False)
+
+    def test_a_personal_challenge_makes_an_established_answer_personal(self):
+        self.share(established=True)
+        luis = self.personal_note()
+        a = luis.respond(Q_MG)
+        self.assertEqual((a.category, a.value), ("established", "Mira"))   # the answer stays
+        self.assertEqual([g["scope"] for g in a.challenges], ["personal"])
+        self.assertIn(self.PERSONAL, self.whole(a))        # the asker sees their own note ...
+        self.assertEqual(a.audience, "personal")           # ... and the response is theirs only
+
+    def test_a_personal_challenge_makes_a_documented_answer_personal(self):
+        self.share(established=False)
+        luis = self.personal_note()
+        a = luis.respond(Q_MG)
+        self.assertEqual((a.category, a.reason), ("unknown", "sources_disagree"))
+        self.assertEqual(a.audience, "personal")
+        self.assertIn(self.PERSONAL, self.whole(a))
+
+    def test_nobody_else_receives_the_personal_text(self):
+        for established in (True, False):
+            with self.subTest(established=established):
+                self.tearDown()
+                self.setUp()
+                self.share(established)
+                self.personal_note("luis")
+                for who in ("ana", "rita"):
+                    b = self.open(who).respond(Q_MG)
+                    self.assertNotIn(self.PERSONAL, self.whole(b), who)
+                    self.assertNotIn(self.PERSONAL, repr(b), who)
+                    self.assertEqual(b.challenges, [], who)
+                    self.assertIn(b.audience, ("shared", "personal"))
+                r = self.open("rita").respond(Q_MG)
+                self.assertEqual((r.audience, r.challenges), ("shared", []))
+
+    def test_no_shared_response_ever_holds_personal_text(self):
+        """Every viewer, both categories, with and without the personal note: whatever is
+        marked shared holds nothing of Luis's own note (the guard behind the fix)."""
+        for established in (True, False):
+            with self.subTest(established=established):
+                self.tearDown()
+                self.setUp()
+                self.share(established)
+                for with_note in (False, True):
+                    if with_note:
+                        self.personal_note("luis")
+                    for who in ("ana", "luis", "rita"):
+                        r = self.open(who).respond(Q_MG)
+                        if r.audience == "shared":
+                            self.assertNotIn(self.PERSONAL, self.whole(r), (who, with_note))
+                            self.assertTrue(all(g["scope"] == "shared" for g in r.challenges))
+
+    def test_shared_challenges_keep_the_answer_shared(self):
+        """A passage from SHARED material that states another value is shown as a
+        challenge, and the response stays shared: nothing personal is in it."""
+        self.share(established=True, text=self.SHARED_TEXT)
+        a = self.open("luis").respond(Q_MG)
+        self.assertEqual((a.category, a.value), ("established", "Mira"))
+        self.assertEqual([g["scope"] for g in a.challenges], ["shared"])
+        self.assertEqual(a.challenges[0]["values"], ["Odo"])
+        self.assertEqual(a.audience, "shared")
+
+    def test_a_shared_and_a_personal_challenge_together_make_it_personal(self):
+        self.share(established=True, text=self.SHARED_TEXT)
+        luis = self.personal_note()
+        a = luis.respond(Q_MG)
+        self.assertEqual(sorted(g["scope"] for g in a.challenges), ["personal", "shared"])
+        self.assertEqual(a.audience, "personal")
+        b = self.open("rita").respond(Q_MG)                 # the shared one only, still shared
+        self.assertEqual([g["scope"] for g in b.challenges], ["shared"])
+        self.assertEqual(b.audience, "shared")
+        self.assertNotIn(self.PERSONAL, self.whole(b))
+
+    def test_the_asker_still_sees_every_challenge_of_their_own(self):
+        """The fix changes the audience label only: nothing is hidden from the asker, no
+        challenge is dropped, the category and value of an Established answer stay."""
+        self.share(established=True)
+        luis = self.personal_note()
+        a = luis.respond(Q_MG)
+        self.assertEqual(len(a.challenges), 1)
+        self.assertEqual(a.challenges[0]["values"], ["Kai"])
+        self.assertEqual(a.challenges[0]["examples"][0]["text"], self.PERSONAL)
+        self.assertEqual((a.category, a.value), ("established", "Mira"))
 
 
 # ======================================================================== provenance

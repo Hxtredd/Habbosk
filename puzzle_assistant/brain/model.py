@@ -166,9 +166,12 @@ class Response:
     sides: List[dict] = field(default_factory=list)          # sources_disagree: value + claims
     possible: Optional[str] = None      # unknown: an unverified / outdated possibility, labelled
     related: List[dict] = field(default_factory=list)        # labelled search results - never answers
-    # "shared" only if every claim used is shared. It covers the ANSWER (value,
-    # sentence, possible, citations, steps); `related` is always the asker's own view
-    # and must never be passed on with a shared answer.
+    # "shared" only if every claim used is shared AND the response carries no text from the
+    # asker's own personal material: a challenge group whose scope is "personal" (its
+    # example passages, and the sides of a documented answer) makes the whole response
+    # "personal", Established or Documented. It covers the ANSWER (value, sentence,
+    # possible, citations, steps, challenges, sides); `related` is always the asker's own
+    # view and must never be passed on with a shared answer.
     audience: str = ""
     ai: str = "none"
     save_offer: Optional[dict] = None

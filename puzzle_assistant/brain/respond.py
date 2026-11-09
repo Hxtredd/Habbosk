@@ -321,8 +321,13 @@ def _challenge(brain, r: Response, viewer) -> Response:
         r.value = None
         r.sentence = _say(r.language, "passage_disagrees",
                           options=" / ".join([r.possible] + vals))
-        if any(g["scope"] == "personal" for g in ch):
-            r.audience = "personal"
+    # The challenges (their example passages and, for a documented answer, the sides) carry
+    # text from the ASKER'S OWN personal material when a group's scope is "personal". A
+    # response holding such text is never "shared" - in either category. (Before B6.1 only
+    # the documented branch did this, so an Established answer kept audience="shared"
+    # with the asker's personal passages attached.)
+    if any(g["scope"] == "personal" for g in ch):
+        r.audience = "personal"
     return r
 
 
