@@ -1040,7 +1040,14 @@ it (only the time limit and the reader's own limits).
 Results after the exception (Linux, da25e2b): whole suite 712 tests OK; B4 + B6
 regression, PDF and process-guard tests 235 OK; deliberate breaks 110/110 caught
 (the 98 earlier + 12 for the subprocess exception). Brain code fingerprint
-2fcd0d66dcff19ea. Not run on Windows. Deliberate
+2fcd0d66dcff19ea. Not run on Windows.
+Review fix (process guard aliases): the guard now tracks every name a file binds
+to os (and refuses posix / nt / _posixsubprocess / _winapi outright): a launch
+function may not be imported from os under any name (nor `from os import *`),
+called through any alias, fetched with getattr (launch name or computed name),
+and os may not be passed around or reached through sys.modules; also inside
+functions. 23 bypass sources must be caught by the checker itself; 11 new
+deliberate breaks (8 bypasses planted in Brain modules, 3 disabling the checker). Deliberate
 breaks: 98/98 caught (35 PDF). Found and fixed by the tests: tables with no line
 spanning them were read as prose columns; short-piece columns are now
 layout-uncertain.

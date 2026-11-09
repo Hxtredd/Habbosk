@@ -63,6 +63,63 @@ def module_const(tree, name):
     return None
 
 
+OS_MODULES = ("os", "posix", "nt")
+LOW_LEVEL = ("posix", "nt", "_posixsubprocess", "_winapi")
+OS_LAUNCH = {n for n in LAUNCH_NAMES if n not in ("Popen", "call", "check_call", "check_output",
+                                                  "run", "getoutput", "getstatusoutput")}
+
+
+def _os_launch_problems(name, tree):
+    """Every way a file could reach an os process-launch function (see the test)."""
+    bad = []
+    aliases = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                top = a.name.split(".")[0]
+                if top in LOW_LEVEL:
+                    bad.append((name, "import " + a.name))
+                if top == "os":
+                    # "import os" / "import os.path" bind os; "import os.path as p" binds os.path
+                    if a.asname is None:
+                        aliases.add("os")
+                    elif a.name == "os":
+                        aliases.add(a.asname)
+        elif isinstance(n, ast.ImportFrom):
+            mod = (n.module or "").split(".")[0]
+            if mod in LOW_LEVEL:
+                bad.append((name, "from " + (n.module or "")))
+            if mod in OS_MODULES:
+                for a in n.names:
+                    if a.name == "*" or a.name in OS_LAUNCH:
+                        bad.append((name, "from %s import %s" % (n.module, a.name)))
+    parents = {}
+    for p in ast.walk(tree):
+        for c in ast.iter_child_nodes(p):
+            parents[c] = p
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and \
+                n.value.id in aliases and n.attr in OS_LAUNCH:
+            bad.append((name, "%s.%s" % (n.value.id, n.attr)))
+        if isinstance(n, ast.Attribute) and n.attr == "modules" and \
+                isinstance(n.value, ast.Name) and n.value.id == "sys":
+            bad.append((name, "sys.modules"))
+        if isinstance(n, ast.Name) and n.id in aliases and isinstance(n.ctx, ast.Load):
+            par = parents.get(n)
+            if isinstance(par, ast.Attribute) and par.value is n:
+                continue                               # os.<name>: checked above
+            if isinstance(par, ast.Call) and isinstance(par.func, ast.Name) and \
+                    par.func.id == "getattr" and par.args and par.args[0] is n:
+                key = par.args[1] if len(par.args) > 1 else None
+                if isinstance(key, ast.Constant) and isinstance(key.value, str) and \
+                        key.value not in OS_LAUNCH:
+                    continue                           # getattr(os, "O_NOFOLLOW", 0)
+                bad.append((name, "getattr(%s, ...)" % n.id))
+                continue
+            bad.append((name, "%s used as a value (line %d)" % (n.id, n.lineno)))
+    return bad
+
+
 class Static(unittest.TestCase):
     def test_subprocess_is_imported_only_by_pdf_import_plainly(self):
         seen = []
@@ -171,6 +228,54 @@ class Static(unittest.TestCase):
                         n.value.id == "os" and n.attr in LAUNCH_NAMES:
                     bad.append((name, "os." + n.attr))
         self.assertEqual(bad, [])
+
+    def test_no_os_launch_function_under_any_name(self):
+        """Independent review: aliases. Every name a file binds to os (or to the
+        low-level posix / nt / _posixsubprocess / _winapi modules) is tracked; a
+        launch function may not be imported from them under any name, reached
+        through any alias, fetched with getattr (or a computed name), and the
+        module itself may not be passed around or looked up in sys.modules."""
+        bad = []
+        for name, tree in trees():
+            bad += _os_launch_problems(name, tree)
+        self.assertEqual(bad, [])
+
+    def test_the_alias_check_catches_every_known_bypass(self):
+        """The checker itself, on small sources (each must be caught)."""
+        cases = {
+            "from os import spawnv as launch": "from os import spawnv as launch\nlaunch(0, 'x', [])",
+            "from os import system": "from os import system",
+            "from os import *": "from os import *",
+            "aliased os, system": "import os as operating_system\noperating_system.system('x')",
+            "aliased os, spawnv": "import os as o\no.spawnv(0, 'x', [])",
+            "aliased os, execv": "import os as o\no.execv('x', [])",
+            "aliased os, posix_spawn": "import os as o\no.posix_spawn('x', [], {})",
+            "aliased os, popen": "import os as o\no.popen('x')",
+            "aliased os, startfile": "import os as o\no.startfile('x')",
+            "aliased os, fork": "import os as o\no.fork()",
+            "os bound to another name": "import os\nlauncher = os\nlauncher.system('x')",
+            "os passed to a function": "import os\nf(os)",
+            "getattr launch name": "import os\ngetattr(os, 'system')('x')",
+            "getattr computed name": "import os\ngetattr(os, 'sys' + 'tem')('x')",
+            "aliased getattr": "import os as o\ngetattr(o, 'spawnl')(0, 'x')",
+            "import posix": "import posix\nposix.system('x')",
+            "from posix import": "from posix import execv as e",
+            "import nt": "import nt as n",
+            "_posixsubprocess": "import _posixsubprocess",
+            "_winapi": "import _winapi",
+            "sys.modules os": "import sys\nsys.modules['os'].system('x')",
+            "os imported inside a function": "def f():\n    import os as q\n    q.system('x')",
+            "os.path then os alias": "import os.path as p\nimport os as q\nq.execvp('x', [])",
+        }
+        for label, src in cases.items():
+            with self.subTest(label):
+                self.assertTrue(_os_launch_problems("case.py", ast.parse(src)), label)
+        fine = ("import os\nos.path.join('a', 'b')\nos.remove('x')",
+                "import os\nflags = getattr(os, 'O_NOFOLLOW', 0)",
+                "import os as o\no.replace('a', 'b')")
+        for src in fine:
+            with self.subTest(src):
+                self.assertEqual(_os_launch_problems("case.py", ast.parse(src)), [])
 
     def test_the_only_extra_keywords_come_from_the_windows_flag(self):
         src = open(os.path.join(BRAIN, "pdf_import.py"), encoding="utf-8").read()
