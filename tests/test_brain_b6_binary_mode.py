@@ -101,7 +101,7 @@ class _TextModeOs:
         self.text_fds.pop(fd, None)
         return os.close(fd)
 
-    def replace(self, src, dst, *a, **k):
+    def _translate_written(self, src):
         # bytes written through a text-mode descriptor: every LF became CR LF
         if os.path.abspath(src) in self.text_written:
             self.text_written.discard(os.path.abspath(src))
@@ -109,7 +109,20 @@ class _TextModeOs:
                 data = fh.read()
             with open(src, "wb") as fh:
                 fh.write(data.replace(b"\n", b"\r\n"))
+
+    def replace(self, src, dst, *a, **k):
+        self._translate_written(src)
         return os.replace(src, dst, *a, **k)
+
+    # the key store publishes a finished temporary file with a hard link (or, on
+    # Windows, a rename that refuses an existing target): the same translation applies
+    def link(self, src, dst, *a, **k):
+        self._translate_written(src)
+        return os.link(src, dst, *a, **k)
+
+    def rename(self, src, dst, *a, **k):
+        self._translate_written(src)
+        return os.rename(src, dst, *a, **k)
 
 
 @contextlib.contextmanager
