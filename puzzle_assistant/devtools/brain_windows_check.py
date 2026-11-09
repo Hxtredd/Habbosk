@@ -631,6 +631,135 @@ def b6_upgrade():
     return ok, "\n".join(lines)
 
 
+@check("Windows binary mode: CR LF and 0x1A kept (PDF, TXT, MD, HTML, 64 keys)")
+def binary_mode():
+    """The fix for the f688383 check: files are opened with O_BINARY, so Windows'
+    text mode can no longer turn CR LF into LF, stop reading at a 0x1A byte, or
+    turn LF into CR LF in a key file. Shows first that text mode really does
+    alter such a file on this PC (so the check means something), then that the
+    importer keeps every byte and the key store reloads 64 keys unchanged."""
+    import random
+    sys.path.insert(0, os.path.join(HERE, "tests"))
+    try:
+        import b6_pdf_maker as M
+    except ImportError:
+        return None, "tests/b6_pdf_maker.py not found (use the full download)"
+    from puzzle_assistant.brain import importer, keystore
+    from puzzle_assistant.brain.importer import ImportRefused
+    from puzzle_assistant.brain.library import Library, mint_grant
+    mg = "Mira maintains the Demo Garden."
+    text = ("Line one.\r\nAfter \x1a the byte, the text goes on.\r\n" + mg +
+            "\r\nEnd line.\r\n")
+    plain = M.make([M.Page("% a CR LF\r\n% and a \x1a byte\r\n" + M.text(72, 700, mg)),
+                    M.Page(M.text(72, 700, "The harbour is calm today."))], compress=False)
+    zipped = None
+    for k in range(5000):                       # compressed bytes that happen to hold both
+        r = random.Random(k)
+        lines = ["Note " + " ".join("".join(r.choice("abcdefghijklmnopqrstuvwxyz")
+                                            for _ in range(r.randint(2, 9)))
+                                    for _ in range(8)) + "." for _ in range(20)]
+        cand = M.make([M.Page(M.text(72, 700, mg) + "".join(
+            M.text(72, 650 - 14 * i, ln) for i, ln in enumerate(lines)))])
+        if b"\r\n" in cand and b"\x1a" in cand:
+            zipped = cand
+            break
+    files = {"crlf.pdf": plain, "zipped.pdf": zipped, "plain.txt": text.encode("utf-8"),
+             "utf16.txt": text.encode("utf-16"),
+             "guide.md": ("# Garden\r\n\r\n" + text).encode("utf-8"),
+             "page.html": ("<html><body>\r\n<p>" + text + "</p>\r\n</body></html>\r\n"
+                           ).encode("utf-8")}
+    root, d = _workdir()
+    try:
+        folder = os.path.join(d, "Archivos (José) #3")
+        os.makedirs(folder)
+        paths = {}
+        for n, data in files.items():
+            if data is None:
+                continue
+            paths[n] = os.path.join(folder, n)
+            with open(paths[n], "wb") as fh:
+                fh.write(data)
+        # 1. text mode (no O_BINARY) really alters these files on this PC
+        fd = os.open(paths["crlf.pdf"], os.O_RDONLY)
+        try:
+            seen = b""
+            while True:
+                c = os.read(fd, 1 << 20)
+                if not c:
+                    break
+                seen += c
+        finally:
+            os.close(fd)
+        text_mode_alters = seen != plain
+        # 2. the importer keeps every byte; full imports; PDF quote supports
+        bad = []
+        for n, p in paths.items():
+            if importer.read_file(p, importer.PDF_MAX_BYTES) != files[n]:
+                bad.append(f"{n}: bytes changed")
+        hk, lk = os.urandom(32), os.urandom(32)
+        lib = Library(os.path.join(d, "brain"), hk, lk)
+        ana = lib.create_user("Ana")
+        s = lib.open_session(mint_grant(hk, lib.installation_id, lib.epoch, ana, "user"))
+        supports = False
+        for n, p in paths.items():
+            try:
+                sid = s.import_file(p, author_kind="named", author_name="Ada")["source_id"]
+            except ImportRefused as exc:
+                bad.append(f"{n}: refused ({exc})")
+                continue
+            stored, tag = s.store._db.execute(
+                "SELECT text, bytes_tag FROM main.source_versions WHERE source_id=?",
+                (sid,)).fetchone()
+            fmt = {"pdf": "pdf", "txt": "text", "md": "markdown", "html": "html"}[
+                n.rsplit(".", 1)[1]]
+            want = importer.parse(files[n], fmt)
+            if tag != want.bytes_sha or stored != want.text:
+                bad.append(f"{n}: stored text or byte hash differs")
+            if not n.endswith(".pdf") and ("End line." not in stored or "\x1a" not in stored):
+                bad.append(f"{n}: text cut at the 0x1A byte")
+            if n == "crlf.pdf":
+                c = s.learn(mg, "imported", "Demo Garden")
+                r = s.cite(c, sid, mg)
+                supports = bool(r["supports"] and r.get("page") == 1)
+        s.close()
+        lib.close()
+        # 3. 64 keys: created, stored, closed, reloaded, unchanged
+        kd = os.path.join(d, "keys (José)")
+        made = {}
+        for i in range(64):
+            kp = os.path.join(kd, "k%02d.key" % i)
+            made[kp] = keystore.load_or_create_key(kp)
+        key_bad, with_lf = [], 0
+        for kp, key in made.items():
+            with open(kp, "rb") as fh:
+                blob = fh.read()
+            with_lf += b"\n" in blob
+            problem = ""
+            try:
+                again = [keystore.load_or_create_key(kp), keystore.load_or_create_key(kp)]
+                if again != [key, key] or keystore.unprotect(blob) != key:
+                    problem = "reloaded key differs"
+            except OSError as exc:
+                problem = str(exc)
+            with open(kp, "rb") as fh:
+                if fh.read() != blob:
+                    problem = problem or "key file rewritten"
+            if problem:
+                key_bad.append(f"{os.path.basename(kp)}: {problem}")
+        distinct = len(set(made.values())) == 64
+        ok = (zipped is not None and not bad and supports and not key_bad and distinct and
+              (text_mode_alters or sys.platform != "win32"))
+        return ok, (f"text mode alters such a file on this PC (so the check means something): "
+                    f"{text_mode_alters}; O_BINARY available: {bool(getattr(os, 'O_BINARY', 0))}"
+                    f"\nPDF (2) / TXT / UTF-16 TXT / MD / HTML with CR LF and 0x1A: every byte "
+                    f"kept and fully imported: {not bad} {bad}; PDF quote supports with page 1: "
+                    f"{supports}\n64 keys created, closed, reloaded twice, unchanged: "
+                    f"{not key_bad and distinct} {key_bad[:5]} ({with_lf} of the 64 stored "
+                    f"key files hold an LF byte - the case that used to break)")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 @check("Brain automated tests on this PC")
 def unit_tests():
     loader = unittest.TestLoader()
@@ -645,8 +774,11 @@ def unit_tests():
     r = unittest.TextTestRunner(stream=out, verbosity=1).run(suite)
     detail = (f"ran {r.testsRun}: passed {r.testsRun - len(r.failures) - len(r.errors) - len(r.skipped)}"
               f", failed {len(r.failures)}, errors {len(r.errors)}, skipped {len(r.skipped)}")
-    if r.failures or r.errors:
-        detail += "\n" + "\n".join(f"--- {t}\n{tb}" for t, tb in (r.failures + r.errors)[:10])
+    if r.failures or r.errors:                 # every one of them (no limit)
+        bad = r.failures + r.errors
+        detail += f"\nall {len(bad)} failed / erroring tests:\n" + "\n".join(
+            f"  {t}" for t, _ in bad)
+        detail += "\n" + "\n".join(f"--- {t}\n{tb}" for t, tb in bad)
     return r.wasSuccessful(), detail
 
 
@@ -673,7 +805,11 @@ def full_suite():
         detail += f"\nmissing packages (run BRAIN_WINDOWS_CHECK.bat, which installs them): {missing}"
     if r.returncode:
         bad = [l for l in out.splitlines() if l.startswith(("FAIL:", "ERROR:"))]
-        detail += "\n" + "\n".join(bad[:20])
+        detail += f"\nall {len(bad)} failed / erroring tests:\n" + "\n".join(bad)
+        sep = "=" * 70 + "\n"                  # unittest's block before each traceback
+        blocks = [b for b in out.split(sep) if b.startswith(("FAIL:", "ERROR:"))]
+        if blocks:
+            detail += "\n--- tracebacks\n" + "\n".join(b.rstrip() for b in blocks)
     return r.returncode == 0, detail
 
 

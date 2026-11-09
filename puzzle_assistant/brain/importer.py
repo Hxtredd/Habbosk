@@ -90,7 +90,10 @@ def read_file(path: str, limit: int = MAX_BYTES) -> bytes:
                             "nothing was imported.")
     if not os.path.isfile(path):
         raise ImportRefused("The path is not a regular file - nothing was imported.")
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    # O_BINARY: without it Windows opens the file in TEXT mode - every CR LF is read
+    # as LF and reading stops at the first 0x1A byte (PDFs then look damaged)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | \
+        getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(path, flags)
     except OSError as exc:

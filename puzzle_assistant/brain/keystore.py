@@ -70,7 +70,10 @@ def load_or_create_key(path: str) -> bytes:
     key = os.urandom(32)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     tmp = path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # O_BINARY: without it Windows writes in TEXT mode (every LF byte of the
+    # protected key becomes CR LF, and the key could never be loaded again)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0),
+                 0o600)
     with os.fdopen(fd, "wb") as fh:
         fh.write(protect(key))
         fh.flush()
