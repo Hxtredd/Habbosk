@@ -193,6 +193,7 @@ class Support:
     status: str
     scope: str
     fact: Fact
+    written: str = ""     # B6.1: the place as THIS claim has it (before aliases made it canonical)
 
 
 @dataclass
@@ -243,7 +244,8 @@ class FactIndex:
                 f = Fact(f.relation, self.canon(f.place),
                          self.canon(f.value) if f.relation == "leads_to" and f.value else f.value,
                          f.qualifier, f.display)
-            s = Support(int(d.record_id), d.text, d.status, (d.detail or {}).get("scope", ""), f)
+            s = Support(int(d.record_id), d.text, d.status, (d.detail or {}).get("scope", ""), f,
+                        written)
             self.by_place.setdefault((f.relation, f.place), []).append(s)
             if f.value is not None:
                 self.by_value.setdefault((f.relation, f.value), []).append(s)
@@ -261,7 +263,10 @@ class FactIndex:
         from a personal claim. A step label ("who looks after it (<place>)") is part of the
         answer and of its explanation: it must not show a name the asker's own personal claim
         (or personal entity) gave the place, in an answer that is marked shared. Where no
-        scope is known (a single-file store) the old rule is unchanged: the first name wins."""
+        scope is known ("", e.g. adapter records) the old rule is unchanged: the first name wins.
+        Library documents always carry a scope ("personal" / "shared" / "shared_candidate"), so
+        the preference also applies in a single-file store - there it can only change capitals or
+        accents, never leak."""
         known = self._shown_by_shared.get(key)
         if known is None or (scope == "shared" and not known):
             self._shown[key] = name
@@ -342,7 +347,12 @@ def resolve(a, index: FactIndex, out: List[StepResult]) -> Optional[str]:
             return None
         (place, ss), = places.items()
         verified, evidence, also = _verified_only(ss)
-        out.append(StepResult(label, "value", place, display(evidence[0].text, place), verified,
+        # B6.1: the answer names the place as the SUPPORTING claim writes it. `place` is the
+        # canonical key, which an alias of the asker's own personal entity can make that
+        # entity's key: display() would not find it in the claim's text and would return the
+        # key - the personal name - as the answer of a response marked shared.
+        out.append(StepResult(label, "value", place,
+                              display(evidence[0].text, evidence[0].written or place), verified,
                               evidence, also_unverified=also))
         return place
     if a.place == ANYWHERE:

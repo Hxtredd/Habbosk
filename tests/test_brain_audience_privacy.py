@@ -267,10 +267,57 @@ class MultiStepAnswers(World):
         self.assertEqual(r.audience, "personal")
 
 
+class ReverseQuestions(PlaceNamesInStepLabels):
+    """Found by the second security review (reproduced): a REVERSE question ("which room does
+    Mira look after?") names the answer's place from the canonical key, which an alias of the
+    asker's own personal entity can turn into that entity's key - so the personal name became
+    the ANSWER of a response marked shared. The place is now named as the supporting claim
+    writes it."""
+    QUESTIONS = ["Which room does Mira look after?", "Which place does Mira maintain?",
+                 "What does Mira maintain?"]
+
+    def test_the_answer_of_a_reverse_question_is_the_shared_name(self):
+        luis = self.personal_first()
+        self.share_mira()
+        for q in self.QUESTIONS:
+            r, b = luis.respond(q), luis.ask(q)
+            self.assertEqual((r.category, r.value, r.audience), ("established", "Lantern Garden",
+                                                                 "shared"), q)
+            for text in (blob(r, drop=("related",)), json.dumps(b.steps), " ".join(b.trace),
+                         str(b.answer)):
+                self.assertNotIn(self.SECRET, text.upper().replace("-", " "), q)
+
+    def test_the_same_with_the_personal_claim_created_after_the_share(self):
+        self.share_mira()
+        luis = self.personal_first()
+        for q in self.QUESTIONS:
+            r = luis.respond(q)
+            self.assertEqual((r.value, r.audience), ("Lantern Garden", "shared"), q)
+
+    def test_a_reverse_question_as_the_first_step_of_a_longer_question(self):
+        luis = self.personal_first()
+        self.share_mira()
+        r, b = luis.respond("What is the room ID of the room Mira maintains?"), \
+            luis.ask("What is the room ID of the room Mira maintains?")
+        self.assertEqual([st["value"] for st in r.steps][:1], ["Lantern Garden"])
+        self.assertNotIn(self.SECRET, (blob(r, drop=("related",)) + " ".join(b.trace)).upper()
+                         .replace("-", " "))
+
+    def test_nobody_else_gets_anything_of_it(self):
+        self.personal_first()
+        self.share_mira()
+        for q in self.QUESTIONS:
+            r = self.open("rita").respond(q)
+            self.assertEqual((r.value, r.audience), ("Lantern Garden", "shared"), q)
+
+
 class NothingOfTheAskersOwnRowsInASharedResponse(SharedVerifiedAnswer):
-    """The generic guard the review asked for: collect EVERY string in the asker's own personal
-    rows (claim texts, entity and alias names, source titles, evidence quotes) and require that
-    none of them - normalised - appears in any response or answer marked shared."""
+    """The generic guard the review asked for. It collects EVERY string in the asker's own
+    personal rows (claim texts, entity and alias names, source titles, evidence quotes) and
+    requires that none of them - normalised - appears in any response or answer marked shared.
+    The setup makes sure shared answers are really reached (an alias of a personal entity
+    canonicalises the shared place; no personal duplicate of the shared fact) and the test
+    FAILS if no shared response was checked."""
 
     @staticmethod
     def norm(s):
@@ -278,6 +325,7 @@ class NothingOfTheAskersOwnRowsInASharedResponse(SharedVerifiedAnswer):
         return re.sub(r"[^0-9a-z]+", " ", s.lower()).strip()
 
     def own_strings(self, session):
+        import sqlite3
         con = session.store._db
         out = set()
         for sql in ("SELECT text FROM main.claims", "SELECT name FROM main.entities",
@@ -285,34 +333,37 @@ class NothingOfTheAskersOwnRowsInASharedResponse(SharedVerifiedAnswer):
                     "SELECT locator FROM main.evidence"):
             try:
                 out |= {r[0] for r in con.execute(sql) if r[0]}
-            except Exception:                                  # a table this layout lacks
+            except sqlite3.OperationalError:                  # a table this layout lacks
                 pass
         return {self.norm(x) for x in out if len(self.norm(x)) >= 8}
 
     def test_no_string_of_the_askers_own_rows_is_in_a_shared_response(self):
         luis = self.open("luis")
         e = luis.add_entity("LUIS-SECRET-ROOM-NAME", "room")
+        luis.approve_alias(luis.add_alias(e, "Lantern Garden"))     # canonicalises the SHARED place
         luis.approve_alias(luis.add_alias(e, "LUIS-SECRET-ALIAS-NAME"))
         sid = self.imp(luis, "LUIS-PRIVATE-QUOTE-SENTENCE belongs to nobody else.\n", "p.txt",
                        title="LUIS-SECRET-SOURCE-TITLE", publisher="My Notes")
         c = luis.learn("LUIS-PERSONAL-CLAIM about the garden keeper.", "user", "Lantern Garden")
         luis.cite(c, sid, "LUIS-PRIVATE-QUOTE-SENTENCE belongs to nobody else.")
-        luis.learn("The Lantern Garden is maintained by Mira.", "user", "Lantern Garden")
+        luis.learn("Odo runs LUIS-SECRET-ROOM-NAME.", "user", "LUIS-SECRET-ROOM-NAME")
         mine = self.own_strings(luis)
-        self.assertTrue(any("luis secret" in x for x in mine))
-        questions = [Q_MG, "Who is in charge of the Lantern Garden?", "Who takes care of the "
-                     "LUIS-SECRET-ALIAS-NAME?", "Who maintains the LUIS-SECRET-ROOM-NAME?"]
+        mine.discard(self.norm("Lantern Garden"))     # his alias IS the shared place's own name
+        self.assertTrue(any("luis secret room name" in x for x in mine))
+        questions = [Q_MG, "Who maintains the LUIS-SECRET-ALIAS-NAME?",
+                     "Which room does Mira look after?", "What does Mira maintain?",
+                     "Who looks after the Lantern Garden?", "Who maintiains the Lantern Garden?"]
         shared_seen = 0
         for q in questions:
             r, b = luis.respond(q), luis.ask(q)
             for label, audience, text in (
                     ("respond", r.audience, blob(r, drop=("related", "question"))),
-                    ("ask", b.audience, json.dumps(b.steps) + " ".join(b.trace))):
+                    ("ask", b.audience, json.dumps(b.steps) + " ".join(b.trace) + str(b.answer))):
                 if audience == "shared":
                     shared_seen += 1
                     for mark in mine:
                         self.assertNotIn(mark, self.norm(text), (q, label, mark))
-        self.assertGreaterEqual(shared_seen, 0)
+        self.assertGreater(shared_seen, 3, "the guard did not reach shared responses")
 
 
 # ==================================================================================== F5
@@ -353,6 +404,25 @@ class UnderstoodAsEchoesOnlyTheAskersWords(SharedVerifiedAnswer):
         for q, r in self.run_all(rita, ["Lantern Garden"]):
             for mark in ("SECRET-CANON-LUIS", "SECRET-ALIAS-LUIS"):
                 self.assertNotIn(mark, self.blob_all(r), q)
+
+    def test_a_typo_never_pulls_in_a_personal_alias_the_asker_did_not_type(self):
+        """N1 (suspected by the review, not reproduced): near-miss personal names next to a
+        shared name must not appear in understood_as / interpretation / clarification of a
+        response marked shared."""
+        luis = self.open("luis")
+        e = luis.add_entity("Lantern Gardens Annex", "room")
+        luis.approve_alias(luis.add_alias(e, "Lantern Gardens"))
+        luis.learn("Odo runs the Lantern Gardens Annex.", "user", "Lantern Gardens Annex")
+        for q in ("Who maintains the Lantern Gardn?", "Who maintains the Lantern Gardens?",
+                  "Who is in charge of the Lantern Gardn?", "Who maintiains the Lantern Gardn?",
+                  "who looks after the lantern garden"):
+            r = luis.respond(q)
+            if r.audience == "shared":
+                text = r.understood_as + json.dumps(r.interpretation or {}) + \
+                    json.dumps(r.clarification or {}, ensure_ascii=False)
+                for word in ("Gardens", "Annex"):
+                    if word in text:
+                        self.assertIn(word, q, (q, "personal name shown but not typed"))
 
     def test_every_response_marked_shared_has_an_understood_as_with_only_typed_words(self):
         luis = self.open("luis")

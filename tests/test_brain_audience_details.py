@@ -70,6 +70,14 @@ class MigratedOwnerSourceDetails(unittest.TestCase):
         b.propose_share(c4, by=ana)
         b.review(c4, "verified", reviewer=mod)
         b.approve_share(c4, mod)
+        # a source with only a reference whose quote IS the claim's sentence: once the claim is
+        # demoted the owner's own quote makes it Documented for her (and only for her)
+        s7 = b.add_source("document", title="", reference="ANA-TEA-REF", by=ana)
+        c7 = b.learn("Una runs the Tea Room.", "imported", "Tea Room", by=ana)
+        b.add_evidence(c7, "direct", s7, "Una runs the Tea Room.", by=ana)
+        b.propose_share(c7, by=ana)
+        b.review(c7, "verified", reviewer=mod)
+        b.approve_share(c7, mod)
         b.close()
         self.hk, self.lk = secrets.token_bytes(32), secrets.token_bytes(32)
         S.split_file(os.path.join(self.d, "knowledge.db"), self.d, self.hk, self.lk)
@@ -138,7 +146,10 @@ class MigratedOwnerSourceDetails(unittest.TestCase):
         self.assertNotIn("ANA-PRIVATE-QUOTE-MARK", blob(o))
         self.assertNotIn("ANA-ONLY-REF", blob(o))
 
-    def test_a_demoted_claim_with_only_a_quote_is_not_marked_shared_for_the_owner(self):
+    def test_a_demoted_claim_with_only_a_quote_is_documented_and_personal_for_the_owner(self):
+        """The owner's own quote supports the claim, so for HER it is Documented ('according
+        to a source'); for the other person - who has no quote - it is only unsupported. The
+        Documented answer carries her source and is hers alone."""
         import sqlite3
         self.lib.close()
         con = sqlite3.connect(os.path.join(self.d, "brain", "shared.db"))
@@ -147,10 +158,13 @@ class MigratedOwnerSourceDetails(unittest.TestCase):
         con.close()
         self.lib = Library(os.path.join(self.d, "brain"), self.hk, self.lk)
         self.addCleanup(self.lib.close)
-        r = self.session("local_user").respond("Who runs the Net Loft?")
-        self.assertNotEqual(r.audience, "shared")              # documented or not: it is hers
-        o = self.session("external_user").respond("Who runs the Net Loft?")
-        self.assertNotIn("ANA-PRIVATE-QUOTE-MARK", blob(o))
+        r = self.session("local_user").respond("Who runs the Tea Room?")
+        self.assertEqual((r.category, r.value), ("documented", "Una"))
+        self.assertEqual(r.audience, "personal")
+        o = self.session("external_user").respond("Who runs the Tea Room?")
+        self.assertEqual((o.category, o.reason), ("unknown", "unsupported"))
+        self.assertNotIn("Una runs the Tea Room", blob(o, drop=("related", "possible", "sentence",
+                                                                   "steps", "citations")))
 
     def test_a_demoted_shared_claim_answered_as_documented_names_the_title_only_to_the_owner(self):
         """The Documented branch: demote the shared claim in this temporary library (no longer
