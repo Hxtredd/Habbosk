@@ -8,6 +8,7 @@
 | `reviews/<milestone>/` | Per-milestone reports, one file per role (from the agent-team setup onward). |
 | `testing/` | Continuous version validation: the process, platforms, and the version-testing record (`versions.md`). |
 | `decisions/` | Approved architecture decisions, milestone approvals and changes of direction (from the agent-team setup onward; earlier ones are in DEVELOPMENT_NOTES.md and indexed there). |
+| `oversight/` | The oversight bridge: independent ChatGPT reviews, Claude sessions' responses and the owner's decisions (append-only). |
 
 Records are added, never rewritten. A correction is a new dated entry that
 names what it corrects.

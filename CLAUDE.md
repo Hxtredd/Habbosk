@@ -166,3 +166,35 @@ has passed only when its tests ran on that platform. GitHub Actions runs the
 Linux suite on every push to `claude/brain-*` (tests only). Windows runs are
 the owner's (`BRAIN_WINDOWS_CHECK.bat`, `VERSION_TEST.bat`). Deployment stays
 manual and needs the owner's approval.
+
+## 10. Oversight bridge (ChatGPT reviews and owner decisions)
+
+`docs/oversight/` is the written channel between the Claude sessions,
+ChatGPT (independent reviewer, outside Claude) and the owner. Details:
+`docs/oversight/README.md`. All its files are append-only.
+
+- **Check for reviews**: at the start of a session and before any milestone
+  report or integration request, read `docs/oversight/CHATGPT_REVIEWS.md` and
+  `docs/oversight/OWNER_DECISIONS.md` on the branch you work from, and on
+  `claude/agent-team-setup` / `claude/brain-integration` (where the bridge
+  lives once integrated). Note any review without a response.
+- **Respond**: the session that owns the reviewed work adds an entry to
+  `docs/oversight/CLAUDE_RESPONSES.md` naming the review ID, findings accepted,
+  findings rejected with evidence, exact commit SHAs, tests actually run
+  (Linux / Windows separately) and remaining concerns.
+- **Record decisions**: only the owner decides. A session records a decision
+  in `docs/oversight/OWNER_DECISIONS.md` only with the owner's own words and
+  the date. Architecture decisions also get a file in `docs/decisions/`.
+- **Authors**: every entry names its author - `Project Owner`, `ChatGPT
+  (supplied by the owner)`, `Claude Session 1 - Lead Developer` or `Claude
+  Session 2 - Parallel Development Lead`. Subagent reports stay in
+  `docs/reviews/`.
+- **Never** write, paraphrase or complete a ChatGPT review, or say ChatGPT
+  approved something.
+- **ChatGPT advice is not approval.** ChatGPT recommends; the owner decides
+  (section 4). A positive review, a passing test run or the owner's silence
+  never authorises a protected action.
+- **Session 2** (Parallel Development Lead) works only on its own branch,
+  never edits Session 1's branches or worktrees, never merges, rebases or
+  integrates its own work, and does not give Session 1 instructions; it
+  reports to Session 1 and the owner.
