@@ -158,22 +158,24 @@ def split(parsed) -> list:
     out: List[Passage] = []
     source = tuple(f for f in SOURCE_FLAGS if f in tuple(getattr(parsed, "flags", ()) or ()))
 
-    def add(kind: str, s: int, e: int, path: str) -> None:
+    def add(kind: str, s: int, e: int, path: str, block_flags=()) -> None:
         t = _trimmed(text, s, e)
         if t is None:
             return
         s, e = t
         seg = text[s:e]
-        out.append(Passage(kind, s, e, path, len(out), suspicious(seg) + source,
+        extra = tuple(f for f in block_flags if f not in source)
+        out.append(Passage(kind, s, e, path, len(out), suspicious(seg) + source + extra,
                            hashlib.sha256(seg.encode("utf-8")).hexdigest()))
 
     for b in parsed.blocks:
         k = b.kind
+        bf = tuple(getattr(b, "flags", ()) or ())      # PDF: the page's warnings
         if k == "paragraph" or k == "quote":
             kind = "sentence" if k == "paragraph" else "quote_sentence"
             for s, e in _sentence_spans(text, b.start, b.end):
-                add(kind, s, e, b.heading_path)
+                add(kind, s, e, b.heading_path, bf)
         elif k in ("list_item", "heading", "table_row", "code"):
-            add(k, b.start, b.end, b.heading_path)
-        # raw_html and anything unknown: no passage
+            add(k, b.start, b.end, b.heading_path, bf)
+        # raw_html, page_furniture (PDF headers / footers) and anything unknown: no passage
     return out

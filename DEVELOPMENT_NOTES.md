@@ -985,6 +985,39 @@ Independent review fixes (after 4abe9ee):
    HTML: reference only". Consequence: in B6 no HTML source can support a
    claim. Import tests updated to require the warning on HTML passages.
 Regression tests reproduce both issues on 4abe9ee (16 failures there).
+PDF import (owner-approved addition to B6): pypdf 6.21.4 (BSD-3-Clause, pure
+Python; the Brain's FIRST third-party package) pinned with hashes in
+requirements-brain.txt (+ typing_extensions 4.16.0 on Python < 3.11), licence in
+LICENSES/pypdf.txt; no known advisories for 6.21.4 on 2026-11-09 (every earlier
+version checked had denial-of-service advisories). The Brain process never
+imports pypdf: `brain/pdf_reader.py` runs in its own `python -I` process
+(time limit 90 s; on Linux also memory / CPU limits - none on Windows), with
+pypdf's decompression limits lowered to 24 MB, image decoding never used and the
+outside jbig2 program disabled; fixed limits (300 pages, operators, text pieces,
+characters, nested drawings, character maps); its JSON answer is validated.
+Limits: 25 MB, 300 pages. Refused (nothing stored): not a PDF, damaged (strict
+parsing), ALL encrypted PDFs (also permission-only), no pages, too many pages,
+too complex / decompression bomb, scanned (images only - "OCR is not supported
+yet"), no readable text, reader timeout / crash / malformed answer. SK interprets
+the page instructions itself: text is decoded only from certain maps
+(ToUnicode, standard encodings, Differences glyph names); anything else is U+FFFD
+and flags the page. Page flags (any one makes the WHOLE page reference only -
+never support, challenge, facts or suggestions; still searchable, labelled):
+uncertain text, hidden text (render modes 3/7 without images, white / near-white,
+transparent, outside the page or its clip rectangle), tiny, rotated, squeezed /
+stretched, painted over afterwards, complex clipping, optional content, Type3
+fonts, unknown colours, rotated pages, unknown operators / reader warnings,
+overlapping text, uncertain layout (pieces far apart without clear columns,
+tables inside columns), OCR layer (invisible text over a page image). Layout
+(`brain/pdf_import.py`): every block on ONE page with its page number, box and the
+page's flags (structure elements 5-7), so no passage crosses a page; lines from
+positions; tables (aligned cells) = table rows; clean columns read column by
+column; repeated margin lines / page numbers = page furniture (no passage);
+"main-" + new line kept as is. cite() / search report the page. Mixed documents
+import their text pages and list image-only pages. The PDF's SHA-256 is the
+version's bytes tag; the PDF itself and its metadata are never stored.
+Not run on Windows yet (BRAIN_WINDOWS_CHECK.bat installs requirements-brain.txt
+hash-checked and has a B6 PDF step).
 Linux after the fixes (2923feb): whole suite 637 tests OK; 63/63 deliberate B6
 breaks caught (14 new for the two fixes; two older breaks re-aimed because the
 fixes moved / doubled their target checks). Brain code fingerprint

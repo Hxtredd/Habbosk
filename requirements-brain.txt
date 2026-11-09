@@ -1,0 +1,16 @@
+# SK Brain - third-party packages, pinned to exact versions with hash checking.
+# Install with:  python -m pip install --require-hashes -r requirements-brain.txt
+# (kept apart from requirements.txt: hash-checking mode would otherwise apply to
+# every package of the app).
+#
+# pypdf 6.21.4 (BSD-3-Clause, pure Python): ONLY for reading PDF files in
+# brain/pdf_import.py, in a separate, time-limited process. No known advisories
+# for this version when it was chosen (PyPI / OSV data, 2026-11-09). Without it
+# the Brain still works; PDF import is refused. Licence: LICENSES/pypdf.txt.
+pypdf==6.21.4 \
+    --hash=sha256:33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c \
+    --hash=sha256:c8817e3f888d47a087872ded69812c1ef30cacb871d6e053e0c00bbaf0bc2163
+# needed by pypdf on Python older than 3.11 only (PSF-2.0)
+typing_extensions==4.16.0 ; python_version < "3.11" \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
+    --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5

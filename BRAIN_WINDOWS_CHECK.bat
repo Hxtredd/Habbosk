@@ -17,6 +17,10 @@ if not exist ".venv-check\Scripts\python.exe" (
     ".venv-check\Scripts\python.exe" -m pip install --upgrade pip >nul
     ".venv-check\Scripts\python.exe" -m pip install -r requirements.txt
 )
+rem SK Brain's own pinned package (pypdf, for PDF import): exact version, hash-checked.
+if exist ".venv-check\Scripts\python.exe" (
+    ".venv-check\Scripts\python.exe" -m pip install --require-hashes -r requirements-brain.txt
+)
 if exist ".venv-check\Scripts\python.exe" (
     ".venv-check\Scripts\python.exe" -m puzzle_assistant.devtools.brain_windows_check
 ) else (

@@ -480,6 +480,99 @@ def b6_sources():
         shutil.rmtree(root, ignore_errors=True)
 
 
+@check("B6 PDF import: separate reading process, pages, refusals, hidden text (Windows)")
+def b6_pdf():
+    """What only Windows can show for PDFs: the reading process starts (python -I,
+    no console window), pypdf is the pinned version, a PDF from an awkward path
+    imports with its page numbers, encrypted / scanned / damaged PDFs are refused
+    with nothing stored, a page with hidden text is reference only, a hanging
+    reader is stopped by the time limit, and closed files can be deleted."""
+    import io
+    sys.path.insert(0, os.path.join(HERE, "tests"))
+    try:
+        import b6_pdf_maker as M
+    except ImportError:
+        return None, "tests/b6_pdf_maker.py not found (use the full download)"
+    try:
+        import pypdf
+    except ImportError:
+        return False, ("pypdf is not installed - BRAIN_WINDOWS_CHECK.bat installs it from "
+                       "requirements-brain.txt (hash-checked)")
+    from puzzle_assistant.brain import pdf_import
+    from puzzle_assistant.brain.importer import ImportRefused
+    from puzzle_assistant.brain.library import Library, mint_grant
+    root, d = _workdir()
+    try:
+        version_ok = pypdf.__version__ == "6.21.4"
+        hk, lk = os.urandom(32), os.urandom(32)
+        lib = Library(os.path.join(d, "brain"), hk, lk)
+        ana = lib.create_user("Ana")
+        s = lib.open_session(mint_grant(hk, lib.installation_id, lib.epoch, ana, "user"))
+        folder = os.path.join(d, "Mis PDF (José) #2")
+        os.makedirs(folder)
+        good = M.make([M.Page([M.text(72, 700, "Intro page.")]),
+                       M.Page([M.text(72, 700, "Mira maintains the Demo Garden.")]),
+                       M.Page([M.text(72, 700, "Kai maintains the Demo Garden."),
+                               M.text(72, 680, "Hidden words.", pre="3 Tr")])])
+        p = os.path.join(folder, "guía 1.pdf")
+        with open(p, "wb") as fh:
+            fh.write(good)
+        t0 = time.time()
+        sid = s.import_file(p, author_kind="named", author_name="Ada")["source_id"]
+        took = time.time() - t0
+        c = s.learn("Mira maintains the Demo Garden.", "imported", "Demo Garden")
+        r = s.cite(c, sid, "Mira maintains the Demo Garden.")
+        page_ok = r["supports"] and r.get("page") == 2
+        c2 = s.learn("Kai maintains the Demo Garden.", "imported", "Demo Garden")
+        hidden_ref = s.cite(c2, sid, "Kai maintains the Demo Garden.")["supports"] is False
+        before = s.store._db.execute("SELECT COUNT(*) FROM main.sources").fetchone()[0]
+        refused = []
+        w = pypdf.PdfWriter(clone_from=pypdf.PdfReader(io.BytesIO(good)))
+        w.encrypt("", "owner", algorithm="RC4-128")
+        enc = io.BytesIO()
+        w.write(enc)
+        for name, data in (("encrypted.pdf", enc.getvalue()),
+                           ("scan.pdf", M.make([M.Page([M.image(0, 0, 612, 792)])])),
+                           ("damaged.pdf", good[:len(good) // 2])):
+            q = os.path.join(folder, name)
+            with open(q, "wb") as fh:
+                fh.write(data)
+            try:
+                s.import_file(q, author_kind="unknown")
+                refused.append(f"{name}: NOT refused")
+            except ImportRefused:
+                pass
+        nothing = s.store._db.execute("SELECT COUNT(*) FROM main.sources").fetchone()[0] == before
+        old = pdf_import._BOOT
+        pdf_import._BOOT = "import time; time.sleep(30)"
+        try:
+            t1 = time.time()
+            pdf_import.parse_pdf(good, timeout=3)
+            stopped = False
+        except ImportRefused:
+            stopped = time.time() - t1 < 15
+        finally:
+            pdf_import._BOOT = old
+        s.close()
+        lib.close()
+        locked = []
+        for dd, _, names in os.walk(os.path.join(d, "brain")):
+            for n in names:
+                try:
+                    os.remove(os.path.join(dd, n))
+                except OSError as exc:
+                    locked.append(f"{n}: {exc}")
+        ok = all((version_ok, page_ok, hidden_ref, not refused, nothing, stopped, not locked))
+        return ok, (f"pypdf {pypdf.__version__} (expected 6.21.4): {version_ok}; import from an "
+                    f"awkward path in {took:.1f} s, quote supports with page 2: {page_ok}; page "
+                    f"with hidden text reference only: {hidden_ref}; encrypted / scanned / "
+                    f"damaged refused: {not refused} {refused}; nothing stored: {nothing}; "
+                    f"hanging reader stopped by the time limit: {stopped}; closed files "
+                    f"deletable: {not locked}" + (f" {locked[:3]}" if locked else ""))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 @check("B6 library upgrade: copy, two folder renames, power loss between them (Windows renames)")
 def b6_upgrade():
     """A real B5.2 library (tests/fixtures/b52_library.zip, written by the B5.2

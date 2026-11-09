@@ -34,9 +34,10 @@ from typing import List, Optional, Tuple
 from .store import BrainError
 
 MAX_BYTES = 5 * 1024 * 1024
+PDF_MAX_BYTES = 25 * 1024 * 1024   # owner decision: PDFs up to 25 MB (and 300 pages)
 MAX_DEPTH = 256            # HTML element nesting
 MAX_ELEMENTS = 200_000     # HTML elements
-FORMATS = ("text", "markdown", "html")
+FORMATS = ("text", "markdown", "html", "pdf")
 
 _EXTENSIONS = {
     ".txt": "text",
@@ -44,6 +45,7 @@ _EXTENSIONS = {
     ".markdown": "markdown",
     ".html": "html",
     ".htm": "html",
+    ".pdf": "pdf",
 }
 
 
@@ -59,6 +61,11 @@ class Block:
     end: int
     heading_path: str  # "Title > Subtitle"; a heading's own path includes itself
     level: int = 0     # heading level 1-6, else 0
+    # PDF only (B6): the page (1-based), the block's box on it [x0, y0, x1, y1] in PDF
+    # points, and page warnings every passage of the block carries
+    page: int = 0
+    bbox: tuple = ()
+    flags: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -74,8 +81,8 @@ class Parsed:
 
 # ----------------------------------------------------------------- reading
 
-def read_file(path: str) -> bytes:
-    """Read a regular file (not a symlink) of at most MAX_BYTES, as bytes."""
+def read_file(path: str, limit: int = MAX_BYTES) -> bytes:
+    """Read a regular file (not a symlink) of at most `limit` bytes, as bytes."""
     if not isinstance(path, str) or not path:
         raise ImportRefused("No file path was given - nothing was imported.")
     if os.path.islink(path):
@@ -93,9 +100,9 @@ def read_file(path: str) -> bytes:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):
             raise ImportRefused("The path is not a regular file - nothing was imported.")
-        if st.st_size > MAX_BYTES:
+        if st.st_size > limit:
             raise ImportRefused("The file is larger than %d bytes - nothing was imported."
-                                % MAX_BYTES)
+                                % limit)
         chunks: List[bytes] = []
         total = 0
         while True:
@@ -103,9 +110,9 @@ def read_file(path: str) -> bytes:
             if not chunk:
                 break
             total += len(chunk)
-            if total > MAX_BYTES:
+            if total > limit:
                 raise ImportRefused("The file is larger than %d bytes - nothing was "
-                                    "imported." % MAX_BYTES)
+                                    "imported." % limit)
             chunks.append(chunk)
     except OSError as exc:
         raise ImportRefused("The file could not be read (%s) - nothing was imported."
@@ -159,7 +166,7 @@ def fmt_for(path: str) -> str:
     fmt = _EXTENSIONS.get(ext)
     if fmt is None:
         raise ImportRefused("Unknown file type %r (use .txt, .md, .markdown, .html, "
-                            ".htm) - nothing was imported." % ext)
+                            ".htm, .pdf) - nothing was imported." % ext)
     return fmt
 
 
@@ -956,9 +963,13 @@ def parse(data: bytes, fmt: str) -> Parsed:
     if not isinstance(data, (bytes, bytearray)):
         raise ImportRefused("Expected the file's bytes - nothing was imported.")
     data = bytes(data)
-    if len(data) > MAX_BYTES:
+    limit = PDF_MAX_BYTES if fmt == "pdf" else MAX_BYTES
+    if len(data) > limit:
         raise ImportRefused("The file is larger than %d bytes - nothing was imported."
-                            % MAX_BYTES)
+                            % limit)
+    if fmt == "pdf":
+        from .pdf_import import parse_pdf
+        return parse_pdf(data)
     flags: List[str] = []
     bom = _bom_kind(data)
     if bom:
@@ -989,4 +1000,4 @@ def parse(data: bytes, fmt: str) -> Parsed:
 def import_file(path: str, fmt: Optional[str] = None) -> Parsed:
     """read_file + parse; the format comes from the extension unless given."""
     chosen = fmt or fmt_for(path)
-    return parse(read_file(path), chosen)
+    return parse(read_file(path, PDF_MAX_BYTES if chosen == "pdf" else MAX_BYTES), chosen)

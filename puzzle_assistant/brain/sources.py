@@ -108,12 +108,29 @@ def label(v: Optional[dict]) -> str:
     who = f"author {v['author_name']}" if ak == "named" and v.get("author_name") else \
         "author unknown"
     pub = f", publisher {v['publisher']}" if v.get("publisher") else ""
-    html = "html_not_rendered" in _flags(v.get("flags"))
+    fl = _flags(v.get("flags"))
+    html = "html_not_rendered" in fl
     if html:
         pub += " - unrendered HTML: reference only, never evidence or a challenge"
+    pdf_warn = sorted(f for f in fl if f.startswith("pdf_") and ":" not in f
+                      and f not in PDF_INFO)
+    if pdf_warn:
+        pub += (" - PDF text SK could not confirm as shown on its page (" +
+                ", ".join(w[4:].replace("_", " ") for w in pdf_warn) +
+                "): reference only, never evidence or a challenge")
+    ref = [f.split(":", 1)[1] for f in fl if f.startswith("pdf_reference_only_pages:")]
+    if ref:
+        pub += f" - PDF pages {ref[0]} are reference only"
+    scan = [f.split(":", 1)[1] for f in fl if f.startswith("pdf_image_only_pages:")]
+    if scan:
+        pub += f" - PDF pages {scan[0]} are images only (OCR is not supported)"
     if v.get("provenance") == "attested":
         return f"{who}{pub} (authorship attested by a person - not a check of the facts)"
     return f"{who}{pub} (declared, not attested)"
+
+
+PDF_INFO = ("pdf_incremental_updates", "pdf_javascript", "pdf_actions",
+            "pdf_form_fields_ignored", "pdf_annotations_ignored")
 
 
 def _flags(raw) -> tuple:
@@ -151,13 +168,20 @@ class _Text:
     def __init__(self, text: str, structure: str, flags=()):
         self.text = text
         self.flags = tuple(flags or ())
-        self.blocks = tuple(importer.Block(k, s, e, h, lv)
-                            for k, s, e, h, lv in json.loads(structure or "[]"))
+        blocks = []
+        for b in json.loads(structure or "[]"):
+            k, s, e, h, lv = b[:5]
+            extra = {}
+            if len(b) >= 8:                            # PDF: page, box, page warnings
+                extra = {"page": int(b[5]), "bbox": tuple(b[6]), "flags": tuple(b[7])}
+            blocks.append(importer.Block(k, s, e, h, lv, **extra))
+        self.blocks = tuple(blocks)
 
 
 def _structure(parsed) -> str:
-    return json.dumps([[b.kind, b.start, b.end, b.heading_path, b.level] for b in parsed.blocks],
-                      ensure_ascii=False)
+    return json.dumps([[b.kind, b.start, b.end, b.heading_path, b.level] +
+                       ([b.page, list(b.bbox), list(b.flags)] if getattr(b, "page", 0) else [])
+                       for b in parsed.blocks], ensure_ascii=False)
 
 
 def store_passages(store, version_id: int, source_id: int, parsed, sha=None) -> int:
@@ -369,8 +393,13 @@ def cite(store, claim_id: int, source_id: int, quote: str, kind: str = "direct")
                            hashlib.sha256(q.encode("utf-8")).hexdigest()))
     claim = store._claim(claim_id)
     ok, why = evidence_check(store, eid, claim, strict=True)
-    return {"evidence_id": eid, "passage_kind": loc["passage"]["kind"], "supports": ok,
-            "why": why}
+    out = {"evidence_id": eid, "passage_kind": loc["passage"]["kind"], "supports": ok,
+           "why": why}
+    if v["fmt"] == "pdf":
+        from .pdf_import import page_of
+        pg = page_of(v["structure"], loc["start"], loc["end"])
+        out["page"], out["bbox"] = (pg["page"], pg["bbox"]) if pg else (None, None)
+    return out
 
 
 # ------------------------------------------------------------------ the gates
@@ -647,7 +676,7 @@ def search_passages(store, question: str, limit: int = 20) -> List[dict]:
         q = ",".join("?" * len(chunk))
         for r in store._db.execute(
                 f"SELECT p.*, x.terms, substr(v.text, p.start_pos + 1, p.end_pos - p.start_pos) "
-                f"AS seg, v.version, v.author_kind, v.author_name, "
+                f"AS seg, v.version, v.fmt, v.author_kind, v.author_name, "
                 f"v.publisher, v.provenance, s.title, s.private, s.added_by FROM passages p "
                 f"JOIN passage_index x ON x.passage_id=p.id JOIN source_versions v ON "
                 f"v.id=p.version_id JOIN sources s ON s.id=p.source_id WHERE p.id IN ({q}) AND "
@@ -667,6 +696,12 @@ def search_passages(store, question: str, limit: int = 20) -> List[dict]:
                     else "shared",
                     "can_support": r["kind"] in SUPPORT_KINDS and not flags
                     and r["author_kind"] not in NOT_EVIDENCE})
+        if r["fmt"] == "pdf":                  # the page it is on (PDF)
+            from .pdf_import import page_of
+            st = store._db.execute("SELECT structure FROM source_versions WHERE id=?",
+                                   (r["version_id"],)).fetchone()
+            pg = page_of(st[0] if st else "[]", r["start_pos"], r["end_pos"])
+            out[-1]["page"] = pg["page"] if pg else None
     return out
 
 
