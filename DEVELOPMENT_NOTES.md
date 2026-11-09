@@ -1170,6 +1170,13 @@ WOULD damage a key (a raw os.write on a text-mode descriptor); the static guard
 still requires O_BINARY on every os.open (defence in depth). B5.2 key
 persistence on Windows IS shown by this run (64 DPAPI keys round-trip). The
 corrected tests have not run on Windows yet.
+Linux at 4d75b31: whole suite 741 tests OK (0 failed, 0 errors, 0 skipped); binary-mode
+module 15 tests; the 27 deliberate breaks aimed at this change caught 27/27 (the
+harness now holds 178; the other 151 were not re-run - they break code and tests
+this commit does not touch); Brain fingerprint 2e6025b6fd6d5961, Brain directory
+byte-identical to 90741c3. Open observation: Windows ran 737 tests where Linux
+collects 740 at 5497fbe (Brain section 589 vs 592): 3 fewer on Windows, cause
+not found (no platform-dependent test definition located); not a failure.
 
 #### Team trial on the Windows fix (commit 23ed6b6 reviewed; session of 2026-11-09)
 First use of the agent-team roles. The four named agent definitions (branch
