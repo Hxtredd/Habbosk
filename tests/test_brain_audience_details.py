@@ -30,6 +30,7 @@ class MigratedOwnerSourceDetails(unittest.TestCase):
     TITLE = "ANA-FIELD-DIARY-TITLE"
     DATE = "2026-02-03"
     DATE_ONLY = "2026-03-04"
+    TITLE_ONLY = "ANA-TITLE-ONLY-MARK"
 
     def setUp(self):
         self.d = tempfile.mkdtemp(prefix="sk_f2_")
@@ -53,6 +54,13 @@ class MigratedOwnerSourceDetails(unittest.TestCase):
         b.propose_share(c2, by=ana)
         b.review(c2, "verified", reviewer=mod)
         b.approve_share(c2, mod)
+        # a source with a title but NO date
+        s3 = b.add_source("document", title=self.TITLE_ONLY, by=ana)
+        c3 = b.learn("Kai runs the Fish Market.", "imported", "Fish Market", by=ana)
+        b.add_evidence(c3, "direct", s3, "Kai runs the Fish Market.", by=ana)
+        b.propose_share(c3, by=ana)
+        b.review(c3, "verified", reviewer=mod)
+        b.approve_share(c3, mod)
         b.close()
         self.hk, self.lk = secrets.token_bytes(32), secrets.token_bytes(32)
         S.split_file(os.path.join(self.d, "knowledge.db"), self.d, self.hk, self.lk)
@@ -95,14 +103,61 @@ class MigratedOwnerSourceDetails(unittest.TestCase):
         self.assertEqual(o.audience, "shared")
         self.assertNotIn(self.DATE_ONLY, blob(o))
 
+    def test_a_title_alone_is_a_personal_detail_too(self):
+        r = self.session("local_user").respond("Who runs the Fish Market?")
+        self.assertEqual(r.value, "Kai")
+        e = self.evidence(r)[0]
+        self.assertEqual((e["source"], e["date"]), (self.TITLE_ONLY, ""))
+        self.assertEqual(r.audience, "personal")
+        o = self.session("external_user").respond("Who runs the Fish Market?")
+        self.assertEqual(o.audience, "shared")
+        self.assertNotIn(self.TITLE_ONLY, blob(o))
+
+    def test_a_demoted_shared_claim_answered_as_documented_names_the_title_only_to_the_owner(self):
+        """The Documented branch: demote the shared claim in this temporary library (no longer
+        verified) and the owner's answer reads 'According to <her title>, <her date>' - in the
+        SENTENCE itself. It must be personal; the other person gets no title at all."""
+        import sqlite3
+        self.lib.close()
+        con = sqlite3.connect(os.path.join(self.d, "brain", "shared.db"))
+        con.execute("UPDATE claims SET status='submitted'")
+        con.commit()
+        con.close()
+        self.lib = Library(os.path.join(self.d, "brain"), self.hk, self.lk)
+        self.addCleanup(self.lib.close)
+        r = self.session("local_user").respond("Who maintains the Lantern Garden?")
+        self.assertEqual(r.category, "documented")
+        self.assertIn(self.TITLE, r.sentence)                  # the owner's own title is shown
+        self.assertEqual(r.audience, "personal")
+        o = self.session("external_user").respond("Who maintains the Lantern Garden?")
+        for mark in (self.TITLE, "ANA-DIARY-REF", self.DATE):
+            self.assertNotIn(mark, blob(o))
+
     def test_no_response_marked_shared_holds_a_personal_title_or_date(self):
         for kind in ("local_user", "external_user"):
             s = self.session(kind)
-            for q in ("Who maintains the Lantern Garden?", "Who runs the Rope Shed?"):
+            for q in ("Who maintains the Lantern Garden?", "Who runs the Rope Shed?",
+                      "Who runs the Fish Market?"):
                 r = s.respond(q)
                 if r.audience == "shared":
-                    for mark in (self.TITLE, self.DATE, self.DATE_ONLY):
+                    for mark in (self.TITLE, self.DATE, self.DATE_ONLY, self.TITLE_ONLY):
                         self.assertNotIn(mark, blob(r), (kind, q))
+
+
+class GrantedDetailsStayShared(SharedVerifiedAnswer):
+    """Ana grants the DETAILS level: the shared copy has its own title (shared on purpose). The
+    other viewer sees that title and the response stays shared - the F2 rule is only for
+    details that come from the viewer's own personal row."""
+    LEVELS = ["quote", "details", "full_text"]
+
+    def test_a_title_that_was_granted_is_shared_and_keeps_the_response_shared(self):
+        r = self.open("rita").respond(Q_MG)
+        e = [x for c in r.citations for x in c.evidence][0]
+        self.assertEqual((r.category, r.audience, e["withheld"]), ("established", "shared", False))
+        self.assertEqual(e["source"], "a.txt")                  # the shared copy's own title
+        ana = self.open("ana")
+        self.assertEqual([x.get("personal_source") for x in ana.store.cited_evidence(self.shared)],
+                         [False])                               # her own copy is a different source
 
 
 class OrdinaryShareDoesNotTriggerTheSourceRule(SharedVerifiedAnswer):
@@ -116,6 +171,11 @@ class OrdinaryShareDoesNotTriggerTheSourceRule(SharedVerifiedAnswer):
                          [False])
         r = self.open("rita").respond(Q_MG)
         self.assertEqual((r.category, r.audience), ("established", "shared"))
+
+    def test_the_flag_is_only_ever_set_for_shared_claims(self):
+        ana = self.open("ana")
+        self.assertEqual([x["personal_source"] for x in ana.store.cited_evidence(self.ana_claim)],
+                         [False])                                # her personal claim: not "a shared claim"
 
     def test_the_owner_of_a_shared_claim_gets_a_personal_answer_because_of_her_own_copy(self):
         ana = self.open("ana")
