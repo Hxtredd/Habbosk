@@ -417,14 +417,14 @@ class ChallengeAudience(World):
         # Ana, who shared the claim, sees her own passages as personal)
         self.ids["rita"] = self.lib.create_user("Rita")
 
-    def share(self, established, text=None):
+    def share(self, established, text=None, levels=None):
         """Ana's claim shared by a moderator: Established (verified) or Documented."""
         ana = self.open("ana")
         sid = self.imp(ana, text or "Mira maintains the Lantern Garden.\n", "ana.txt",
                        publisher="Harbour Press")
         c = ana.learn("Mira maintains the Lantern Garden.", "imported", "Lantern Garden")
         ana.cite(c, sid, "Mira maintains the Lantern Garden.")
-        levels = ["quote", "full_text"] if established else ["quote"]
+        levels = levels or (["quote", "full_text"] if established else ["quote"])
         if established:
             ana.attest_source(sid, "checked by me")
         m = self.open("mod")
@@ -517,6 +517,62 @@ class ChallengeAudience(World):
         self.assertEqual([g["scope"] for g in b.challenges], ["shared"])
         self.assertEqual(b.audience, "shared")
         self.assertNotIn(self.PERSONAL, self.whole(b))
+
+    # -- cases the independent security review asked for ------------------------------------
+    def test_a_personal_and_a_shared_passage_in_the_same_group_make_it_personal(self):
+        """One group (same publisher) holding a shared AND a personal passage: the group is
+        personal - whichever passage comes first or last."""
+        # "details" is granted too, so the shared copy carries its publisher and the two
+        # passages fall into ONE group
+        self.share(established=True, text=self.SHARED_TEXT, levels=["quote", "details", "full_text"])
+        luis = self.open("luis")
+        self.imp(luis, self.PERSONAL + "\n", "mine.txt", publisher="Harbour Press")
+        a = luis.respond(Q_MG)
+        self.assertEqual(len(a.challenges), 1)                        # one group ...
+        self.assertEqual(sorted(a.challenges[0]["values"]), ["Kai", "Odo"])   # ... of both
+        self.assertEqual(a.challenges[0]["scope"], "personal")
+        self.assertEqual(a.audience, "personal")
+        b = self.open("rita").respond(Q_MG)                            # the shared part only
+        self.assertEqual([(g["scope"], g["values"]) for g in b.challenges], [("shared", ["Odo"])])
+        self.assertEqual(b.audience, "shared")
+        self.assertNotIn(self.PERSONAL, self.whole(b))
+
+    def test_the_owner_of_the_shared_material_sees_it_as_personal(self):
+        """Ana's own copy of the full text is a personal passage: her response is personal;
+        a person with no copy of their own gets the shared one."""
+        ana, m = self.share(established=True, text=self.SHARED_TEXT)
+        a = ana.respond(Q_MG)
+        self.assertIn("personal", [g["scope"] for g in a.challenges])
+        self.assertEqual(a.audience, "personal")
+        b = self.open("rita").respond(Q_MG)
+        self.assertEqual((b.audience, [g["scope"] for g in b.challenges]), ("shared", ["shared"]))
+
+    def test_a_private_source_challenge_makes_the_response_personal(self):
+        self.share(established=True)
+        luis = self.open("luis")
+        self.imp(luis, self.PERSONAL + "\n", "private.txt", publisher="My Notes", private=True)
+        a = luis.respond(Q_MG)
+        self.assertEqual((a.category, a.value), ("established", "Mira"))
+        self.assertEqual([g["scope"] for g in a.challenges], ["personal"])
+        self.assertEqual(a.audience, "personal")
+        b = self.open("rita").respond(Q_MG)
+        self.assertEqual((b.audience, b.challenges), ("shared", []))
+        self.assertNotIn(self.PERSONAL, self.whole(b))
+
+    def test_a_personal_pdf_challenge_makes_the_response_personal(self):
+        import b6_pdf_maker as PM
+        self.share(established=True)
+        luis = self.open("luis")
+        data = PM.make([PM.Page(PM.text(72, 700, "Intro page.")),
+                        PM.Page(PM.text(72, 700, self.PERSONAL))])
+        luis.import_file(self.write("mine.pdf", "", raw=data), author_kind="named",
+                         author_name="Ada Guide", publisher="My Notes")
+        a = luis.respond(Q_MG)
+        self.assertEqual([g["scope"] for g in a.challenges], ["personal"])
+        self.assertEqual(a.challenges[0]["examples"][0]["page"], 2)
+        self.assertEqual(a.audience, "personal")
+        b = self.open("rita").respond(Q_MG)
+        self.assertEqual((b.audience, b.challenges), ("shared", []))
 
     def test_the_asker_still_sees_every_challenge_of_their_own(self):
         """The fix changes the audience label only: nothing is hidden from the asker, no
