@@ -610,6 +610,7 @@ Milestone log (approved commits only):
 | B5.1 | 80fe274 | 38533f4 | owner, 2026-11-08 |
 | B5.2 | 3d75dd4 | not deployed (prepared: 30c7a03, Brain fbe3f08) | owner, 2026-11-09 (Linux validation only; record: claude/brain-b5.2-record fd0f6e4) |
 | B6 | f688383 | 7ed29ac (Brain f688383) | owner, 2026-11-09 (Linux validation only - Windows OUTSTANDING) |
+| B6 Windows fix | 6c25576 | 7ed29ac (not updated: the candidate runs Linux; Brain f688383) | owner, 2026-11-09 ("I approve B6 integration"; Windows validated at 03e5180 on the owner's PC) |
 
 ### B3.5 (APPROVED by the owner, 2026-11-08)
 
@@ -914,7 +915,7 @@ withdrawn text; duplicates across installations are not detected; moderators
 see what is proposed; whole shared-claim withdrawal is a later decision; a
 shared claim's original section reference stays with its owner.
 
-### B6 Sources and passages (APPROVED by the owner, 2026-11-09; integrated at f688383; Windows validation OUTSTANDING)
+### B6 Sources and passages (APPROVED by the owner, 2026-11-09; integrated at f688383, Windows fix integrated at 6c25576; Windows validation PASSED at 03e5180)
 
 Approval record (B6): after the final read-only audit (all areas PASS, no
 blockers) the owner explicitly approved integration - claude/brain-integration
@@ -932,10 +933,32 @@ import / upgrade / PDF / process-guard / citation regressions 318 OK;
 deliberate breaks 151/151. Candidate lab: SK-Online claude/sk-lab-candidate
 7ed29ac (Brain f688383, copy verified byte for byte), 420 tests OK, GitHub test
 run passed; its deployment and testing are the owner's.
-WINDOWS VALIDATION HAS NOT BEEN RUN for B5.2, B6 or the PDF import - Windows
+[SUPERSEDED - see the integration record below] WINDOWS VALIDATION HAS NOT BEEN RUN for B5.2, B6 or the PDF import - Windows
 compatibility is NOT verified. Outstanding: BRAIN_WINDOWS_CHECK.bat at f688383
 (Brain code fingerprint 2ced25c1876b5886; it installs requirements-brain.txt
 hash-checked and has the B5.2, B6 sources, B6 PDF and B6 upgrade steps).
+INTEGRATION RECORD (2026-11-09): the owner approved, in their own words, "I approve B6
+integration. Please fast-forward claude/brain-integration from
+f688383c4313b372682d6e63f0fcce4415eafba7 to this exact reviewed commit:
+6c25576bc521bcb5cdcbdf8104c2a89a7b8f3c09", with the conditions: fast-forward only (no
+merge commit, rebase, force push or history rewrite), no deploy / release / tag, the
+corrected keystore comment preserved, the integration and exact SHA recorded, the
+agreed post-integration checks run and reported. Done: claude/brain-integration
+f688383 -> 6c25576 (ordinary push, 8 commits, 0 merge commits, f688383 still an
+ancestor); the range is the B6 Windows fix (O_BINARY in importer and keystore, the
+stricter file-access guard, new tests, Windows check changes), the key-premise
+correction, the corrected keystore comment and notes. Brain code fingerprint of the
+integrated commit: eb72aeefcd8994b5 (it hashes source text, comments included: the
+validated 03e5180 had 2e6025b6fd6d5961; the executable code, compared as a syntax
+tree, is identical). Windows validation (owner's PC, Windows 11 10.0.26200, Python
+3.14.10): full run 15 passed, 0 failed at 03e5180 (see the Windows sections below);
+the integrated commit differs from it by a comment in keystore.py and notes - not
+re-run on Windows. Post-integration check on Linux (clean checkout of
+origin/claude/brain-integration = 6c25576): whole suite 741 tests OK, binary-mode
+module 15 tests OK. Not deployed, released or tagged; the Render candidate is
+unchanged (7ed29ac). Still open: key-store weaknesses F1-F3 (separate scope,
+awaiting the owner), the LOW audit issue below, B7 (not started).
+
 REQUIRED FIX BEFORE B7 (LOW severity, found in the final audit): a response whose
 audience is "shared" can include challenges from the asker's own personal
 passages (each challenge carries scope "personal", but the response audience does
