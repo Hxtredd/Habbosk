@@ -51,6 +51,12 @@ USERS = ("local_user", "external_user", "moderator")
 BOOKKEEPING_META = ("schema_version", "local_user", "index_version", "facts_stamp", "fts_stale")
 
 
+class ChangedWhileChecking(BrainError):
+    """A database or its write-ahead log changed while it was being copied for
+    a check (a write or checkpoint at the same moment): the copy may not be one
+    consistent state, so nothing was verified. Try again when SK is idle."""
+
+
 class RecoveryNeeded(BrainError):
     """The library does not match its migration record: nothing was opened
     for answering or writing. Run recovery_check()."""
@@ -742,23 +748,45 @@ def verify_library(root: str, host_key: bytes) -> str:
 
 
 # -- recovery: read-only check, options, never automatic deletion ------------------------------------
+_copy_file = shutil.copyfile        # (tests interpose a concurrent writer here)
+
+
+def _state_of(path: str):
+    """(size, SHA-256) of the database and of its write-ahead log (None if absent)."""
+    out = []
+    for p in (path, path + "-wal"):
+        out.append((os.path.getsize(p), sha256_file(p)) if os.path.isfile(p) else None)
+    return tuple(out)
+
+
 def _integrity_on_copy(path: str, with_log: bool = True, probe: Optional[str] = None):
     """PRAGMA integrity_check on a TEMPORARY byte copy of the database AND (by
     default) its write-ahead log, so SQLite checks the combined state - the
     pages committed in the log included. The originals are only read as bytes.
+    The source database and log are fingerprinted BEFORE and AFTER copying,
+    and the copies must equal them: if anything changed meanwhile (a write or
+    a checkpoint), the copy may not be one consistent state and
+    ChangedWhileChecking is raised - nothing is verified.
     Returns (ok, probe result) - ok None if the database is missing; `probe`
     (tests) is one query run on the same combined copy."""
     if not os.path.isfile(path):
         return None, None
+    before = _state_of(path)
     tmp = tempfile.mkdtemp(prefix="sk_brain_check_")
     try:
         c = os.path.join(tmp, "c.db")
-        shutil.copyfile(path, c)
+        _copy_file(path, c)
         log = path + "-wal"
-        if with_log and os.path.isfile(log) and os.path.getsize(log) > 0:
-            shutil.copyfile(log, c + "-wal")
-            if sha256_file(c + "-wal") != sha256_file(log):
-                raise BrainError("the write-ahead log changed while it was being copied")
+        use_log = with_log and before[1] is not None and before[1][0] > 0
+        if use_log:
+            _copy_file(log, c + "-wal")
+        after = _state_of(path)
+        copied = ((os.path.getsize(c), sha256_file(c)),
+                  (os.path.getsize(c + "-wal"), sha256_file(c + "-wal")) if use_log else None)
+        if after != before or copied[0] != before[0] or (use_log and copied[1] != before[1]):
+            raise ChangedWhileChecking(f"{os.path.basename(path)} changed while it was being "
+                                       "copied for the check - nothing was verified; try again "
+                                       "when SK Assistant is idle")
         try:
             con = sqlite3.connect(c)
             try:
@@ -853,9 +881,15 @@ def recovery_check(data_dir: str, host_key: Optional[bytes]) -> dict:
             p = os.path.join(root, name)
             st = {"present": os.path.isfile(p)}
             if st["present"]:
-                state, why = _check_with_log(p)
-                st["integrity"] = state == "ok"
-                st["log"] = why if state == "ok" else "damaged"
+                try:
+                    state, why = _check_with_log(p)
+                    st["integrity"] = state == "ok"
+                    st["log"] = why if state == "ok" else "damaged"
+                except ChangedWhileChecking:
+                    st["integrity"] = None          # not checked: changed while copying
+                    st["log"] = "changed while it was being checked"
+                    rep["anomalies"].append(f"{name} changed while it was being checked - "
+                                            "check again when SK is idle")
                 wal = p + "-wal"
                 st["changed_since_migration"] = (name not in rec or sha256_file(p) !=
                                                  rec[name]["sha256"] or
@@ -878,7 +912,9 @@ def recovery_check(data_dir: str, host_key: Optional[bytes]) -> dict:
         rep["options"].append("rebuild_from_original_unverified")
     if os.path.isdir(root):
         rep["options"] += ["set_brain_aside", "rescue_readable_rows"]
-    if damaged and trusted and complete and verified_copy and not new_data_possible:
+    unchecked = any(f.get("present") and f.get("integrity") is None for f in files.values())
+    if damaged and trusted and complete and verified_copy and not new_data_possible and \
+            not unchecked:
         rep["options"].append("delete_damaged_brain")
     if staging:
         rep["staging"] = staging

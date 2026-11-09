@@ -1113,6 +1113,97 @@ class Recovery(Tmp):
         finally:
             holder.close()
 
+    def _concurrent(self, path, action, after_n=1):
+        """Interpose `action` on the SOURCE files after the n-th file copy of a check
+        (a write or checkpoint by SK at that moment)."""
+        real = S._copy_file
+        calls = []
+
+        def copy(a, b):
+            real(a, b)
+            if a in (path, path + "-wal"):                 # copies of THIS file only
+                calls.append(a)
+                if len(calls) == after_n:
+                    action()
+        return mock.patch.object(S, "_copy_file", side_effect=copy)
+
+    def _write(self, path):
+        def go():
+            con = sqlite3.connect(path)
+            con.execute("INSERT INTO claim_events (claim_id, event, by, at) VALUES "
+                        "(1, 'note', 'system', 'now')")
+            con.commit()
+            con.close()
+        return go
+
+    def _checkpoint(self, path):
+        def go():
+            con = sqlite3.connect(path)
+            busy = con.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+            con.close()
+            self.assertEqual(busy, 0)
+        return go
+
+    def test_a_change_while_copying_is_refused(self):
+        cases = (("write between the database and its log", "_write", 1),
+                 ("checkpoint between the database and its log", "_checkpoint", 1),
+                 ("write after both were copied", "_write", 2),
+                 ("checkpoint after both were copied", "_checkpoint", 2))
+        for label, how, n in cases:
+            with self.subTest(case=label):
+                self.setUp()
+                holder, path = self._writes_in_the_log()
+                more = self._write(path)                       # fresh rows in the log each time
+                try:
+                    more()
+                    with self._concurrent(path, getattr(self, how)(path), n):
+                        with self.assertRaises(S.ChangedWhileChecking):
+                            S._integrity_on_copy(path)
+                    more()
+                    with self._concurrent(path, getattr(self, how)(path), n):
+                        with self.assertRaises(S.ChangedWhileChecking):
+                            S.verify_library(os.path.join(self.data, "brain"), self.hk)
+                    # recovery_check: reported as not checked - never "damaged", never deletable
+                    self.remove_a_file()
+                    more()
+                    with self._concurrent(path, getattr(self, how)(path), n):
+                        rep = S.recovery_check(self.data, self.hk)
+                    name = os.path.relpath(path, os.path.join(self.data, "brain"))
+                    self.assertIsNone(rep["brain_files"][name]["integrity"])
+                    self.assertTrue(any("changed while" in a for a in rep["anomalies"]))
+                    self.assertNotIn("delete_damaged_brain", rep["options"])
+                    # with SK idle, the same check passes
+                    self.assertTrue(S._integrity_on_copy(path)[0])
+                finally:
+                    holder.close()
+
+    def test_a_file_that_could_not_be_checked_never_allows_deletion(self):
+        """Deletion would otherwise be offered (a file missing, the rest unchanged); if
+        one present file could not be checked because it changed while being copied,
+        nothing may be deleted on that basis."""
+        self.remove_a_file()
+        self.assertIn("delete_damaged_brain", S.recovery_check(self.data, self.hk)["options"])
+        real = S._check_with_log
+        target = os.path.join(self.data, "brain", "shared.db")
+
+        def flaky(p):
+            if p == target:
+                raise S.ChangedWhileChecking("changed while it was being copied")
+            return real(p)
+        with mock.patch.object(S, "_check_with_log", side_effect=flaky):
+            rep = S.recovery_check(self.data, self.hk)
+        self.assertIsNone(rep["brain_files"]["shared.db"]["integrity"])
+        self.assertNotIn("delete_damaged_brain", rep["options"])
+
+    def test_no_change_no_refusal_and_the_copies_match(self):
+        holder, path = self._writes_in_the_log()
+        try:
+            before = S._state_of(path)
+            self.assertTrue(S._integrity_on_copy(path)[0])
+            self.assertEqual(S._state_of(path), before)
+        finally:
+            holder.close()
+
     def test_wal_reader_rejects_bad_headers(self):
         p = os.path.join(self.d, "x.db")
         for blob, want in ((b"", "empty"), (b"short", "damaged"), (b"\0" * 64, "damaged")):
