@@ -26,7 +26,7 @@ from typing import Callable, Optional, Tuple
 import cv2
 import numpy as np
 
-from .recognize import find_name_bar
+from .recognize import chat_icon_below, find_name_bar
 
 COOLDOWN = 3.5
 Box = Tuple[int, int, int, int]
@@ -41,23 +41,7 @@ def find_chat_input(img: np.ndarray, name_box: Optional[Box] = None) -> Optional
     nb = name_box or find_name_bar(img)
     if nb is None:
         return None
-    x, y, w, h = nb
-    y0, y1 = y + h, min(img.shape[0], y + h + 5 * h)
-    band = img[y0:y1, max(0, x - 2 * h):x + w]
-    hsv = cv2.cvtColor(band, cv2.COLOR_BGR2HSV)
-    pink = ((hsv[..., 0] > 140) & (hsv[..., 0] < 178) & (hsv[..., 1] > 70)
-            & (hsv[..., 2] > 110)).astype(np.uint8)
-    n, _, st, cen = cv2.connectedComponentsWithStats(pink)
-    best = None
-    for i in range(1, n):
-        bx, by, bw, bh, a = st[i]
-        if 0.3 * h <= bw <= 1.2 * h and 0.3 * h <= bh <= 1.2 * h and a >= 0.2 * bw * bh:
-            if best is None or bx < best[0]:
-                best = (bx, by, bw, bh)
-    if best is None:
-        return None
-    bx, by, bw, bh = best
-    return (max(0, x - 2 * h) + bx + bw // 2, y0 + by + bh // 2)
+    return chat_icon_below(img, nb)
 
 
 def chat_focused(img: np.ndarray, icon: Tuple[int, int], h: int = 20) -> bool:
@@ -184,12 +168,40 @@ class Navigator:
             self.busy = False
 
     def _grab(self):
+        return self._grab_at(self.explorer.screen)
+
+    def _grab_at(self, b):
         from ..capture import new_mss
-        b = self.explorer.screen
         with new_mss() as sct:
             shot = sct.grab(b)
         img = np.frombuffer(shot.raw, dtype=np.uint8).reshape(shot.height, shot.width, 4)
         return np.ascontiguousarray(img[:, :, :3]), b
+
+    def _find_chat(self):
+        """(bounds, name bar, chat icon, same_screen) for the screen that shows the
+        game's chat input: the explorer's screen first, then every other monitor
+        (v3.1 - the game may be on the other one). same_screen: it is the
+        explorer's screen (then the focus check reads it the same way)."""
+        img, b = self._grab()
+        nb = find_name_bar(img)
+        icon = find_chat_input(img, nb) if nb is not None else None
+        if nb is not None and icon is not None:
+            return b, nb, icon, True
+        try:
+            from ..capture import new_mss
+            with new_mss() as sct:
+                others = [dict(m) for m in sct.monitors[1:]]
+        except Exception:
+            others = []
+        for m in others:
+            if m == b:
+                continue
+            img, mb = self._grab_at(m)
+            nb = find_name_bar(img)
+            icon = find_chat_input(img, nb) if nb is not None else None
+            if nb is not None and icon is not None:
+                return mb, nb, icon, False
+        return None, None, None, False
 
     def _trip_inner(self, room_id: int, status) -> None:
         target = self.atlas.room(room_id)
@@ -199,11 +211,9 @@ class Navigator:
             status(f"You are already in {tname}.", "ok")
             return
         status(f"Going to {tname} ({room_id})…", "info")
-        img, b = self._grab()
-        nb = find_name_bar(img)
-        icon = find_chat_input(img, nb)
+        b, nb, icon, same = self._find_chat()
         if nb is None or icon is None:
-            status("Chat box not found - nothing was typed.", "fail")
+            status("Chat box not found on any screen - nothing was typed.", "fail")
             return
         win = _Win()
         back = win.cursor()
@@ -211,7 +221,7 @@ class Navigator:
         try:
             win.click(sx, sy)                          # put the keyboard in the chat box
             time.sleep(0.25)
-            img2, _ = self._grab()
+            img2, _ = self._grab() if same else self._grab_at(b)
             if not chat_focused(img2, icon, nb[3]):
                 status("The chat box didn't take the keyboard - nothing was typed.", "fail")
                 return

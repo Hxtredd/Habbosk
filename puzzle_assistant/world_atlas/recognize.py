@@ -44,8 +44,39 @@ class RoomView:
 # ---------------------------------------------------------------------------
 # Name bar (pin icon + room name, above the chat input)
 # ---------------------------------------------------------------------------
+def chat_icon_below(img: np.ndarray, box: Tuple[int, int, int, int]
+                    ) -> Optional[Tuple[int, int]]:
+    """Centre (x, y) of the game's chat icon (pink speech bubble) in the chat
+    input right below a room-name bar `box`, or None."""
+    x, y, w, h = (int(v) for v in box)
+    y0, y1 = y + h, min(img.shape[0], y + h + 5 * h)
+    x0 = max(0, x - 2 * h)
+    band = img[y0:y1, x0:x + w]
+    if band.size == 0:
+        return None
+    hsv = cv2.cvtColor(band, cv2.COLOR_BGR2HSV)
+    pink = ((hsv[..., 0] > 140) & (hsv[..., 0] < 178) & (hsv[..., 1] > 70)
+            & (hsv[..., 2] > 110)).astype(np.uint8)
+    n, _, st, _ = cv2.connectedComponentsWithStats(pink)
+    best = None
+    for i in range(1, n):
+        bx, by, bw, bh, a = st[i]
+        if 0.3 * h <= bw <= 1.2 * h and 0.3 * h <= bh <= 1.2 * h and a >= 0.2 * bw * bh:
+            if best is None or bx < best[0]:
+                best = (bx, by, bw, bh)
+    if best is None:
+        return None
+    bx, by, bw, bh = best
+    return (x0 + bx + bw // 2, y0 + by + bh // 2)
+
+
 def find_name_bar(img: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
-    """The text area of the room-name bar, or None."""
+    """The text area of the room-name bar, or None.
+
+    v3.1: a yellow pin-like shape only counts when the game's chat input (its
+    pink chat icon) is right below it - a yellow emoji in Discord or another
+    window next to a dark area is not the hotel's name bar (it made SK read the
+    wrong monitor: no room recognised, 'Chat box not found')."""
     H, W = img.shape[:2]
     lo = H // 2
     hsv = cv2.cvtColor(img[lo:], cv2.COLOR_BGR2HSV)
@@ -73,6 +104,8 @@ def find_name_bar(img: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
         if below.size and np.median(below) > 70:
             continue
         cand = (x0, y0, x1 - x0, y1 - y0)
+        if chat_icon_below(img, cand) is None:
+            continue                       # no chat input under it: not the name bar
         if best is None or y > best[1]:
             best = cand
     return best

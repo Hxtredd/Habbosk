@@ -1,7 +1,7 @@
 {
- "version": "3.0.0",
- "zip": "dist/SK_Assistant_v3.0.zip",
- "sha256": "8139492b95be669a33f6729e0b6899491f13afe9e3d188aa15f63d48e8e80aed",
- "size": 11832872,
- "notes": "SK Brain test bench (optional developer tool) - SK Assistant itself unchanged."
+ "version": "3.1.0",
+ "zip": "dist/SK_Assistant_v3.1.zip",
+ "sha256": "ab76b725581afe2c14c904e164dcb28a2d2f145262a39f3f478ba75661d85dcf",
+ "size": 11932848,
+ "notes": "World Atlas: reads the right monitor with two screens (a yellow emoji in Discord was taken for the room-name bar), so the room is recognised again; Go to Room finds the chat box on any monitor. Puzzle marks staying after a finished puzzle is NOT fixed yet."
 }

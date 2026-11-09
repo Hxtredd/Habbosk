@@ -203,7 +203,9 @@ class ExplorerThread(threading.Thread):
                     url_where = v.url_box
                     if v.in_room:
                         self.screen = grabber.screens[order[0]]
-                    if not v.in_room and len(order) > 1 and not moved:
+                    # v3.1: also while this screen keeps changing (a busy Discord /
+                    # video on it must not hide the game on the other monitor)
+                    if not v.in_room and len(order) > 1:
                         for k in order[1:]:          # the game may be on another screen
                             img2, _b = grabber.grab_bounds(grabber.screens[k])
                             v2 = read_view(img2, ocr, cache, search_url=False)
