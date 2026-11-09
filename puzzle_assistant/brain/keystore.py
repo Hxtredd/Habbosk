@@ -70,8 +70,10 @@ def load_or_create_key(path: str) -> bytes:
     key = os.urandom(32)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     tmp = path + ".tmp"
-    # O_BINARY: without it Windows writes in TEXT mode (every LF byte of the
-    # protected key becomes CR LF, and the key could never be loaded again)
+    # O_BINARY is defence in depth: os.fdopen(fd, "wb") below already switches the
+    # descriptor to binary mode (CPython's FileIO calls _setmode(fd, O_BINARY); the
+    # Windows check confirmed it), so the key bytes are never translated either way.
+    # The flag keeps the descriptor binary from the moment it is opened.
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0),
                  0o600)
     with os.fdopen(fd, "wb") as fh:
