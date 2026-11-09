@@ -138,6 +138,9 @@ class App:
             self._startup_notes.append(f"could not import old memory: {exc}")
         self.engine.memory = self.memory
         self.engine.ai = AIAnswerer(self.cfg, self.memory)
+        if getattr(self.cfg, "ai_timing_log", True):     # v3.4: timings only, no text
+            from .diagnostics import DiagnosticsLog
+            self.engine.diag = DiagnosticsLog.default()
         self._settings = None
         self._update_found = None          # a newer version found at start
         # World Atlas (read-only Live Explorer), separate from the puzzles

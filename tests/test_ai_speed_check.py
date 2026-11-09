@@ -53,6 +53,8 @@ def right_reply(q):
 
 
 class FakeResp:
+    will_close = False
+
     def __init__(self, status, body: bytes, headers=None):
         self.status, self._buf, self._h = status, io.BytesIO(body), headers or {}
 
@@ -69,35 +71,67 @@ class FakeResp:
 class FakeGemini:
     """Stands in for generativelanguage.googleapis.com."""
 
-    def __init__(self, wrong=(), rate_once=False, refuse_budget=False):
+    def __init__(self, wrong=(), rate_once=False, refuse_budget=False, text_for=(), slow=None):
         self.log = []                 # (host, method, path, headers, body)
         self.connections = 0
         self.wrong, self.rate_once, self.refuse_budget = set(wrong), rate_once, refuse_budget
+        self.text_for = set(text_for)  # reply with the option TEXT (like the real model on q6)
+        self.slow = dict(slow or {})   # question index -> seconds (interrupted by a cancel)
         self.rated = False
+        self.aborted = 0
 
     def connection(self, host, port, context=None, timeout=None):
         fake = self
 
+        import threading as _th
+
+        class Sock:
+            def __init__(self, conn):
+                self.conn = conn
+
+            def settimeout(self, t):
+                pass
+
+            def shutdown(self, how):
+                self.conn.shut.set()
+
         class Conn:
             def __init__(self):
                 self.host = host
+                self.sock = None
+                self.shut = _th.Event()
 
             def set_tunnel(self, h, p):
                 self.host = h
 
             def connect(self):
                 fake.connections += 1
+                self.sock = Sock(self)
 
             def request(self, method, path, body=None, headers=None):
                 self.last = (method, path, json.loads(body) if body else None)
                 fake.log.append((self.host, method, path, dict(headers or {}), self.last[2]))
 
             def getresponse(self):
+                wait = fake.delay_for(*self.last)
+                if wait and self.shut.wait(wait):
+                    fake.aborted += 1
+                    raise ConnectionAbortedError("connection shut down")
                 return fake.respond(*self.last)
 
             def close(self):
-                pass
+                self.sock = None
         return Conn()
+
+    def question_of(self, body):
+        prompt = body["contents"][0]["parts"][0]["text"]
+        return next(q for q in bench.QUESTIONS if f"Question: {q.text}" in prompt
+                    and all(o in prompt for o in q.options))
+
+    def delay_for(self, method, path, body):
+        if method != "POST" or not self.slow:
+            return 0.0
+        return self.slow.get(bench.QUESTIONS.index(self.question_of(body)), 0.0)
 
     def respond(self, method, path, body):
         if method == "GET":
@@ -112,6 +146,8 @@ class FakeGemini:
         q = next(q for q in bench.QUESTIONS if f"Question: {q.text}" in prompt
                  and all(o in prompt for o in q.options))
         reply = right_reply(q)
+        if bench.QUESTIONS.index(q) in self.text_for and q.kind == bench.CHOICE:
+            reply["answer"] = q.answer
         if bench.QUESTIONS.index(q) in self.wrong and q.kind == bench.CHOICE:
             reply["answer"] = next(l for l in "ABCD" if q.options[bench.LETTERS.index(l)] != q.answer)
         usage = {"promptTokenCount": 120, "candidatesTokenCount": 25,
@@ -327,6 +363,67 @@ class RunSafely(unittest.TestCase):
         code, out, _ = self.run_main(fake)
         self.assertEqual(code, 2)
         self.assertEqual(fake.log, [])
+
+    def run_compare(self, fake):
+        """--compare imports SK's code and swaps its key functions: restore them after."""
+        from puzzle_assistant import secrets as sk_secrets
+        with mock.patch.object(sk_secrets, "get_key", sk_secrets.get_key), \
+                mock.patch.object(sk_secrets, "set_key", sk_secrets.set_key), \
+                mock.patch.object(sk_secrets, "has_key", sk_secrets.has_key), \
+                mock.patch.dict(os.environ, {"SK_SPEEDCHECK_TEST": "1"}):
+            saved = os.environ.get("SK_ASSISTANT_DATA")
+            try:
+                return self.run_main(fake, "--compare")
+            finally:
+                if saved is None:
+                    os.environ.pop("SK_ASSISTANT_DATA", None)
+                else:
+                    os.environ["SK_ASSISTANT_DATA"] = saved
+
+    def test_compare_before_after(self):
+        before = tree(self.data)
+        slow = {i: 0.6 for i, _ in bench.STALE_PAIRS}            # the first question of each pair
+        fake = FakeGemini(text_for={5}, slow=slow)
+        code, out, opened = self.run_compare(fake)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(tree(self.data), before)               # SK's real folder untouched
+        self.assertNotIn(KEY, out)
+        for path, mode in opened:
+            if any(c in mode for c in "wax+"):
+                self.assertTrue(path.startswith(os.path.abspath(self.out)), path)
+        self.assertFalse(any(os.path.basename(p).endswith(".db") for p, _ in opened))
+        for root, _d, files in os.walk(self.out):
+            for f in files:
+                with open(os.path.join(root, f), encoding="utf-8") as fh:
+                    self.assertNotIn(KEY, fh.read(), f)
+        rep = self.report()
+        titles = [r["title"] for r in rep["results"]]
+        self.assertEqual(len(titles), 4)
+        before_rows, after_rows = rep["results"][0]["rows"], rep["results"][1]["rows"]
+        self.assertEqual(len(before_rows), 20)
+        self.assertEqual(len(after_rows), 20)
+        q6_before = next(r for r in before_rows if r["q"] == 6)
+        q6_after = next(r for r in after_rows if r["q"] == 6)
+        self.assertIn("not an option", q6_before["error"])      # v3.3 throws the right answer away
+        self.assertTrue(q6_after["correct"])                     # D keeps it
+        self.assertEqual(rep["paired_accuracy"]["letter_question_after"], True)
+        self.assertEqual(rep["results"][1]["summary"]["correct"], 20)
+        self.assertEqual(rep["results"][0]["summary"]["correct"], 19)
+        # B: in the "question changed" cases the old request is stopped, the new
+        # question doesn't wait for it
+        self.assertEqual(rep["stale_requests_stopped"], 5)
+        sb = rep["results"][2]["summary"]["total_median_ms"]
+        sa = rep["results"][3]["summary"]["total_median_ms"]
+        self.assertGreater(sb, 200)                              # waited behind the slow one
+        self.assertLess(sa, sb)
+        # A: the log in the sandbox has only allowed fields
+        from puzzle_assistant import diagnostics
+        self.assertLessEqual(set(rep["diagnostics_log_fields"]), set(diagnostics.FIELDS) | {"ts"})
+        sandbox = [d for d in os.listdir(self.out) if d.startswith("sandbox-")]
+        self.assertEqual(len(sandbox), 1)
+        self.assertEqual(os.listdir(os.path.join(self.out, sandbox[0])), ["diagnostics"])
+        # C: the development copy reused its connection
+        self.assertLess(fake.connections, 20 + 20 + 20)
 
     def test_redactor(self):
         hide = bench.Redactor(KEY)

@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-VERSION = "1.0"
+VERSION = "1.1"
 HOST = "generativelanguage.googleapis.com"      # the ONLY host the key is ever sent to
 API = "/v1beta"
 SK_TIMEOUT_LIBRARY, SK_TIMEOUT_EXPRESS = 8.0, 6.0   # SK Assistant's own time limits
@@ -565,6 +565,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="SK AI Speed Check (read-only Gemini timing benchmark)")
     ap.add_argument("--quick", action="store_true", help="only SK's current set-up (about 20 requests)")
     ap.add_argument("--full", action="store_true", help="also try 'thinking off' on the alternatives")
+    ap.add_argument("--compare", action="store_true",
+                    help="before/after: SK v3.3 vs the SK development copy this script is in")
     ap.add_argument("--requests", type=int, default=20, help="questions per comparison (max 20)")
     ap.add_argument("--current-model", default="", help="the model SK shows under 'Test AI' (optional)")
     ap.add_argument("--pace", type=float, default=4.5, help="seconds between requests (free-tier limit)")
@@ -624,6 +626,8 @@ def main(argv=None) -> int:
         say("Note: SK remembers the model it chose the first time. If 'Test AI' in SK's Settings\n"
             "shows a different model, run again with:  --current-model <that name>")
     alternatives = [] if a.quick else [m for m in lites if m != current][:2]
+    if a.compare:
+        return run_compare(a, key, current, pick, lites, questions, out_dir, hide, say)
 
     plan: List[Tuple[str, str, bool, Optional[dict], bool]] = [
         ("SK today (new connection each time)", current, True, None, False)]
@@ -687,6 +691,261 @@ def main(argv=None) -> int:
               "questions": len(questions), "results": results}
     path_txt, path_json = write_report(report, out_dir, hide)
     say("\n" + table(results))
+    say(f"\nReport saved:\n  {path_txt}\n  {path_json}")
+    say("Send these two files to Claude (they contain no key and no personal data).")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# --compare: SK v3.3 (before) vs the SK development copy (after), same questions,
+# alternating request by request so both see the same Google conditions.
+# ---------------------------------------------------------------------------
+STALE_PAIRS = [(12, 13), (14, 15), (16, 17), (18, 19), (0, 11)]   # indexes into QUESTIONS
+STALE_GAP = 0.3          # the second question appears 0.3 s after the first
+
+
+def sk_limit(q: Q) -> float:
+    return SK_TIMEOUT_EXPRESS if q.category == EXPRESS else SK_TIMEOUT_LIBRARY
+
+
+def load_sk_code(here: str, sandbox: str, key: str):
+    """Import the AI code of the SK development copy this script sits in, so that
+    it can only ever use `sandbox` as its data folder and gets the key only from
+    this script (SK's key file is never opened by SK's code here)."""
+    root = os.path.dirname(os.path.dirname(here))
+    if not os.path.isfile(os.path.join(root, "puzzle_assistant", "qa", "ai_jobs.py")):
+        raise RuntimeError("--compare must be run from the SK development copy "
+                           "(benchmarks\\ai_speed_check inside it)")
+    os.makedirs(sandbox, exist_ok=True)
+    os.environ["SK_ASSISTANT_DATA"] = sandbox
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from puzzle_assistant import config, diagnostics, secrets
+    from puzzle_assistant.qa import ai as skai
+    from puzzle_assistant.qa import ai_jobs
+    from puzzle_assistant.qa.model import Question
+    if os.path.abspath(config.DATA_DIR) != os.path.abspath(sandbox) and \
+            os.environ.get("SK_SPEEDCHECK_TEST") != "1":
+        raise RuntimeError("SK's code did not take the separate data folder; nothing was sent")
+
+    def get_key(name, path=None):
+        return key if name == "ai:gemini" else None
+
+    def refuse(*a, **k):
+        raise RuntimeError("the speed check never saves keys")
+    secrets.get_key, secrets.set_key, secrets.has_key = get_key, refuse, (lambda n, p=None: bool(get_key(n)))
+    return {"config": config, "ai": skai, "ai_jobs": ai_jobs, "Question": Question,
+            "diagnostics": diagnostics}
+
+
+def to_sk(mods, q: Q):
+    return mods["Question"](q.category, q.text, list(q.options), kind=q.kind, clues=list(q.clues),
+                            right=list(q.right), language=q.language)
+
+
+def sk_got(q: Q, ans):
+    if ans is None:
+        return None
+    return {CHOICE: ans.choice, ORDER: ans.order, PAIRS: ans.pairs}[q.kind]
+
+
+def before_once(key: str, model: str, q: Q) -> Row:
+    """SK v3.3 exactly: a new connection, SK's time limit, v3.3 reply parsing."""
+    client = Gemini(key, fresh=True, timeout=sk_limit(q))
+    t0 = time.perf_counter()
+    r = client.call("POST", f"/models/{model}:generateContent", request_body(q))
+    client.close()
+    row = Row(QUESTIONS.index(q) + 1, q.category, q.world)
+    row.total_ms = (time.perf_counter() - t0) * 1000
+    row.connect_ms, row.first_ms = r.connect_ms, r.first_ms
+    if r.status == 429:
+        row.rate_limited = True
+    if r.error or r.status != 200:
+        row.error = http_error(r)
+        return row
+    try:
+        got, row.confidence = parse_reply(r.text, q)
+        row.ok, row.correct = True, same_answer(got, q.answer)
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        row.error = f"reply not usable: {exc}"
+    return row
+
+
+class After:
+    """SK development copy: AIAnswerer + scheduler (A-D), memory off, search off."""
+
+    def __init__(self, mods, model: str, sandbox: str):
+        self.m = mods
+        cfg = mods["config"].Config()
+        cfg.ai_provider, cfg.ai_model, cfg.paid_api = "gemini", model, False
+        cfg.web_search, cfg.search_provider, cfg.ai_daily_limit = False, "none", 10 ** 6
+        self.answerer = mods["ai"].AIAnswerer(cfg, None)
+        self.diag = mods["diagnostics"].DiagnosticsLog(os.path.join(sandbox, "diagnostics"))
+        self.stale: List[dict] = []
+        self.sched = mods["ai_jobs"].AiScheduler(on_stale=self._on_stale)
+
+    def _on_stale(self, job, res) -> None:
+        self.stale.append({"ran_ms": job.run_ms, "calls": getattr(res, "calls", 0) if res else 0})
+        self.diag.log(outcome="stale", error="stale", request_ms=job.run_ms, queue_ms=job.queue_ms)
+
+    def submit(self, ident, q: Q):
+        return self.sched.submit(ident, self.answerer.answer, to_sk(self.m, q), sk_limit(q), False)
+
+    def finish(self, q: Q, job, t0: float, rate_wait: float, retry=True) -> Row:
+        res = job.future.result()
+        row = Row(QUESTIONS.index(q) + 1, q.category, q.world)
+        row.total_ms = (time.perf_counter() - t0) * 1000
+        if res is not None and res.error_kind == "rate" and retry:
+            time.sleep(rate_wait)
+            self.answerer.paused_until = 0.0
+            t1 = time.perf_counter()
+            row2 = self.finish(q, self.submit(("retry", time.monotonic()), q), t1, rate_wait, False)
+            row2.rate_limited = True
+            return row2
+        if res is None:
+            row.error = "internal: no result"
+            return row
+        row.connect_ms = res.connect_ms
+        row.tokens_in, row.tokens_out = res.tokens_in, res.tokens_out
+        self.diag.log(outcome="shown" if res.answer is not None else "no_answer",
+                      error=res.error_kind or "", provider=res.provider, model=res.model or "",
+                      category=q.category, kind=q.kind, timed=q.category == EXPRESS,
+                      queue_ms=job.queue_ms, request_ms=job.run_ms, total_ms=row.total_ms,
+                      connect_ms=res.connect_ms, calls=res.calls, reused=res.reused,
+                      reconnected=res.reconnected, tokens_in=res.tokens_in, tokens_out=res.tokens_out)
+        if res.answer is None:
+            row.error = f"{res.error_kind or 'error'}: {res.error[:80]}"
+            return row
+        row.ok, row.confidence = True, res.answer.confidence
+        row.correct = same_answer(sk_got(q, res.answer), q.answer)
+        return row
+
+    def once(self, q: Q, rate_wait: float) -> Row:
+        t0 = time.perf_counter()
+        return self.finish(q, self.submit(("q", QUESTIONS.index(q), time.monotonic()), q), t0, rate_wait)
+
+    def close(self):
+        self.sched.shutdown()
+
+
+def stale_before(key: str, model: str, qa: Q, qb: Q) -> Tuple[Row, float]:
+    """v3.3: ONE lane. Question A, then B 0.3 s later: B waits behind A."""
+    from concurrent.futures import ThreadPoolExecutor
+    pool = ThreadPoolExecutor(max_workers=1)
+    pool.submit(before_once, key, model, qa)
+    time.sleep(STALE_GAP)
+    t0 = time.perf_counter()
+    row = pool.submit(before_once, key, model, qb).result()
+    waited = (time.perf_counter() - t0) * 1000
+    pool.shutdown(wait=True)
+    row.total_ms = waited
+    return row, waited
+
+
+def stale_after(after: After, qa: Q, qb: Q, rate_wait: float) -> Tuple[Row, float]:
+    after.submit(("stale-a", time.monotonic()), qa)
+    time.sleep(STALE_GAP)
+    t0 = time.perf_counter()
+    row = after.finish(qb, after.submit(("stale-b", time.monotonic()), qb), t0, rate_wait)
+    return row, row.total_ms
+
+
+def paired(before: List[Row], after: List[Row]) -> dict:
+    both = sum(1 for b, a in zip(before, after) if b.correct and a.correct)
+    return {"both_right": both,
+            "only_before_right": sum(1 for b, a in zip(before, after) if b.correct and not a.correct),
+            "only_after_right": sum(1 for b, a in zip(before, after) if a.correct and not b.correct),
+            "letter_question_after": next((a.correct for a in after if a.q == 6), None)}
+
+
+def run_compare(a, key, current, pick, lites, questions, out_dir, hide, say) -> int:
+    here = os.path.dirname(os.path.abspath(__file__))
+    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    sandbox = os.path.join(out_dir, f"sandbox-{stamp}")
+    try:
+        mods = load_sk_code(here, sandbox, key)
+    except Exception as exc:
+        say(f"Could not load the SK development copy: {exc}")
+        return 4
+    pairs = [(QUESTIONS[i], QUESTIONS[j]) for i, j in STALE_PAIRS
+             if QUESTIONS[i] in questions and QUESTIONS[j] in questions]
+    planned = 2 * len(questions) + 4 * len(pairs)
+    say(f"\nBefore/after check: model {current}. SK v3.3 (before) and this development copy "
+        f"(after) answer the same {len(questions)} questions, alternating request by request, "
+        f"with SK's own time limits; then {len(pairs)} 'question changed' cases each.")
+    say(f"Up to {planned} requests to Google, about {planned * a.pace / 60:.0f} minutes. "
+        "SK's code here uses a separate, temporary data folder inside the results folder.")
+    if not a.yes:
+        try:
+            input("\nPress Enter to start (or close this window to cancel)... ")
+        except EOFError:
+            pass
+    after = After(mods, current, sandbox)
+    pacer = Pacer(a.pace)
+    started = _dt.datetime.now()
+    before_rows, after_rows = [], []
+    try:
+        for i, q in enumerate(questions, 1):
+            order = ("before", "after") if i % 2 else ("after", "before")
+            for side in order:
+                pacer.wait()
+                if side == "before":
+                    row = before_once(key, current, q)
+                    if row.rate_limited:
+                        say(f"      Google's per-minute limit reached - waiting {a.rate_wait:.0f} s")
+                        time.sleep(a.rate_wait)
+                        row = before_once(key, current, q)
+                        row.rate_limited = True
+                    before_rows.append(row)
+                else:
+                    row = after.once(q, a.rate_wait)
+                    after_rows.append(row)
+                mark = "error" if row.error else ("right" if row.correct else "wrong")
+                say(f"   {i:2d}/{len(questions)} {side:6s} {row.total_ms / 1000:5.2f} s  {mark:5s}"
+                    + (f"  ({row.error[:70]})" if row.error else ""))
+        stale_b, stale_a = [], []
+        for k, (qa, qb) in enumerate(pairs, 1):
+            pacer.wait()
+            pacer.wait()
+            rb, wb = stale_before(key, current, qa, qb)
+            stale_b.append(rb)
+            pacer.wait()
+            pacer.wait()
+            ra, wa = stale_after(after, qa, qb, a.rate_wait)
+            stale_a.append(ra)
+            say(f"   question changed {k}/{len(pairs)}: new question answered after "
+                f"{wb / 1000:.2f} s (before) / {wa / 1000:.2f} s (after)")
+        time.sleep(0.5)
+    finally:
+        after.close()
+    sb, sa = summarize(before_rows), summarize(after_rows)
+    results = [
+        {"title": "before: SK v3.3 (new connection, v3.3 parsing)", "model": current, "summary": sb,
+         "rows": [r.__dict__ for r in before_rows]},
+        {"title": "after: SK dev copy (A-D)", "model": current, "summary": sa,
+         "rows": [r.__dict__ for r in after_rows]},
+        {"title": "question changed: before (one lane)", "model": current, "summary": summarize(stale_b),
+         "rows": [r.__dict__ for r in stale_b]},
+        {"title": "question changed: after (newest wins)", "model": current, "summary": summarize(stale_a),
+         "rows": [r.__dict__ for r in stale_a]},
+    ]
+    diag_rows = after.diag.read()
+    report = {"tool": f"SK AI Speed Check {VERSION} --compare", "started": started.isoformat(timespec="seconds"),
+              "finished": _dt.datetime.now().isoformat(timespec="seconds"),
+              "python": sys.version.split()[0], "platform": sys.platform,
+              "sk_pick_today": pick, "model_tested_as_current": current, "forced_model": "",
+              "flash_lite_available": lites, "questions": len(questions),
+              "paired_accuracy": paired(before_rows, after_rows),
+              "stale_requests_stopped": len(after.stale),
+              "diagnostics_log_lines": len(diag_rows),
+              "diagnostics_log_fields": sorted({k for r in diag_rows for k in r}),
+              "results": results}
+    path_txt, path_json = write_report(report, out_dir, hide)
+    p = report["paired_accuracy"]
+    say("\n" + table(results))
+    say(f"Same questions: both right {p['both_right']}, only before {p['only_before_right']}, "
+        f"only after {p['only_after_right']}. Letter question after the fix: "
+        f"{'right' if p['letter_question_after'] else 'not right'}.")
     say(f"\nReport saved:\n  {path_txt}\n  {path_json}")
     say("Send these two files to Claude (they contain no key and no personal data).")
     return 0

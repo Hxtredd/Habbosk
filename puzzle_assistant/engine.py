@@ -13,7 +13,6 @@ import queue
 import threading
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
 
 import cv2
@@ -27,6 +26,7 @@ from .locate import Locator
 from .money import MoneyPanel, MoneyTracker, locate_money, parse_vistos, read_legend
 from .qa.screen import (CATEGORIES, fingerprint, locate_express, locate_question,
                         read_question)
+from .qa.ai_jobs import AiScheduler
 from .qa.memory import answers_match
 from .qa.model import ORDER
 from .qa.solvers import solve_question
@@ -129,12 +129,14 @@ class Engine(threading.Thread):
         self.ai = None                         # qa.ai.AIAnswerer, set by the UI
         self.busy = False                      # a puzzle / question is on screen
         self._express_at = 0.0                 # last check for Preguntas express
-        self._ai_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ai")
+        # v3.4 (change B): the newest question wins; at most 2 running + 1 waiting
+        self._ai_jobs = AiScheduler(on_stale=self._log_stale)
+        self.diag = None                       # diagnostics.DiagnosticsLog, set by the UI
 
     # -- commands from the UI (thread-safe) ---------------------------------
     def stop(self) -> None:
         self._stop.set()
-        self._ai_pool.shutdown(wait=False)
+        self._ai_jobs.shutdown()
 
     def rescan(self) -> None:
         self._rescan.set()
@@ -278,6 +280,7 @@ class Engine(threading.Thread):
                         continue
                     if active and tick - last_seen > self.cfg.disappear_after_ms / 1000.0:
                         active, locked, tried, placed = False, None, None, None
+                        self._drop_ai(qstate)          # v3.4: the question is gone
                         qstate.clear()
                         self._emit(state="waiting", msg="Waiting for puzzle…")
                     elif force:
@@ -414,7 +417,7 @@ class Engine(threading.Thread):
                     mine, who = check[1], check[2]
                     mem.log_check(q, mine, answers_match(mine, screen.revealed), who)
                     st["check"] = None
-            st["ai_job"] = None                        # too late for the AI now
+            self._drop_ai(st)                          # too late for the AI now
             st["shown"] = (ident, "game")
             self._emit(state="overlay_clear")
             self._emit(state="question", question=q, answer=screen.revealed, status="game",
@@ -428,7 +431,7 @@ class Engine(threading.Thread):
             m = mem.lookup(q) if mem else None
             if m is not None:
                 st["shown"] = (ident, "memory")
-                st["ai_job"] = None
+                self._drop_ai(st)
                 self._emit(state="question", question=q, answer=m.answer, status="memory",
                            how=m.how, display=m.stored, place=place, progress=screen.progress)
             else:
@@ -438,7 +441,7 @@ class Engine(threading.Thread):
                     status = "solver" if sol.confidence >= 1.0 else "likely"
                     st["shown"] = (ident, status)
                     st["check"] = (ident, sol, "solver")
-                    st["ai_job"] = None
+                    self._drop_ai(st)
                     self._emit(state="question", question=q, answer=sol, status=status,
                                place=place, progress=screen.progress)
                 elif not (shown and shown[0] == ident and shown[1] in ("unknown", "thinking")):
@@ -457,37 +460,113 @@ class Engine(threading.Thread):
         st["shown"] = (ident, "thinking")
         # timed express quiz: no slow internet search, one quick AI request
         timed = q.category == "PREGUNTAS EXPRESS"
-        st["ai_job"] = (ident, self._ai_pool.submit(ai.answer, q, 6.0 if timed else 8.0,
-                                                    not timed), q, place)
+        old = st.get("ai_job")
+        if old is not None and old[0] != ident:
+            self._drop_ai(st)
+        job = self._ai_jobs.submit(ident, ai.answer, q, 6.0 if timed else 8.0, not timed)
+        job.meta = {"category": q.category, "kind": q.kind, "timed": timed}
+        st["ai_job"] = (ident, job.future, q, place, job)
         self._emit(state="question", question=q, answer=None, status="thinking", place=place)
+
+    def _drop_ai(self, st: dict) -> None:
+        """v3.4: the question this request was for is finished or gone: stop it
+        (or ignore its answer) so it never holds up the next question."""
+        job = st.get("ai_job")
+        st["ai_job"] = None
+        if job is None:
+            return
+        j = job[4] if len(job) > 4 else None
+        if j is None:
+            return
+        if j.future.done() and not j.token.cancelled:
+            if not j.logged:                    # answered, but nobody needs it any more
+                j.logged = True
+                self._log_ai(j, self._result(j.future), outcome="late")
+            return
+        self._ai_jobs.cancel(j)
+
+    @staticmethod
+    def _result(fut):
+        if fut.cancelled():
+            return None
+        try:
+            return fut.result(timeout=0)
+        except Exception:
+            return None
+
+    def _log_stale(self, job, res) -> None:
+        """Called by the scheduler for a request stopped because its question changed."""
+        never_ran = job.future.cancelled() or (res is None and job.run_ms == 0.0)
+        self._log_ai(job, res, outcome="cancelled" if never_ran else "stale")
+
+    def _log_ai(self, job, res, outcome: str, status: str = "", poll_ms: float = 0.0) -> None:
+        diag = self.diag
+        if diag is None:
+            return
+        meta = getattr(job, "meta", {}) or {}
+        err = getattr(res, "error_kind", "") if res is not None else ""
+        if outcome in ("stale", "cancelled"):
+            err = "stale"
+        elif res is None and outcome == "no_answer":
+            err = "internal"
+        # what the player waited: asked -> answer (or "no answer") shown
+        total = (time.monotonic() - job.submitted) * 1000 if outcome in ("shown", "no_answer") else 0.0
+        try:
+            diag.log(category=meta.get("category", ""), kind=meta.get("kind", ""),
+                     timed=bool(meta.get("timed", False)),
+                     provider=getattr(res, "provider", "") or "", model=getattr(res, "model", "") or "",
+                     outcome=outcome, error=err or "", status=status,
+                     queue_ms=job.queue_ms, request_ms=job.run_ms, poll_ms=poll_ms,
+                     total_ms=total, connect_ms=getattr(res, "connect_ms", 0.0),
+                     calls=getattr(res, "calls", 0), tokens_in=getattr(res, "tokens_in", 0),
+                     tokens_out=getattr(res, "tokens_out", 0), facts=getattr(res, "facts", 0),
+                     reused=bool(getattr(res, "reused", False)),
+                     reconnected=bool(getattr(res, "reconnected", False)),
+                     searched=bool(getattr(res, "used_search", False)))
+        except Exception:
+            pass
 
     def _poll_ai(self, st: dict) -> None:
         job = st.get("ai_job")
         if not job or not job[1].done():
             return
         st["ai_job"] = None
-        ident, fut, q, place = job
+        ident, fut, q, place = job[:4]
+        j = job[4] if len(job) > 4 else None
         shown = st.get("shown")
         if not shown or shown[0] != ident or shown[1] != "thinking":
-            return                              # the question changed or was answered
+            if j is not None and not j.logged:     # the question changed or was answered
+                j.logged = True
+                self._log_ai(j, self._result(fut), outcome="late")
+            return
         try:
             res = fut.result()
         except Exception as exc:                # never let the AI stop the assistant
             res = None
             note = f"AI failed ({exc.__class__.__name__})"
         else:
-            note = res.error
+            note = res.error if res is not None else "AI request stopped"
         ans = res.answer if res is not None else None
+        poll_ms = (time.monotonic() - j.finished) * 1000 if j is not None and j.finished else 0.0
         if ans is None:
             st["shown"] = (ident, "unknown")
+            if j is not None and not j.logged:
+                j.logged = True
+                self._log_ai(j, res, outcome="no_answer", status="unknown", poll_ms=poll_ms)
             self._emit(state="question", question=q, answer=None, status="unknown",
                        place=place, ai_note=note)
             return
         status = "ai" if ans.confidence >= 0.6 else "unsure"
         st["shown"] = (ident, status)
         st["check"] = (ident, ans, ans.source)
+        # v3.4: the time shown is what the player waited (asked -> shown), not
+        # only the request itself
+        waited = (time.monotonic() - j.submitted) if j is not None else res.ms / 1000
+        if j is not None and not j.logged:
+            j.logged = True
+            self._log_ai(j, res, outcome="shown", status=status, poll_ms=poll_ms)
         self._emit(state="question", question=q, answer=ans, status=status, place=place,
-                   progress=st.get("progress", 0), ai_info=f"{res.provider} · {res.ms / 1000:.1f} s"
+                   progress=st.get("progress", 0), ai_info=f"{res.provider} · {waited:.1f} s"
                            + (f" · used {res.facts} learned facts" if res.facts else "")
                            + (" · searched the web" if res.used_search else ""))
 
