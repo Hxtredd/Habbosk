@@ -970,6 +970,9 @@ provenance, suggestions, separation, sharing, backups). Corpus correction:
 case ac05 (a decomposed accent) is genuine support under the approved NFC
 cleaning, relabelled `nfc_ok`. Speed, 50,000 passages: import ~2 s per
 10,000, search 10-55 ms, answer 14 ms, 100 suggestions 0.09 s, purge 0.07 s.
+Linux: whole suite 628 tests OK (3ec01df); 49/49 deliberate B6 breaks caught
+(the search-index secure-delete and the index merge each remove deleted words
+on their own - only breaking both is caught, by the marker scan).
 Not run on Windows yet (BRAIN_WINDOWS_CHECK.bat has two new B6 steps).
 Limits: legacy (pre-B6) sources keep B5.2 rules; you cite only your own
 imported sources; one authorship declaration per source; answers never come
