@@ -611,6 +611,7 @@ Milestone log (approved commits only):
 | B5.2 | 3d75dd4 | not deployed (prepared: 30c7a03, Brain fbe3f08) | owner, 2026-11-09 (Linux validation only; record: claude/brain-b5.2-record fd0f6e4) |
 | B6 | f688383 | 7ed29ac (Brain f688383) | owner, 2026-11-09 (Linux validation only - Windows OUTSTANDING) |
 | B6 Windows fix | 6c25576 | 7ed29ac (not updated: the candidate runs Linux; Brain f688383) | owner, 2026-11-09 ("I approve B6 integration"; Windows validated at 03e5180 on the owner's PC) |
+| Key-store hardening (F1-F3) | e38e606 | 7ed29ac (not updated: the candidate runs Linux; Brain f688383) | owner, 2026-11-09 ("The owner has explicitly approved integrating key-store hardening"; Windows validated at e38e606 on the owner's PC) |
 
 ### B3.5 (APPROVED by the owner, 2026-11-08)
 
@@ -1263,6 +1264,64 @@ versions, AES-encrypted PDF refusal on Windows, deliberate breaks (Linux only).
 STATUS: Windows validation of B5.2 key persistence, B6 sources / PDF import /
 upgrade and the binary-mode fix PASSED on the owner's PC at 03e5180 with the
 limits above. Integration of the Windows fix still needs the owner's approval.
+
+#### Key-store hardening (F1-F3): integrated at e38e606 (2026-11-09)
+APPROVAL: the owner approved the scope in their own words ("I approve the proposed
+key-store hardening work for F1, F2 and F3", branch claude/brain-keystore-hardening,
+base 6c25576, scope: keystore.py and new / specifically necessary tests only) and later
+the integration: "The owner has explicitly approved integrating key-store hardening.
+Please fast-forward claude/brain-integration from
+6c25576bc521bcb5cdcbdf8104c2a89a7b8f3c09 to exactly
+e38e606e7c69934d32b1ec7e41e40015df644f07", with the conditions: fast-forward only,
+no merge / rebase / force push, verify the starting SHA, post-integration Linux
+regression tests, record the integration and results, no deployment / release / tag,
+no other branch integrated. Done: the starting SHA was verified to be exactly
+6c25576 and the target exactly e38e606 before the ordinary push; claude/brain-integration
+6c25576 -> e38e606 (2 commits, 0 merge commits, 6c25576 still an ancestor).
+THE CHANGE (only puzzle_assistant/brain/keystore.py in the Brain; tests added):
+- F1 (MEDIUM): two callers creating the same key could end with different keys. Now:
+  unique temporary files, no-overwrite publication (hard link; exclusive create when hard
+  links are unavailable, never an overwrite; on Windows a rename that refuses an
+  existing target); the loser discards its key and returns the published one. Review
+  fix (e38e606): a caller arriving while the no-hard-link publisher is still filling the
+  final file waits (at most 2 s) for the complete key instead of failing; a file that
+  stays damaged is refused unchanged; a waiting caller restarts if the publisher fails.
+- F2 (LOW): a key must be exactly 32 bytes (plain and DPAPI); damaged, empty, truncated,
+  CR LF-damaged or oversized key files are refused, left byte-identical, never
+  replaced; at most 4096 bytes are read. A genuinely damaged key now reports its
+  error after the bounded wait (up to 2 s), not instantly.
+- F3 (LOW): temporary files are exclusive (O_EXCL | O_NOFOLLOW), owner-only (0600 +
+  fchmod where supported), randomly named and never reused; a stale '.tmp', a planted
+  file or a symlink is never written through; removed on success, loss and failure.
+Key format, public functions, existing key files unchanged. tests/test_brain_b6_binary_mode.py:
+only its text-mode emulation gained link() and rename() (publication no longer uses
+os.replace). New tests: tests/test_brain_keystore_hardening.py (29; 2 real-Windows-only).
+RESULTS. Linux before integration (e38e606): whole suite 770 tests OK (2 skipped:
+the Windows-only tests); 22 of 22 deliberate breaks of F1-F3 caught; the original
+6c25576 key store failed 33 of the new checks. Windows 11 10.0.26200, Python 3.14.10
+(owner's PC, BRAIN_WINDOWS_CHECK.bat, Brain fingerprint 176643594adf01e8 = e38e606):
+15 passed, 0 failed, 3 info, 2154 s; Brain tests ran 622 (passed 604, skipped 18);
+whole suite Ran 770 in 1014.3 s, OK (skipped=19); the targeted command
+(tests.test_brain_keystore_hardening tests.test_brain_b6_binary_mode
+tests.test_brain_b52.KeyStore) in the pinned .venv-check: Ran 45 tests, OK (skipped=12).
+The commit is not printed by the report; it is identified by the fingerprint (9196ef1
+had 72155e4986873895) and by the test counts (622 / 770; 9196ef1 would give 618 / 766)
+and the zip folder name. POST-INTEGRATION (Linux, clean checkout of
+origin/claude/brain-integration = e38e606): whole suite 770 tests OK (737 s, 2 skipped),
+key-store modules 45 tests OK (2 skipped), Brain fingerprint 176643594adf01e8 (the
+validated value). Not deployed, released or tagged; the Render candidate is unchanged
+(7ed29ac).
+NOT COVERED: the no-hard-link route on Windows (it exists only off Windows; its tests
+are skipped there); other Python versions (only 3.14 on Windows); AES-encrypted PDF
+refusal on Windows (the cryptography package is not installed there); the deliberate
+breaks on Windows. A publisher stalled for more than 2 s mid-write (a machine suspended)
+makes a waiting caller fail safely; a crash can leave an invalid key file (non-Windows,
+no hard links) or a hidden temporary file, which are refused / ignored, not cleaned up.
+library._atomic_write has the same fixed-temporary-name pattern: NOT changed (outside
+the approved scope), awaiting the owner. STILL OPEN: the LOW audit issue (shared-
+audience answer carrying personal challenge text; plan presented, awaiting approval),
+B7 (not started, behind the owner's architecture approval), the testing-workflow
+proposal (slow test, duplicate Windows run), integration of this record branch.
 
 #### Team trial on the Windows fix (commit 23ed6b6 reviewed; session of 2026-11-09)
 First use of the agent-team roles. The four named agent definitions (branch
