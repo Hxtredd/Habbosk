@@ -28,6 +28,7 @@ import json
 import logging
 import math
 import sys
+import unicodedata
 
 MAX_PAGES = 300
 MAX_OPS_PAGE = 400_000
@@ -292,8 +293,7 @@ class Font:
                 ch = _glyph(diffs[code], glyphs)
             elif table is not None:
                 ch = table[code]
-                if ch is not None and len(ch) == 1 and (
-                        __import__("unicodedata").category(ch) == "Cc"):
+                if ch is not None and len(ch) == 1 and unicodedata.category(ch) == "Cc":
                     ch = None                  # an undefined slot of the encoding
             if ch:
                 self.map[bytes([code])] = ch

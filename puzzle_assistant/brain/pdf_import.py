@@ -16,6 +16,15 @@ Layout, conservatively and deterministically:
     numbers) are kept as page furniture: in the text, but no passage;
   * a word broken at a line end ("main-" / "tains") stays broken ("-" + new
     line): a quotation must match it exactly or it is refused.
+Process isolation (owner-approved B4 exception: this is the ONLY Brain module that
+may import subprocess, and only for the one subprocess.run below, checked by
+tests/test_brain_b6_process_guard.py): the reader runs as `python -I` with a
+finite time limit, a minimal environment and no shell. This is NOT an
+operating-system sandbox: the reading process runs as the same user, with the
+same file and network access as SK. On Linux it also gets memory / CPU limits;
+on Windows there is NO memory limit (only the time limit and the reader's own
+limits) - a known, accepted security limitation.
+
 Page warnings (any of pdf_reader.BLOCKING, plus pdf_layout_uncertain /
 pdf_overlapping_text) go to every block of that page: the B6 gates then never
 let its passages support, challenge or become suggestions. Image-only pages
@@ -36,6 +45,7 @@ from typing import List, Optional
 from .importer import Block, ImportRefused, Parsed, canonical
 
 TIMEOUT = 90                       # seconds for the reading process
+MAX_TIMEOUT = 600                  # never longer, whatever a caller asks
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PAGE_FLAGS = ("pdf_layout_uncertain", "pdf_overlapping_text")
 _BOOT = ("import sys; sys.path.insert(0, sys.argv[1]); "
@@ -46,6 +56,10 @@ _BOOT = ("import sys; sys.path.insert(0, sys.argv[1]); "
 def read_in_child(data: bytes, timeout: float = TIMEOUT) -> dict:
     """Run pdf_reader in its own isolated Python process; never trust it beyond
     the shape of its answer."""
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or \
+            not math.isfinite(timeout) or not 0 < timeout <= MAX_TIMEOUT:
+        raise ImportRefused("The PDF reader needs a time limit between 0 and %d s - "
+                            "nothing was imported." % MAX_TIMEOUT)
     kw = {}
     if sys.platform == "win32":
         kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)

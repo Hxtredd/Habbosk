@@ -142,6 +142,11 @@ class ReadsOnlyThroughCheckedCalls(unittest.TestCase):
 
 FORBIDDEN_MODULES = ("socket", "ssl", "http", "urllib.request", "urllib3", "requests", "ftplib",
                      "smtplib", "xmlrpc", "asyncio", "subprocess", "telnetlib", "poplib", "imaplib")
+# The ONE owner-approved exception (B6 PDF import): pdf_import.py may import the
+# subprocess module itself (no submodule, no `from subprocess import ...`) to start
+# SK's isolated PDF reader. How it is used is checked by
+# tests/test_brain_b6_process_guard.py. Nothing else is allowed.
+ALLOWED = {("pdf_import.py", "subprocess", "import")}
 
 
 class NetworkBoundary(unittest.TestCase):
@@ -154,8 +159,10 @@ class NetworkBoundary(unittest.TestCase):
             for n in ast.walk(tree):
                 mods = [a.name for a in n.names] if isinstance(n, ast.Import) else \
                     [n.module or ""] if isinstance(n, ast.ImportFrom) else []
+                how = "import" if isinstance(n, ast.Import) else "from"
                 for m in mods:
-                    if any(m == f or m.startswith(f + ".") for f in FORBIDDEN_MODULES):
+                    if any(m == f or m.startswith(f + ".") for f in FORBIDDEN_MODULES) and \
+                            (name, m, how) not in ALLOWED:
                         found.append((name, m))
         self.assertEqual(found, [])
 

@@ -1022,7 +1022,21 @@ PDF results (Linux, 09570ed): tests/test_brain_b6_pdf.py 65 tests OK; whole suit
 702 tests, 701 OK, 1 FAILING: test_brain_b4_guards.NetworkBoundary.
 test_no_network_code_in_the_brain forbids `subprocess` in the Brain package, and
 pdf_import.py uses it to start the isolated reader (the approved design). The
-guard was NOT changed - an owner decision is needed (see the report). Deliberate
+guard was NOT changed - an owner decision is needed (see the report).
+Owner decision (option 1, narrow exception): the B4 network-boundary test admits
+exactly ("pdf_import.py", "import subprocess") and nothing else;
+tests/test_brain_b6_process_guard.py checks statically and at run time: subprocess
+imported only there, plainly; only subprocess.run / TimeoutExpired /
+CREATE_NO_WINDOW used; exactly ONE process launch in the Brain package, argv
+[sys.executable, "-I", "-c", <fixed text running pdf_reader.main()>, ROOT]; no
+shell, no executable / preexec_fn, the extra keywords only creationflags; a
+timeout always passed and enforced finite (0 < t <= 600 s, checked before
+anything starts); no os.system / popen / spawn / exec / fork, multiprocessing,
+pty, importlib, __import__, eval / exec / compile anywhere in the Brain; ctypes
+only in keystore.py. SECURITY LIMITATION (accepted, not solved): process
+isolation is NOT an operating-system sandbox - the reader runs as the same user
+with the same file and network access as SK; Windows has NO memory limit for
+it (only the time limit and the reader's own limits). Deliberate
 breaks: 98/98 caught (35 PDF). Found and fixed by the tests: tables with no line
 spanning them were read as prose columns; short-piece columns are now
 layout-uncertain.
