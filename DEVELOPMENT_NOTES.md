@@ -1107,13 +1107,11 @@ importer.read_file had no O_BINARY, so CR LF was read as LF and reading stopped
 at the first 0x1A byte: PDFs whose (compressed / encrypted, effectively random)
 bytes held either were damaged on the way in - hence only SOME tests, and the
 check step's own PDFs passing by chance. The same would silently cut a TXT /
-MD / HTML file at a 0x1A byte. keystore.load_or_create_key wrote its key file
-the same way, but READ the key back in binary: on Windows, a key file written
-by the pre-90741c3 code whose protected (DPAPI) bytes held an LF (0x0A) byte -
-roughly half of them - holds CR LF instead and can never be read again (a key
-without an LF byte loads unchanged, before and after the fix). The check's key
-probably held no LF byte, so B5.2 key persistence on Windows has not really been
-shown yet.
+MD / HTML file at a 0x1A byte. [CORRECTED after the Windows check of 5497fbe,
+see below: an earlier version of this paragraph said the key store's write was
+affected too and that Windows key files written by the old code could be
+unreadable. That was WRONG - the key write goes through os.fdopen(fd, "wb"),
+and CPython's FileIO calls _setmode(fd, O_BINARY) on the descriptor it wraps.]
 Not a pypdf, Python 3.14 or zlib-ng problem: reproduced on Linux by applying
 text mode's translation to 200 test PDFs (16 changed, 16 refused with exactly
 that message; untouched they all read); Linux Python 3.14 + zlib-ng pass.
@@ -1123,14 +1121,10 @@ in the Brain; everything else uses Python's open() (always binary underneath,
 text mode only for SK's own JSON files, read back the same way), shutil or
 SQLite; the PDF child's stdin / stdout are binary pipes (subprocess; Python
 sets its standard streams to binary on Windows). No database or user data is
-touched. Exposure, stated precisely: a host.key / library.key created on
-Windows by pre-90741c3 code OUTSIDE the check's and the tests' temporary
-folders; such a file cannot be repaired, only replaced, and what was signed or
-protected with it is lost. UNVERIFIED by the owner: nothing in the repository
-creates such files (the desktop app and the Render lab do not use the key
-store; only devtools and tests do), but the owner has not confirmed they never
-ran the Brain outside BRAIN_WINDOWS_CHECK.bat. An unreadable key file raises and
-is never replaced (tested).
+touched. Key files: NO exposure (corrected, see the 5497fbe check below): the
+O_BINARY in keystore.py is defence in depth, not a repair; no key file written
+by earlier code is damaged. An unreadable key file raises and is never replaced
+(tested).
 tests/test_brain_b6_binary_mode.py (11; real text mode on Windows, emulated
 elsewhere inside the module under test only): exact bytes and complete
 imports for PDFs (raw and compressed) and TXT / UTF-16 TXT / MD / HTML holding
@@ -1146,6 +1140,37 @@ Linux (90741c3): whole suite 737 tests OK; deliberate breaks 163/163 caught
 (12 new). Brain code fingerprint 2e6025b6fd6d5961. Windows: NOT yet re-run -
 Windows validation of B5.2 key reload and B6 / PDF import remains outstanding.
 
+#### Windows check of 5497fbe (owner's PC, 2026-11-09) and what it corrected
+Windows 11 10.0.26200, Python 3.14.10, SQLite 3.50.4, Brain fingerprint
+2e6025b6fd6d5961 (as expected): 13 passed, 2 failed. PASSED on Windows: every
+Windows-only step - B5.2 (DPAPI keys, sharing, withdrawal, migration), B6 sources,
+B6 PDF import (0.4 s, page 2 quote, hidden-text page reference only, encrypted /
+scanned / damaged refused, hanging reader stopped), B6 upgrade with power loss
+between the renames, the new binary-mode step (text mode really alters such a
+file on that PC: True; every byte of 2 PDFs, TXT, UTF-16 TXT (2), MD, HTML kept;
+64 DPAPI keys created, closed, reloaded twice unchanged, 38 of the 64 key files
+holding an LF byte), and the real-data check (habbosk.db and atlas.db read
+safely, files unchanged). The 20+ PDF errors of the f688383 run are GONE: the
+importer fix works on Windows. FAILED: the Brain tests and the whole suite
+(589 / 737 run; each 1 failure, 0 errors, 6 / 7 skipped) - the same single
+test, test_a_key_store_without_o_binary_damages_keys, which asserted that a key
+store copy WITHOUT O_BINARY damages keys on Windows. On real Windows it damaged
+0 of 64. Cause (the test's premise, mine): the key write calls os.fdopen(fd,
+"wb"); CPython's FileIO runs _setmode(fd, O_BINARY) after wrapping any
+descriptor (Modules/_io/fileio.c, read from the CPython 3.14 source), so keys
+were never translated. The Linux emulation of text mode had not modelled that and
+so agreed with the wrong premise; the Architecture Reviewer and Security Auditor
+did not catch it either. What stays true: importer.read_file reads with os.read
+on a raw descriptor, which IS text mode - that was the whole PDF failure.
+Corrections (tests, emulation, check wording and these notes; production code
+untouched): the emulation now switches a descriptor to binary on os.fdopen; the
+false test is replaced by one that shows the key write staying intact without
+O_BINARY (real Windows: 64 random DPAPI keys) and one (emulated) showing what
+WOULD damage a key (a raw os.write on a text-mode descriptor); the static guard
+still requires O_BINARY on every os.open (defence in depth). B5.2 key
+persistence on Windows IS shown by this run (64 DPAPI keys round-trip). The
+corrected tests have not run on Windows yet.
+
 #### Team trial on the Windows fix (commit 23ed6b6 reviewed; session of 2026-11-09)
 First use of the agent-team roles. The four named agent definitions (branch
 claude/agent-team-setup) could NOT be invoked: Claude Code loads project agents
@@ -1159,7 +1184,8 @@ Reports (not committed to a branch): scratchpad of the session.
 Findings and what was done:
 - Architecture Reviewer: verdict "proceed after changes"; code fix correct and
   right-sized, principles untouched. Required: Windows re-run at the fix commit
-  (outstanding); precise key-exposure record (done above); add
+  (outstanding); precise key-exposure record (its premise - Windows keys damaged by
+  the old write - turned out FALSE, see the 5497fbe check; corrected); add
   test_brain_b6_binary_mode to tests/regression_manifest.json when the setup
   branch and B6 meet (open - the manifest is on claude/agent-team-setup).
   Considered for B7: one file-access layer (fileio.py: binary read, atomic write

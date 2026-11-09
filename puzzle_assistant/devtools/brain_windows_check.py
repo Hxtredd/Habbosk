@@ -634,10 +634,11 @@ def b6_upgrade():
 @check("Windows binary mode: CR LF and 0x1A kept (PDF, TXT, MD, HTML, 64 keys)")
 def binary_mode():
     """The fix for the f688383 check: files are opened with O_BINARY, so Windows'
-    text mode can no longer turn CR LF into LF, stop reading at a 0x1A byte, or
-    turn LF into CR LF in a key file. Shows first that text mode really does
-    alter such a file on this PC (so the check means something), then that the
-    importer keeps every byte and the key store reloads 64 keys unchanged."""
+    text mode can no longer turn CR LF into LF or stop reading at a 0x1A byte.
+    Shows first that text mode really does alter such a file on this PC (so the
+    check means something), then that the importer keeps every byte and the key
+    store reloads 64 keys unchanged (the key write was never at risk: os.fdopen
+    makes its descriptor binary - the Windows check of 5497fbe showed it)."""
     import random
     sys.path.insert(0, os.path.join(HERE, "tests"))
     try:
@@ -757,7 +758,7 @@ def binary_mode():
                     f"kept and fully imported: {not bad} {bad}; PDF quote supports with page 1: "
                     f"{supports}\n64 keys created, closed, reloaded twice, unchanged: "
                     f"{not key_bad and distinct} {key_bad[:5]} ({with_lf} of the 64 stored "
-                    f"key files hold an LF byte - the case that used to break)")
+                    f"key files hold an LF byte)")
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

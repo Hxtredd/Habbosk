@@ -4,9 +4,16 @@ On Windows ``os.open`` opens a file in TEXT mode unless O_BINARY is given:
 reading turns every CR LF into LF and stops at the first 0x1A byte, writing
 turns every LF into CR LF. importer.read_file had no O_BINARY, so on Windows
 PDFs whose bytes happened to hold CR LF or 0x1A were refused as "damaged"
-(PdfReadError), and a 0x1A cut TXT / MD / HTML files short; the key store's
-write had none either, so a protected key holding an LF byte could never be
-loaded again.
+(PdfReadError), and a 0x1A cut TXT / MD / HTML files short.
+
+CORRECTION (Windows check of 5497fbe): the key store's write is NOT affected. It
+opens its descriptor with os.open and then wraps it with os.fdopen(fd, "wb"); CPython's
+FileIO (what os.fdopen builds) calls _setmode(fd, O_BINARY) on every descriptor it
+wraps (Modules/_io/fileio.c), so the key bytes are never translated, with or without
+O_BINARY in os.open. An earlier version of these tests (and the notes) claimed
+otherwise; the real Windows run showed 0 of 64 keys damaged by a keystore copy without
+O_BINARY. O_BINARY stays in keystore.py as defence in depth. Raw descriptors that are
+read or written with os.read / os.write (the importer's read) ARE text mode.
 
 Every test here runs on every system. On Windows they use the real text mode
 of the C runtime; elsewhere ``text_mode_os`` emulates exactly what it does to
@@ -52,6 +59,7 @@ class _TextModeOs:
         self.text_fds = {}                     # fd -> pending translated read data
         self.text_written = set()              # paths written in text mode
         self.opened = []                       # (path, binary?)
+        self.fd_path = {}                      # fd -> path it was opened for
 
     def __getattr__(self, name):
         return getattr(os, name)
@@ -60,11 +68,19 @@ class _TextModeOs:
         binary = bool(flags & self.FAKE_BINARY)
         fd = os.open(path, flags & ~self.FAKE_BINARY, mode, *a, **k)
         self.opened.append((path, binary))
+        self.fd_path[fd] = os.path.abspath(path)
         if not binary:
             self.text_fds[fd] = None
             if flags & (os.O_WRONLY | os.O_RDWR):
                 self.text_written.add(os.path.abspath(path))
         return fd
+
+    def fdopen(self, fd, *a, **k):
+        """CPython's FileIO calls _setmode(fd, O_BINARY): from here on the descriptor is
+        binary, whatever flags os.open used (checked on real Windows)."""
+        self.text_fds.pop(fd, None)
+        self.text_written.discard(self.fd_path.get(fd))
+        return os.fdopen(fd, *a, **k)
 
     def read(self, fd, n):
         if fd not in self.text_fds:
@@ -619,32 +635,49 @@ class DeliberateBreaks(World):
                 with text_mode_os(importer):                          # the fixed one keeps them
                     self.assertEqual(importer.read_file(p, importer.PDF_MAX_BYTES), data)
 
-    def test_a_key_store_without_o_binary_damages_keys(self):
-        """Emulated: every key holding an LF byte is damaged. Windows (DPAPI: the
-        stored blob is ciphertext): among 64 keys at least one blob holds an LF."""
+    def test_the_key_write_stays_binary_through_fdopen_even_without_o_binary(self):
+        """Found by the Windows check of 5497fbe (this test used to assert the opposite and
+        failed there): a key store WITHOUT O_BINARY in its os.open still writes and reloads
+        every key unchanged, because os.fdopen(fd, "wb") makes the descriptor binary. On
+        Windows this runs the real C runtime over 64 random DPAPI-protected keys (about
+        half of the stored blobs hold an LF byte); elsewhere the emulation does the same
+        for LF / CR LF / 0x1A keys. It documents why the flag in keystore.py is defence in
+        depth - and the next test shows what WOULD damage a key."""
         broken, _ = load_copy("keystore", without_binary)
+        keys = [os.urandom(32) for _ in range(64)] if WINDOWS else \
+            list(KeysSurviveClosingAndReloading.AWKWARD)
         d = os.path.join(self.d, "broken_keys")
-        if WINDOWS:
-            keys = [os.urandom(32) for _ in range(64)]
-        else:
-            keys = [k for k in KeysSurviveClosingAndReloading.AWKWARD if b"\n" in k]
-        damaged = 0
         for i, key in enumerate(keys):
             p = os.path.join(d, "k%02d.key" % i)
             with text_mode_os(broken) as fake, \
                     mock.patch.object(broken.os, "urandom", lambda n, k=key: k) if fake is None \
                     else mock.patch.object(fake, "urandom", lambda n, k=key: k, create=True):
                 self.assertEqual(broken.load_or_create_key(p), key)
-            try:
-                again = keystore.load_or_create_key(p)
-            except OSError:
-                again = None
-            damaged += again != key
+            self.assertEqual(keystore.load_or_create_key(p), key, i)
+
+    def test_a_key_written_with_a_raw_descriptor_in_text_mode_is_damaged(self):
+        """What WOULD damage a key: os.write on a descriptor opened without O_BINARY (no
+        fdopen to switch it to binary). Emulated on Linux only (on Windows the C runtime
+        does this and the previous test's premise is what was checked for real)."""
         if WINDOWS:
-            self.assertGreaterEqual(damaged, 1)
-        else:
-            self.assertEqual(damaged, len(keys))
-            self.assertGreaterEqual(damaged, 4)
+            self.skipTest("emulation of the C runtime; real text mode is exercised elsewhere")
+        raw, _ = load_copy("keystore", lambda src: without_binary(src).replace(
+            '    with os.fdopen(fd, "wb") as fh:\n        fh.write(protect(key))\n'
+            '        fh.flush()\n        os.fsync(fh.fileno())\n',
+            '    os.write(fd, protect(key))\n    os.fsync(fd)\n    os.close(fd)\n'))
+        d = os.path.join(self.d, "raw_keys")
+        damaged = 0
+        for i, key in enumerate(k for k in KeysSurviveClosingAndReloading.AWKWARD
+                                if b"\n" in k):
+            p = os.path.join(d, "k%02d.key" % i)
+            with text_mode_os(raw) as fake, mock.patch.object(
+                    fake, "urandom", lambda n, k=key: k, create=True):
+                raw.load_or_create_key(p)
+            try:
+                damaged += keystore.load_or_create_key(p) != key
+            except OSError:
+                damaged += 1
+        self.assertGreaterEqual(damaged, 4)
 
 
 # ===================================================================== the Windows report
