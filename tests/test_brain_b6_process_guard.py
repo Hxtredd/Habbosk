@@ -129,6 +129,9 @@ def _os_launch_problems(name, tree):
 ALLOWED_DUNDERS = {"__init__", "__new__", "__code__", "__slots__", "__name__"}
 REACH_OS = OS_LAUNCH | {"os"}
 INTROSPECTION = {"vars", "globals", "locals", "breakpoint"}
+# review of 13970f6: the lookup functions may only be CALLED by name - never reached
+# through the builtins module (under any name) and never used as a value (g = getattr)
+LOOKUPS = {"getattr", "setattr", "delattr", "hasattr"} | INTROSPECTION
 
 
 def _literal_loops(tree):
@@ -179,7 +182,20 @@ def _indirect_problems(name, tree):
                 modules.add(a.asname or a.name)
             if any(a.name in ("attrgetter", "methodcaller") for a in n.names):
                 bad.append((name, "attrgetter / methodcaller"))
+    parents = {c: p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
     for n in ast.walk(tree):
+        if isinstance(n, ast.Import) and any(a.name.split(".")[0] in ("builtins", "__builtin__")
+                                             for a in n.names):
+            bad.append((name, "import builtins"))
+        if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in (
+                "builtins", "__builtin__"):
+            bad.append((name, "from builtins import"))
+        if isinstance(n, ast.Name) and n.id in LOOKUPS:
+            par = parents.get(n)
+            if not (isinstance(par, ast.Call) and par.func is n):
+                bad.append((name, "%s used as a value (line %d)" % (n.id, n.lineno)))
+        if isinstance(n, ast.Attribute) and n.attr in LOOKUPS:
+            bad.append((name, ".%s (line %d)" % (n.attr, n.lineno)))
         if isinstance(n, ast.Import) and any(a.name.split(".")[0] == "operator" for a in n.names):
             bad.append((name, "import operator"))
         if isinstance(n, ast.Attribute):
@@ -410,6 +426,27 @@ class Static(unittest.TestCase):
             "from operator import": "from operator import methodcaller",
             "loop over launch names": "import os as o\nfor n in ('path', 'system'):\n"
                                       "    getattr(o, n)",
+            "builtins.getattr": "import builtins\nimport shutil\n"
+                                "builtins.getattr(shutil, 'os').system('x')",
+            "aliased builtins": "import builtins as b\nimport shutil\nb.getattr(shutil, 'os')",
+            "from builtins import getattr as g": "from builtins import getattr as g\n"
+                                                 "import shutil\ng(shutil, 'os')",
+            "from builtins import vars": "from builtins import vars as v\nimport os\n"
+                                         "v(os)['system']",
+            "builtins.__dict__": "import builtins\nbuiltins.__dict__['getattr']",
+            "aliased builtins setattr": "import builtins as b\nimport os as o\n"
+                                        "b.setattr(o, 'x', 1)",
+            "aliased builtins hasattr": "import builtins as bi\nimport os\n"
+                                        "bi.hasattr(os, 'spawnv')",
+            "aliased builtins globals": "import builtins as b\nb.globals()['os']",
+            "__builtin__": "import __builtin__",
+            "a lookup re-exported by another module": "import helpers\nimport shutil\n"
+                                                      "helpers.getattr(shutil, 'os')",
+            "getattr bound to a name": "import shutil\ng = getattr\ng(shutil, 'os')",
+            "getattr passed along": "import shutil\nf(getattr, shutil, 'os')",
+            "getattr in a container": "import shutil\nfns = [getattr]\nfns[0](shutil, 'os')",
+            "vars bound to a name": "import os\nv = vars\nv(os)",
+            "delattr bound": "import os\nd = delattr",
             "loop over 'os' on another module": "import shutil\nfor n in ('copy', 'os'):\n"
                                                "    getattr(shutil, n)",
             "loop variable reassigned": "import os as o\nfor n in ('path',):\n"

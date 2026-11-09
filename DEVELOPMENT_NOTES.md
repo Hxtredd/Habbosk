@@ -1057,7 +1057,13 @@ hasattr never with such a name, also through a loop over literal names, and
 never with a computed name on an imported module; no vars / globals / locals /
 breakpoint, attrgetter / methodcaller or operator module. Checker tested on 29
 bypass sources and 9 allowed patterns (all existing Brain code passes unchanged);
-12 new deliberate breaks. Deliberate
+12 new deliberate breaks.
+Review fix (13970f6, builtins): the builtins module (also __builtin__) may not be
+imported in the Brain under any name or form, and getattr / setattr / delattr /
+hasattr / vars / globals / locals / breakpoint may only be CALLED by name - never
+used as a value (g = getattr, passed along, put in a container) and never
+reached as an attribute (b.getattr, helpers.getattr). 15 new bypass sources;
+8 new deliberate breaks. Deliberate
 breaks: 98/98 caught (35 PDF). Found and fixed by the tests: tables with no line
 spanning them were read as prose columns; short-piece columns are now
 layout-uncertain.
