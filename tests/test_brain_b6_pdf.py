@@ -262,6 +262,15 @@ class Extraction(unittest.TestCase):
         self.assertEqual(len(tab), 4)
         self.assertTrue(all(x.kind not in PS.SUPPORT_KINDS for x in tab))
 
+    def test_columns_of_short_unaligned_lines_are_layout_uncertain(self):
+        # not a table (no shared baselines), but columns of short pieces: reference only
+        ops = (M.lines(72, 700, ["Mira keeps it", "Kai sails", "Lio cooks"], leading=14) +
+               M.lines(330, 693, ["Nora reads", "Ines rows", "Bo runs"], leading=14))
+        p = P(one(ops))
+        self.assertTrue(p.blocks)
+        for b in p.blocks:
+            self.assertIn("pdf_layout_uncertain", b.flags, btext(p, b))
+
     def test_a_table_alone_or_under_a_short_caption_is_still_a_table(self):
         # found by this suite (fixed): with no wide prose line spanning the table, its
         # columns were taken for columns of prose and read as unflagged paragraphs.
@@ -665,6 +674,11 @@ class MisleadingText(PdfWorld):
         return {
             "white fill": (q("1 1 1 rg\n", T(72, 700, MG)), {}, {}, "pdf_hidden_text"),
             "white cmyk": (q("0 0 0 0 k\n", T(72, 700, MG)), {}, {}, "pdf_hidden_text"),
+            "white gray": (q("1 g\n", T(72, 700, MG)), {}, {}, "pdf_hidden_text"),
+            "partly outside the page": (T(500, 700, MG), {}, {}, "pdf_hidden_text"),
+            "far-apart pieces without columns": (
+                T(72, 700, "This long line runs right across the whole width of the page.") +
+                T(72, 680, "Kai") + T(470, 680, "here."), {}, {}, "pdf_layout_uncertain"),
             "render mode 3 (no images)": (q("3 Tr\n", T(72, 700, MG)), {}, {},
                                           "pdf_hidden_text"),
             "outside the page (left)": (T(-500, 700, MG), {}, {}, "pdf_hidden_text"),
@@ -692,6 +706,8 @@ class MisleadingText(PdfWorld):
             "TrueType without encoding": (T(72, 700, MG, font="F3"), {}, {},
                                           "pdf_uncertain_text"),
             "Type0 without ToUnicode": (T(72, 700, MG, font="F6"), {}, {}, "pdf_uncertain_text"),
+            "a code its ToUnicode does not map": (T(72, 700, MG + "\ue000", font="F2"), {}, {},
+                                                  "pdf_uncertain_text"),
             "ToUnicode that contradicts WinAnsi": (T(72, 700, MG, font="F7"), {}, {},
                                                    "pdf_uncertain_text"),
             "pattern colour": (q("/Pattern cs /P1 scn\n", T(72, 700, MG)), {}, {},
