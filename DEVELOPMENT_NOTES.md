@@ -1036,7 +1036,11 @@ pty, importlib, __import__, eval / exec / compile anywhere in the Brain; ctypes
 only in keystore.py. SECURITY LIMITATION (accepted, not solved): process
 isolation is NOT an operating-system sandbox - the reader runs as the same user
 with the same file and network access as SK; Windows has NO memory limit for
-it (only the time limit and the reader's own limits). Deliberate
+it (only the time limit and the reader's own limits).
+Results after the exception (Linux, da25e2b): whole suite 712 tests OK; B4 + B6
+regression, PDF and process-guard tests 235 OK; deliberate breaks 110/110 caught
+(the 98 earlier + 12 for the subprocess exception). Brain code fingerprint
+2fcd0d66dcff19ea. Not run on Windows. Deliberate
 breaks: 98/98 caught (35 PDF). Found and fixed by the tests: tables with no line
 spanning them were read as prose columns; short-piece columns are now
 layout-uncertain.
