@@ -608,6 +608,8 @@ Milestone log (approved commits only):
 | B4 | 17fa8b3 | da891e9 | owner, 2026-11-08 |
 | B5 | 33ef019 | 4351202 | owner, 2026-11-08 |
 | B5.1 | 80fe274 | 38533f4 | owner, 2026-11-08 |
+| B5.2 | 3d75dd4 | not deployed (prepared: 30c7a03, Brain fbe3f08) | owner, 2026-11-09 (Linux validation only; record: claude/brain-b5.2-record fd0f6e4) |
+| B6 | f688383 | 7ed29ac (Brain f688383) | owner, 2026-11-09 (Linux validation only - Windows OUTSTANDING) |
 
 ### B3.5 (APPROVED by the owner, 2026-11-08)
 
@@ -912,7 +914,40 @@ withdrawn text; duplicates across installations are not detected; moderators
 see what is proposed; whole shared-claim withdrawal is a later decision; a
 shared claim's original section reference stays with its owner.
 
-### B6 Sources and passages (in review - not approved yet)
+### B6 Sources and passages (APPROVED by the owner, 2026-11-09; integrated at f688383; Windows validation OUTSTANDING)
+
+Approval record (B6): after the final read-only audit (all areas PASS, no
+blockers) the owner explicitly approved integration - claude/brain-integration
+fast-forwarded 3d75dd4 -> f688383 (ordinary fast-forward, no history rewritten).
+Scope: imported sources and passages (TXT / Markdown / HTML / PDF), exact
+quotations, provenance and attestation (authorship only), challenges without
+suppression, versions and source_changed, owner purge, suggestions with
+explicit accept, the B5.2 -> B6 library upgrade as a verified copy, PDF import
+through pypdf 6.21.4 (pinned, hash-checked) in an isolated time-limited process
+(narrow, guarded subprocess exception), and the review fixes (strict check for
+quote-only sharing, unrendered HTML reference-only, process-guard aliases /
+indirect access / builtins / lookup imports, citation page / withheld / source
+date). Linux validation at f688383: full suite 726 tests OK; B4 / B5.2 / B6 /
+import / upgrade / PDF / process-guard / citation regressions 318 OK;
+deliberate breaks 151/151. Candidate lab: SK-Online claude/sk-lab-candidate
+7ed29ac (Brain f688383, copy verified byte for byte), 420 tests OK, GitHub test
+run passed; its deployment and testing are the owner's.
+WINDOWS VALIDATION HAS NOT BEEN RUN for B5.2, B6 or the PDF import - Windows
+compatibility is NOT verified. Outstanding: BRAIN_WINDOWS_CHECK.bat at f688383
+(Brain code fingerprint 2ced25c1876b5886; it installs requirements-brain.txt
+hash-checked and has the B5.2, B6 sources, B6 PDF and B6 upgrade steps).
+REQUIRED FIX BEFORE B7 (LOW severity, found in the final audit): a response whose
+audience is "shared" can include challenges from the asker's own personal
+passages (each challenge carries scope "personal", but the response audience does
+not account for them). No current code passes answers on, but B7 must either
+treat challenges like `related` (the asker's own view, never passed on with a
+shared answer) or drop personal challenges whenever an answer is passed on - with
+a test - before any saving / forwarding of answers is built.
+Accepted limitations: process isolation is not an operating-system sandbox and
+Windows has no memory limit for the PDF reader; deceptive fonts (glyphs that
+differ from their character map) cannot be detected; accuracy is shown on
+synthetic PDFs only; HTML sources are never evidence; citation dates are only a
+source's own date; pypdf needs ongoing advisory monitoring.
 
 Branch claude/brain-b6 from 3d75dd4. The 10 owner-approved B6 decisions plus
 the three safeguards (attestation = authorship only; purge / withdrawal shown
