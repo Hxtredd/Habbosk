@@ -120,6 +120,98 @@ def _os_launch_problems(name, tree):
     return bad
 
 
+# B6 review (776af85): indirect access. Rules for the WHOLE Brain package, whatever
+# the receiver: only these double-underscore attributes may be used; no attribute
+# named os or a launch function (shutil.os, os.path.os, x.system ...); getattr /
+# setattr / delattr / hasattr never with such names, and never with a computed name
+# on an imported module; no vars / globals / locals / breakpoint, no attrgetter /
+# methodcaller, no operator module.
+ALLOWED_DUNDERS = {"__init__", "__new__", "__code__", "__slots__", "__name__"}
+REACH_OS = OS_LAUNCH | {"os"}
+INTROSPECTION = {"vars", "globals", "locals", "breakpoint"}
+
+
+def _literal_loops(tree):
+    """{loop variable: its string constants} for `for v in ("a", "b", ...)` loops,
+    when the variable is bound nowhere else - such a name is not computed."""
+    loops, other = {}, set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.For) and isinstance(n.target, ast.Name):
+            it = n.iter
+            if isinstance(it, (ast.Tuple, ast.List)) and it.elts and all(
+                    isinstance(e, ast.Constant) and isinstance(e.value, str) for e in it.elts):
+                loops.setdefault(n.target.id, set()).update(e.value for e in it.elts)
+                continue
+            other.add(n.target.id)
+        elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+            other.add(n.id)
+        elif isinstance(n, ast.arg):
+            other.add(n.arg)
+    for n in ast.walk(tree):                           # the For targets themselves are Stores
+        if isinstance(n, ast.For) and isinstance(n.target, ast.Name) and \
+                n.target.id in loops and not (isinstance(n.iter, (ast.Tuple, ast.List)) and all(
+                    isinstance(e, ast.Constant) for e in n.iter.elts)):
+            loops.pop(n.target.id, None)
+    stores = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+            stores[n.id] = stores.get(n.id, 0) + 1
+    fors = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.For) and isinstance(n.target, ast.Name):
+            fors[n.target.id] = fors.get(n.target.id, 0) + 1
+    return {k: v for k, v in loops.items() if stores.get(k, 0) == fors.get(k, 0) and
+            k not in {a for a in other if stores.get(a, 0) == 0}}
+
+
+def _indirect_problems(name, tree):
+    bad = []
+    loops = _literal_loops(tree)
+    modules = set()                                    # names bound by import statements
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                modules.add(a.asname or a.name.split(".")[0])
+        elif isinstance(n, ast.ImportFrom):
+            if (n.module or "").split(".")[0] == "operator":
+                bad.append((name, "from operator import"))
+            for a in n.names:
+                modules.add(a.asname or a.name)
+            if any(a.name in ("attrgetter", "methodcaller") for a in n.names):
+                bad.append((name, "attrgetter / methodcaller"))
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import) and any(a.name.split(".")[0] == "operator" for a in n.names):
+            bad.append((name, "import operator"))
+        if isinstance(n, ast.Attribute):
+            if n.attr.startswith("__") and n.attr.endswith("__") and \
+                    n.attr not in ALLOWED_DUNDERS:
+                bad.append((name, "." + n.attr + " (line %d)" % n.lineno))
+            if n.attr in REACH_OS:
+                bad.append((name, "." + n.attr + " (line %d)" % n.lineno))
+            if n.attr in ("attrgetter", "methodcaller"):
+                bad.append((name, "." + n.attr))
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+            f = n.func.id
+            if f in INTROSPECTION:
+                bad.append((name, f + "() (line %d)" % n.lineno))
+            if f in ("getattr", "setattr", "delattr", "hasattr") and len(n.args) >= 2:
+                key = n.args[1]
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    k = key.value
+                    if k in REACH_OS or (k.startswith("__") and k not in ALLOWED_DUNDERS):
+                        bad.append((name, "%s(..., %r) (line %d)" % (f, k, n.lineno)))
+                elif isinstance(key, ast.Name) and key.id in loops:
+                    for k in loops[key.id]:            # every constant the loop can give
+                        if k in REACH_OS or (k.startswith("__") and k not in ALLOWED_DUNDERS):
+                            bad.append((name, "%s(..., %r) (line %d)" % (f, k, n.lineno)))
+                else:
+                    recv = n.args[0]
+                    if isinstance(recv, ast.Name) and recv.id in modules:
+                        bad.append((name, "%s(%s, <computed>) (line %d)"
+                                    % (f, recv.id, n.lineno)))
+    return bad
+
+
 class Static(unittest.TestCase):
     def test_subprocess_is_imported_only_by_pdf_import_plainly(self):
         seen = []
@@ -276,6 +368,72 @@ class Static(unittest.TestCase):
         for src in fine:
             with self.subTest(src):
                 self.assertEqual(_os_launch_problems("case.py", ast.parse(src)), [])
+
+    def test_no_indirect_access_anywhere(self):
+        """Independent review of 776af85: __getattribute__ and other indirect
+        routes to os (through any receiver), checked on the whole package."""
+        bad = []
+        for name, tree in trees():
+            bad += _indirect_problems(name, tree)
+        self.assertEqual(bad, [])
+
+    def test_the_indirect_check_catches_every_known_route(self):
+        both = lambda src: _os_launch_problems("c.py", ast.parse(src)) + \
+            _indirect_problems("c.py", ast.parse(src))  # noqa: E731
+        cases = {
+            "aliased __getattribute__": "import os as operating_system\n"
+                                        "operating_system.__getattribute__('system')('x')",
+            "plain __getattribute__": "import os\nos.__getattribute__('system')('x')",
+            "object.__getattribute__": "import os\nobject.__getattribute__(os, 'system')",
+            "type(...).__getattribute__": "import os as o\ntype(o).__getattribute__(o, 'popen')",
+            "__dict__": "import os as o\no.__dict__['system']('x')",
+            "__getattr__": "import os as o\no.__getattr__('system')",
+            "__class__ chain": "x = ().__class__.__bases__[0].__subclasses__()",
+            "__globals__": "def f(): pass\nf.__globals__['os']",
+            "__builtins__": "__builtins__.__import__('os')",
+            "__loader__ / __spec__": "import shutil\nshutil.__spec__",
+            "os reached through another module": "import shutil\nshutil.os.system('x')",
+            "os.path.os": "import os\nos.path.os.system('x')",
+            "aliased module's os": "import tempfile as t\nt.os.execv('x', [])",
+            "launch name on any object": "import shutil\nx = shutil\nx.system('x')",
+            "getattr os from a module": "import shutil\ngetattr(shutil, 'os').system('x')",
+            "getattr dunder": "import os as o\ngetattr(o, '__getattribute__')('system')",
+            "getattr computed on a module": "import shutil\nn = 'o' + 's'\ngetattr(shutil, n)",
+            "hasattr launch": "import os as o\nhasattr(o, 'spawnv')",
+            "setattr launch": "import os as o\nsetattr(o, 'system', None)",
+            "vars": "import os as o\nvars(o)['system']('x')",
+            "globals": "globals()['os']",
+            "locals": "locals()",
+            "breakpoint": "breakpoint()",
+            "operator.attrgetter": "import operator\nimport os as o\n"
+                                   "operator.attrgetter('system')(o)('x')",
+            "from operator import": "from operator import methodcaller",
+            "loop over launch names": "import os as o\nfor n in ('path', 'system'):\n"
+                                      "    getattr(o, n)",
+            "loop over 'os' on another module": "import shutil\nfor n in ('copy', 'os'):\n"
+                                               "    getattr(shutil, n)",
+            "loop variable reassigned": "import os as o\nfor n in ('path',):\n"
+                                        "    n = 'sys' + 'tem'\n    getattr(o, n)",
+            "loop over a computed list": "import os as o\nfor n in names():\n"
+                                         "    getattr(o, n)",
+        }
+        for label, src in cases.items():
+            with self.subTest(label):
+                self.assertTrue(both(src), label)
+        # legitimate patterns the Brain uses today must stay allowed
+        fine = ("import os\nos.path.join('a', 'b')\nos.replace('a', 'b')",
+                "import os\nflags = getattr(os, 'O_NOFOLLOW', 0)",
+                "import subprocess\nf = getattr(subprocess, 'CREATE_NO_WINDOW', 0)",
+                "class A:\n    __slots__ = ('x',)\n    def __init__(self):\n"
+                "        super().__init__()\n        self.n = type(self).__name__",
+                "def f(o, name):\n    return getattr(o.brain, name)",
+                "def g(fn):\n    return fn.__code__.co_varnames",
+                "class B:\n    def __new__(cls):\n        return object.__new__(cls)",
+                "from pypdf import filters\nfor name in ('ZLIB_MAX_OUTPUT_LENGTH', 'A_B'):\n"
+                "    if hasattr(filters, name):\n        setattr(filters, name, 1)")
+        for src in fine:
+            with self.subTest(src):
+                self.assertEqual(both(src), [])
 
     def test_the_only_extra_keywords_come_from_the_windows_flag(self):
         src = open(os.path.join(BRAIN, "pdf_import.py"), encoding="utf-8").read()

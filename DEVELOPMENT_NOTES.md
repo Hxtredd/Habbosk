@@ -1047,7 +1047,17 @@ function may not be imported from os under any name (nor `from os import *`),
 called through any alias, fetched with getattr (launch name or computed name),
 and os may not be passed around or reached through sys.modules; also inside
 functions. 23 bypass sources must be caught by the checker itself; 11 new
-deliberate breaks (8 bypasses planted in Brain modules, 3 disabling the checker). Deliberate
+deliberate breaks (8 bypasses planted in Brain modules, 3 disabling the checker).
+Review fix (776af85, indirect access): package-wide, whatever the receiver -
+only __init__ / __new__ / __code__ / __slots__ / __name__ may be used as
+double-underscore attributes (so no __getattribute__, __dict__, __class__,
+__globals__, __builtins__, __spec__ ...); no attribute named os or a launch
+function (shutil.os, os.path.os, x.system); getattr / setattr / delattr /
+hasattr never with such a name, also through a loop over literal names, and
+never with a computed name on an imported module; no vars / globals / locals /
+breakpoint, attrgetter / methodcaller or operator module. Checker tested on 29
+bypass sources and 9 allowed patterns (all existing Brain code passes unchanged);
+12 new deliberate breaks. Deliberate
 breaks: 98/98 caught (35 PDF). Found and fixed by the tests: tables with no line
 spanning them were read as prose columns; short-piece columns are now
 layout-uncertain.
