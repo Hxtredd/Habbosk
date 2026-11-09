@@ -231,7 +231,9 @@ _c("ac01", "accent_changed", *FS, "La misión del Faro Sur da 30 monedas.", quot
 _c("ac02", "accent_changed", "Tomás maintains the Clock Tower.", "Clock Tower", "Tomás maintains the Clock Tower.", quote="Tomas maintains the Clock Tower.")
 _c("ac03", "accent_changed", *DR, "Don Ramón maintains the Plaza del Puerto.", quote="Don Ramon maintains the Plaza del Puerto.")
 _c("ac04", "accent_changed", "Tomás maintains the Clock Tower.", "Clock Tower", "Tomas maintains the Clock Tower.", quote="Tomás maintains the Clock Tower.")
-_c("ac05", "accent_changed", *FS, "La misión del Faro Sur da 30 monedas.", quote="La misión del Faro Sur da 30 monedas.".replace("ó", "ó"))
+# ac05 corrected (B6 review): the approved cleaning is NFC, so a DECOMPOSED accent in
+# the quote is the same text after cleaning - genuine support, not a changed accent.
+_c("ac05", "nfc_ok", *FS, "La misión del Faro Sur da 30 monedas.", quote="La misio\u0301n del Faro Sur da 30 monedas.", exp=True)
 
 # ---------------- case_changed ----------------
 _c("cc01", "case_changed", *MG, "Mira maintains the Lantern Garden.", quote="mira maintains the Lantern Garden.")

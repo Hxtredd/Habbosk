@@ -85,6 +85,9 @@ _T = {
         "unsupported_bare": "I don't know: what is recorded is not confirmed by a source.",
         "evidence_withdrawn": "I don't know: a source behind this was withdrawn by its owner, "
                               "so it is awaiting review (it said: {possible}).",
+        "source_changed": "I don't know for sure: the source behind this has changed since it "
+                          "was quoted, so it is awaiting a new check (it said: {possible}).",
+        "passage_disagrees": "I don't know: a source says otherwise ({options}).",
         "not_understood": "I can't reason about this kind of question yet.",
         "did_you_mean": "Did you mean {name}?",
         "relation_choice": "Do you mean {options}?",
@@ -108,6 +111,9 @@ _T = {
         "unsupported_bare": "No lo sé: lo registrado no está confirmado por ninguna fuente.",
         "evidence_withdrawn": "No lo sé: su propietario retiró una fuente en la que se basaba; "
                               "está pendiente de revisión (decía: {possible}).",
+        "source_changed": "No lo sé con seguridad: la fuente cambió desde que se citó; está "
+                          "pendiente de una nueva comprobación (decía: {possible}).",
+        "passage_disagrees": "No lo sé: una fuente dice otra cosa ({options}).",
         "not_understood": "Todavía no puedo razonar sobre este tipo de pregunta.",
         "did_you_mean": "¿Te refieres a {name}?",
         "relation_choice": "¿Te refieres a {options}?",
@@ -143,6 +149,20 @@ def _qualifying(ev: dict) -> bool:
         and ev["source_kind"] != "user_statement" and bool((ev["locator"] or "").strip())
 
 
+def _supports(store, e: dict, c: dict, full: dict) -> bool:
+    """Legacy evidence: the B4 rule. A quotation from an imported source (B6):
+    exact, current, inside one sentence / list item, not flagged, not self-written
+    or AI-generated - and the quote AND its whole passage state the fact."""
+    from . import sources as B6
+    if not _qualifying(e):
+        return False
+    if B6.is_imported(store, e["source_id"]):
+        return B6.evidence_check(store, e["evidence_id"], {"text": c["text"],
+                                                           "subject": full.get("subject") or ""},
+                                 strict=True)[0]
+    return quote_supports(c["text"], full.get("subject") or "", e["locator"])
+
+
 # -- citations ----------------------------------------------------------------------
 def _date(ev: dict) -> str:
     return (ev.get("captured_at") or ev.get("source_added") or "")[:10]
@@ -162,9 +182,7 @@ def _cite(store, claims: List[dict], viewer, check_support: bool) -> List[Citati
                          "date": _date(e)} for e in evs])
         if check_support:
             full = store.claim(c["id"], viewer) or {}
-            cit.supports = any(_qualifying(e) and quote_supports(c["text"], full.get("subject") or "",
-                                                                 e["locator"])
-                               for e in evs)
+            cit.supports = any(_supports(store, e, c, full) for e in evs)
         out.append(cit)
     return out
 
@@ -265,7 +283,50 @@ def _language(question: str, ctx: _Context) -> str:
     return language(question)
 
 
+def _final_fact(store, steps: List[dict]) -> Optional[dict]:
+    """The stored fact of the claims behind the answer's last step."""
+    last = steps[-1] if steps else {}
+    for c in last.get("claims", []):
+        f = store.stored_fact(c["id"])
+        if f and f.get("relation"):
+            return f
+    return None
+
+
+def _challenge(brain, r: Response, viewer) -> Response:
+    """B6: passages that state another value. Established: shown alongside, the
+    category never changes. Documented: the sources disagree."""
+    from . import sources as B6
+    if r.category not in ("established", "documented"):
+        return r
+    store = brain.store
+    fact = _final_fact(store, r.steps)
+    if fact is None:
+        return r
+    ch = B6.challenges(store, fact, viewer)
+    if not ch:
+        return r
+    r.challenges = ch
+    if r.category == "documented":
+        vals = [v if v is not None else _say(r.language, "none") for g in ch for v in g["values"]]
+        r.sides = [{"value": r.value, "from": "claims"}] + \
+            [{"value": v, "from": "passage", "group": g["publisher"] or "unnamed material",
+              "scope": g["scope"]} for g in ch for v in g["values"]]
+        r.category, r.reason, r.possible = "unknown", "sources_disagree", r.value
+        r.value = None
+        r.sentence = _say(r.language, "passage_disagrees",
+                          options=" / ".join([r.possible] + vals))
+        if any(g["scope"] == "personal" for g in ch):
+            r.audience = "personal"
+    return r
+
+
 def respond(brain, question: str, viewer: Optional[str] = None) -> Response:
+    r = _respond(brain, question, viewer)
+    return _challenge(brain, r, viewer)
+
+
+def _respond(brain, question: str, viewer: Optional[str] = None) -> Response:
     a = brain.ask(question, viewer=viewer)
     ctx = _Context(brain, viewer)
     lang = _language(question, ctx)
@@ -371,6 +432,11 @@ def _categorise(brain, a, p, lang, viewer, question) -> Response:
                               for c in _all_claims(a.steps)):
             r.reason = "evidence_withdrawn"
             r.sentence = _say(lang, "evidence_withdrawn", possible=r.possible)
+        # B6: the quoted source has a newer version (or the quoted one was purged)
+        elif r.possible and any((store.claim(c["id"], viewer) or {}).get("source_changed")
+                                for c in _all_claims(a.steps)):
+            r.reason = "source_changed"
+            r.sentence = _say(lang, "source_changed", possible=r.possible)
         return r
 
     if a.status == "missing":

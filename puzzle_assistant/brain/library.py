@@ -478,11 +478,19 @@ class Library:
                     con.execute("UPDATE sources SET title=NULL, reference=NULL, raw_text=NULL, "
                                 "captured_at=NULL, meta='{}' WHERE id=?", (sid,))
                     con.execute("DELETE FROM sections WHERE source_id=?", (sid,))
+                    from . import sources as B6                   # B6: versions and passages
+                    B6.delete_passages(None, "source_id=?", (sid,), con=con)
+                    con.execute("DELETE FROM evidence_locations WHERE evidence_id IN (SELECT id "
+                                "FROM evidence WHERE source_id=?)", (sid,))
+                    con.execute("DELETE FROM source_versions WHERE source_id=?", (sid,))
                     for (eid,) in con.execute("SELECT id FROM evidence WHERE source_id=?",
                                               (sid,)).fetchall():
                         con.execute("UPDATE evidence SET locator='' WHERE id=?", (eid,))
                         con.execute("INSERT OR IGNORE INTO evidence_withdrawn VALUES (?,?)",
                                     (eid, _now()))
+                con.commit()
+                from .sources import scrub_search_index
+                scrub_search_index(con)
                 con.commit()
                 self._crash("purge_after_delete")
                 if not checkpoint(con):
@@ -498,6 +506,20 @@ class Library:
         finally:
             con.close()
         return pending
+
+
+def _needles(text) -> List[bytes]:
+    """Pieces of a text to look for in backups (a few lines of it)."""
+    if not text:
+        return []
+    out = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if len(line) >= 24:
+            out.append(line[:60].encode("utf-8"))
+        if len(out) >= 8:
+            break
+    return out
 
 
 class _Base:
@@ -608,6 +630,63 @@ class Session(_Base):
     def entities(self, viewer=None):
         return self._call("entities", viewer=viewer)
 
+    # -- B6: imported sources, passages, exact quotations ---------------------------------
+    def import_file(self, path, *, author_kind, author_name="", publisher="", reference="",
+                    captured_at="", title="", private=False, fmt=None, keep_query=False):
+        """Import a local .txt / .md / .html file into YOUR file (see brain/sources.py)."""
+        from . import sources as B6
+        return B6.import_file(self.store, path, author_kind=author_kind, author_name=author_name,
+                              publisher=publisher, reference=reference, captured_at=captured_at,
+                              title=title, private=private, fmt=fmt, keep_query=keep_query)
+
+    def reimport(self, source_id, path=None):
+        from . import sources as B6
+        return B6.reimport(self.store, source_id, path)
+
+    def cite(self, claim_id, source_id, quote, kind="direct"):
+        from . import sources as B6
+        return B6.cite(self.store, claim_id, source_id, quote, kind)
+
+    def attest_source(self, source_id, note):
+        """You attest the AUTHORSHIP of one of your sources (not its facts)."""
+        from . import sources as B6
+        return B6.attest(self.store, source_id, self._me_id, note)
+
+    def versions(self, source_id):
+        from . import sources as B6
+        B6._own_source(self.store, source_id)
+        return B6.versions(self.store, source_id)
+
+    def purge_version(self, source_id, version):
+        """Remove one version's text for good (your own sources). Also says which
+        SK-managed backups may still hold earlier copies (release_backups)."""
+        from . import sources as B6
+        from .upgrade import backups_holding
+        v = self.store._db.execute("SELECT text FROM main.source_versions WHERE source_id=? "
+                                   "AND version=?", (source_id, version)).fetchone()
+        needles = _needles(v[0] if v else None)
+        out = B6.purge_version(self.store, source_id, version)
+        out["backups"] = backups_holding(os.path.dirname(self._lib.root), needles)
+        return out
+
+    def suggestions(self, limit=100):
+        """At most `limit` open suggestions; nothing is learnt until you accept one."""
+        from . import sources as B6
+        return B6.suggestions(self.store, limit)
+
+    def accept_suggestion(self, candidate_id):
+        from . import sources as B6
+        return B6.accept(self.store, candidate_id)
+
+    def dismiss_suggestion(self, candidate_id):
+        from . import sources as B6
+        return B6.dismiss(self.store, candidate_id)
+
+    def search_passages(self, q, limit=20, viewer=None):
+        from . import sources as B6
+        self._me(viewer)
+        return B6.search_passages(self.store, q, limit)
+
     # -- proposals: only what the owner selects goes to their outbox -------------------
     def _grant(self, source_id: int, levels) -> dict:
         db = self.store._db
@@ -654,6 +733,8 @@ class Session(_Base):
                           (claim_id,)).fetchall()
         token = secrets.token_hex(16)
         out = []
+        versions = []                            # B6: the proposed source versions
+        from . import sources as B6
         for e in rows:
             if e["source_id"] in permissions and e["private"]:
                 raise BrainError("a private source is never shared")
@@ -662,13 +743,31 @@ class Session(_Base):
             g = self._grant(e["source_id"], permissions[e["source_id"]])
             src, lv = g["src"], g["levels"]
             plain = src["content_hash"] or g["grant"]["opaque_id"]
+            full_text = src["raw_text"]
+            if B6.is_imported(self.store, e["source_id"]):
+                v = B6.current_version(self.store, e["source_id"])
+                if v is None or v["author_kind"] in B6.NOT_EVIDENCE:
+                    raise BrainError("self-written, AI-generated or purged material is not "
+                                     "proposed as evidence")
+                if "quote" in lv and e["kind"] in ("direct", "confirmation") and \
+                        not B6.evidence_check(self.store, e["id"], dict(c),
+                                                           strict=False)[0]:
+                    raise BrainError("a quotation of this claim is not in the current version "
+                                     "of its source (cite it again first)")
+                full_text = v["text"]
+                versions.append((token, g["grant"]["opaque_id"], v["fmt"],
+                                 v["structure"] if "full_text" in lv else "[]",
+                                 self._lib.tag(v["text_tag"]), v["author_kind"], "declared",
+                                 v["author_name"] if "details" in lv else None,
+                                 v["publisher"] if "details" in lv else None,
+                                 v["reference"] if "details" in lv else None))
             out.append((token, e["kind"], g["grant"]["opaque_id"], src["kind"],
                         self._lib.tag(plain), self._lib.token_hash(g["grant"]["token"]),
                         e["locator"] if "quote" in lv else None,
                         src["title"] if "details" in lv else None,
                         src["reference"] if "details" in lv else None,
                         src["captured_at"] if "details" in lv else None,
-                        src["raw_text"] if "full_text" in lv else None, json.dumps(lv)))
+                        full_text if "full_text" in lv else None, json.dumps(lv)))
         for row in out:                          # before anything reaches the outbox
             self._lib.register_token(row[2], row[5])
         con = self._lib._outbox(self._user["file_id"], write=True)
@@ -679,6 +778,8 @@ class Session(_Base):
             con.executemany("INSERT INTO material (token, kind, opaque_id, source_kind, tag, "
                             "token_hash, quote, title, reference, captured_at, full_text, levels) "
                             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", out)
+            con.executemany("INSERT OR REPLACE INTO material_versions VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            versions)
             con.commit()
         finally:
             con.close()
@@ -689,6 +790,7 @@ class Session(_Base):
         con = self._lib._outbox(self._user["file_id"], write=True)
         try:
             con.execute("DELETE FROM material WHERE token=?", (token,))
+            con.execute("DELETE FROM material_versions WHERE token=?", (token,))
             con.execute("DELETE FROM proposals WHERE token=?", (token,))
             con.commit()
             checkpoint(con)
@@ -750,6 +852,8 @@ class Session(_Base):
                     con.execute("UPDATE material SET quote=NULL, title=NULL, reference=NULL, "
                                 "captured_at=NULL, full_text=NULL, tag=NULL, levels='[]' "
                                 "WHERE opaque_id=?", (g["opaque_id"],))
+                    con.execute("DELETE FROM material_versions WHERE opaque_id=?",
+                                (g["opaque_id"],))
                     con.commit()
                     self._lib._crash("outbox_after_delete")
                     checkpoint(con)
@@ -839,6 +943,8 @@ class ModeratorSession(_Base):
             p = con.execute("SELECT * FROM proposals WHERE token=?", (token,)).fetchone()
             mat = [dict(m) for m in con.execute("SELECT * FROM material WHERE token=? ORDER BY id",
                                                 (token,))]
+            mver = {m["opaque_id"]: dict(m) for m in con.execute(
+                "SELECT * FROM material_versions WHERE token=?", (token,))}
             pseud = con.execute("SELECT value FROM meta WHERE key='pseudonym'").fetchone()[0]
         finally:
             con.close()
@@ -873,18 +979,23 @@ class ModeratorSession(_Base):
                     if r:
                         sid = r[0]
                     else:
+                        mv = mver.get(m["opaque_id"])
                         sid = st._new("sources", "INSERT INTO main.sources (kind, title, "
                                       "reference, content_hash, captured_at, added_at, added_by, "
                                       "private, raw_text, meta) VALUES (?,?,?,?,?,?,?,0,?,'{}')",
                                       (m["source_kind"], m["title"], m["reference"], m["tag"],
-                                       m["captured_at"], now, pseud, m["full_text"])).lastrowid
+                                       m["captured_at"], now, pseud,
+                                       None if mv else m["full_text"])).lastrowid
                         db.execute("INSERT INTO main.source_opaque VALUES (?,?)",
                                    (sid, m["opaque_id"]))
                         db.execute("INSERT OR IGNORE INTO main.source_tokens VALUES (?,?)",
                                    (m["opaque_id"], m["token_hash"]))
-                    st._new("evidence", "INSERT INTO main.evidence (claim_id, source_id, kind, "
-                            "locator, added_by, added_at) VALUES (?,?,?,?,?,?)",
-                            (cid, sid, m["kind"], m["quote"] or "", pseud, now))
+                        if mv:
+                            self._shared_version(sid, mv, m, pseud, now)
+                    eid = st._new("evidence", "INSERT INTO main.evidence (claim_id, source_id, "
+                                  "kind, locator, added_by, added_at) VALUES (?,?,?,?,?,?)",
+                                  (cid, sid, m["kind"], m["quote"] or "", pseud, now)).lastrowid
+                    self._shared_location(eid, sid, m["quote"] or "")
                 db.execute("INSERT INTO main.proposal_decisions VALUES (?,?,?,?,?,?)",
                            (token, "approved", note, cid, self._me_id, now))
                 db.commit()
@@ -893,6 +1004,49 @@ class ModeratorSession(_Base):
                     db.rollback()
                 raise
         return cid
+
+    def _shared_version(self, sid: int, mv: dict, m: dict, pseud: str, now: str) -> None:
+        """B6: the shared copy of a proposed source version. Its text and passages
+        only with a full_text grant (positions are rebuilt here from the text and
+        its structure); otherwise the declared origin alone."""
+        from . import sources as B6
+        st = self.store
+        text = m["full_text"]
+        structure = mv["structure"] if text is not None else "[]"
+        vid = st._new("source_versions", "INSERT INTO main.source_versions (source_id, version, "
+                      "fmt, text, text_tag, bytes_tag, size, structure, author_kind, author_name, "
+                      "publisher, reference, captured_at, provenance, imported_by, imported_at, "
+                      "flags, state) VALUES (?,1,?,?,?,NULL,?,?,?,?,?,?,?,'declared',?,?,'[]',"
+                      "'current')",
+                      (sid, mv["fmt"], text, mv["text_tag"], len(text) if text else None,
+                       structure, mv["author_kind"], mv["author_name"], mv["publisher"],
+                       mv["reference"], m["captured_at"], pseud, now)).lastrowid
+        if text is not None:
+            B6.store_passages(st, vid, sid, B6._Text(text, structure), sha=self._lib.tag)
+
+    def _shared_location(self, eid: int, sid: int, quote: str) -> None:
+        """B6: where a shared quotation is in the shared copy's text (if it has text)."""
+        from . import sources as B6
+        import hashlib
+        v = B6.current_version(self.store, sid)
+        if v is None or v["text"] is None or not quote:
+            return
+        loc = B6.locate(self.store, v, quote)
+        if loc is not None:
+            self.store._db.execute("INSERT INTO main.evidence_locations VALUES (?,?,?,?,?,?)",
+                                   (eid, v["id"], loc["passage"]["id"], loc["start"], loc["end"],
+                                    self._lib.tag(hashlib.sha256(quote.encode()).hexdigest())))
+
+    def attest_source(self, source_id: int, note: str) -> dict:
+        """A moderator attests the AUTHORSHIP of a shared source (not its facts).
+        Needed before shared knowledge resting only on imported sources can be
+        verified; an owner's own attestation never carries over."""
+        from . import sources as B6
+        return B6.attest(self.store, source_id, self._me_id, note)
+
+    def search_passages(self, q, limit=20):
+        from . import sources as B6
+        return B6.search_passages(self.store, q, limit)
 
     def reject(self, file_id: str, token: str, note: str = "") -> None:
         with self.store._lock:

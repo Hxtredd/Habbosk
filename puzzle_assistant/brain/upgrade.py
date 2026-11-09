@@ -405,3 +405,74 @@ def recover_upgrade(data_dir: str, host_key: Optional[bytes]) -> dict:
             out["report_only"].append({"upgrade_id": uid, "why": "unexpected folders - nothing "
                                        "was changed; the backup is in brain-backups"})
     return out
+
+
+# -- SK-managed backups (B6 safeguard: withdrawn / purged text must not linger) -----------
+def backups(data_dir: str) -> list:
+    """Every SK-managed copy that may hold older library content: the B6 upgrade's
+    backup and old library, and the B5.2 migration backups (brain-backups/<id>)."""
+    out = []
+    root = os.path.join(data_dir, "brain-backups")
+    if os.path.isdir(root):
+        for n in sorted(os.listdir(root)):
+            out.append(os.path.join(root, n))
+    for n in sorted(os.listdir(data_dir)) if os.path.isdir(data_dir) else []:
+        if n.startswith("brain-pre-b6-") or n.startswith("brain-upgrade-staging-"):
+            out.append(os.path.join(data_dir, n))
+    return out
+
+
+def backups_holding(data_dir: str, needles) -> list:
+    """The SK-managed backups in which any of `needles` (bytes) is found, byte
+    for byte (sidecars included). Empty needles: every backup that exists, as
+    it may hold an earlier copy."""
+    found = []
+    for b in backups(data_dir):
+        hit = not needles
+        for d, _, names in os.walk(b):
+            for n in names:
+                if hit:
+                    break
+                try:
+                    with open(os.path.join(d, n), "rb") as fh:
+                        data = fh.read()
+                except OSError:
+                    continue
+                hit = any(x in data for x in needles)
+        if hit:
+            found.append(os.path.relpath(b, data_dir).replace(os.sep, "/"))
+    return found
+
+
+def release_backups(data_dir: str, host_key: bytes, library_key: bytes,
+                    confirm: bool = False) -> list:
+    """Delete the SK-managed backups - only when the person confirms AND the
+    current library is complete and verified (no unfinished upgrade, it opens,
+    every database passes an integrity check), so the only known-good copy is
+    never deleted. Returns what was removed."""
+    if confirm is not True:
+        raise BrainError("releasing backups deletes them for good: call with confirm=True")
+    if unfinished(data_dir):
+        raise UpgradePending("an upgrade is unfinished: run recover_upgrade() first")
+    root = os.path.join(data_dir, "brain")
+    from .library import Library
+    lib = Library(root, host_key, library_key)          # refuses an old / damaged library
+    lib.close()
+    for rel in tree_fingerprint(root):
+        if rel.endswith(".db"):
+            con = sqlite3.connect(_ro_uri(os.path.join(root, rel)), uri=True)
+            try:
+                if con.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise BrainError(f"{rel} failed its integrity check; backups were kept")
+            finally:
+                con.close()
+    removed = []
+    for b in backups(data_dir):
+        shutil.rmtree(b)
+        removed.append(os.path.relpath(b, data_dir).replace(os.sep, "/"))
+    return removed
+
+
+def _ro_uri(path: str) -> str:
+    import pathlib
+    return pathlib.Path(os.path.abspath(path)).as_uri() + "?mode=ro"

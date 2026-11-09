@@ -842,7 +842,7 @@ removed; knowledge.db not read. Search speed on that PC: first 322 ms, median
 The owner approved B5.1; claude/brain-integration fast-forwarded 33ef019 ->
 80fe274 (this record is on claude/brain-b5.1, after 80fe274).
 
-### B5.2 Personal and shared storage separation (in review - not approved yet)
+### B5.2 Personal and shared storage separation (integrated at 3d75dd4 on LINUX validation only - Windows validation outstanding)
 
 Branch claude/brain-b5.2 from abdaa1a (= integration 80fe274 + the B5.1
 approval record). Owner-approved design (all decisions in the B5.2 planning
@@ -911,6 +911,71 @@ user can read files and keys; copies outside SK (and disk remnants) can keep
 withdrawn text; duplicates across installations are not detected; moderators
 see what is proposed; whole shared-claim withdrawal is a later decision; a
 shared claim's original section reference stays with its owner.
+
+### B6 Sources and passages (in review - not approved yet)
+
+Branch claude/brain-b6 from 3d75dd4. The 10 owner-approved B6 decisions plus
+the three safeguards (attestation = authorship only; purge / withdrawal shown
+by actual marker removal incl. WAL and SK backups; upgrade recovery at every
+interruption point). No AI, no network, no new dependencies, no UI.
+- Library format `b6` (meta layout on the registry and every file). A B5.2
+  library is refused through an IMMUTABLE read-only look (no side files) and
+  upgraded only as a COPY: `brain/upgrade.py` (backup, signed journal in two
+  places, staging, per-role upgrade with the registry last, row-by-row
+  verification against a temporary copy of the backup, two folder renames).
+  `recover_upgrade()` decides from the folders present + fingerprints; the
+  old library and the backup are never deleted by it. Tested on a REAL B5.2
+  library written by 3d75dd4 (tests/fixtures/b52_library.zip) with power loss
+  at all 8 points, a damaged staging copy between the renames, damaged /
+  foreign-key journals.
+- `brain/importer.py` (.txt/.md/.html, local regular files, <=5 MB, UTF-8 or
+  UTF-16 with BOM only; canonical text = NFC + LF; HTML never rendered:
+  hidden / script / style / comments / attributes dropped) and
+  `brain/passages.py` (sentence, list item = can support; heading, table row,
+  code, quote = never; invisible / control / mixed-script text flagged).
+- `brain/sources.py`: versions (text stored once, passages are positions),
+  `cite()` = exact location inside ONE passage of the CURRENT version (else
+  nothing stored; legacy add_evidence refused for imported sources); gates:
+  current, exact text at the position, inside the passage, sentence / list
+  item, not flagged, author not self / ai_generated; for Documented the WHOLE
+  passage must state the fact (B3 reading) and nothing else (`tight()`: no
+  words beyond the claim's and the relation's forms, not a question).
+  Provenance: importer + time recorded; author / publisher / reference / date
+  declared; attestation (with a note) = authorship only, never a status
+  change; reference query + fragment stripped. Confirmations from imported
+  sources count only if both are attested, with different publishers and
+  material. Shared verification resting only on imported sources needs a
+  MODERATOR's attestation (the owner's never carries over). Reimport = new
+  version; earlier quotes -> `source_changed` (Unknown reason; a verified
+  claim reads as awaiting verification, stored status unchanged).
+  Challenges: passages stating another value never change an Established
+  answer (listed, grouped by publisher / material, internal flag); a
+  Documented answer becomes sources_disagree. Suggestions: owner-only, at most
+  `limit` open, nothing learnt until accept (-> unverified personal claim,
+  passage cited). Passage search (FTS5, current versions only). Owner purge
+  of a version: passages, index, facts securely deleted (FTS5 secure-delete
+  AND an index merge; PRAGMA secure_delete; WAL emptied).
+- Sharing: a quote grant shares the quote and the declared origin only (no
+  text, no passages); full_text shares the version, passages rebuilt in
+  shared.db from the text + structure (keyed hashes). Withdrawal removes
+  versions, passages, index, facts and locations from shared.db and the
+  outbox. `upgrade.backups_holding()` reports SK-managed backups that still
+  hold the text; `release_backups(confirm=True)` deletes them only with no
+  unfinished upgrade and a library that opens and passes integrity checks.
+Tests: test_brain_b6_upgrade (10), test_brain_b6_import (101: 117 hostile HTML
+cases, 2250 random round trips, linear time), test_brain_b6 (30: the 231-case
+false-quotation corpus with zero false support, each gate alone, versions,
+purge / withdrawal marker scans with SK running and after, challenges,
+provenance, suggestions, separation, sharing, backups). Corpus correction:
+case ac05 (a decomposed accent) is genuine support under the approved NFC
+cleaning, relabelled `nfc_ok`. Speed, 50,000 passages: import ~2 s per
+10,000, search 10-55 ms, answer 14 ms, 100 suggestions 0.09 s, purge 0.07 s.
+Not run on Windows yet (BRAIN_WINDOWS_CHECK.bat has two new B6 steps).
+Limits: legacy (pre-B6) sources keep B5.2 rules; you cite only your own
+imported sources; one authorship declaration per source; answers never come
+from a passage alone; quotes already cited from a purged version stay in your
+own evidence (reported); copies outside SK, disk remnants and file-system
+journals are outside SK's reach.
 
 ## Known limits / ideas
 

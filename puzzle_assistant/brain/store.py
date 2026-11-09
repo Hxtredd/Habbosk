@@ -213,6 +213,23 @@ _STATUS_SQL = (
     'AS "status"')
 
 
+def _changed_sql(x: str, alias: str, extra_bad: str = "") -> str:
+    """B6: a verified claim whose quotations all point at versions that are no
+    longer current (and that has no other support left) reads as awaiting
+    verification - its stored status is unchanged."""
+    stale = (f"EXISTS (SELECT 1 FROM {x}.evidence e JOIN {x}.evidence_locations l ON "
+             f"l.evidence_id=e.id JOIN {x}.source_versions v ON v.id=l.version_id WHERE "
+             f"e.claim_id={alias}.id AND e.kind IN ('direct','confirmation') AND "
+             f"v.state!='current')")
+    good = (f"EXISTS (SELECT 1 FROM {x}.evidence e LEFT JOIN {x}.sources src ON "
+            f"src.id=e.source_id WHERE e.claim_id={alias}.id AND e.kind IN "
+            f"('direct','confirmation') AND e.source_id IS NOT NULL AND COALESCE(src.kind,'') "
+            f"!= 'user_statement' AND NOT EXISTS (SELECT 1 FROM {x}.evidence_locations l JOIN "
+            f"{x}.source_versions v ON v.id=l.version_id WHERE l.evidence_id=e.id AND "
+            f"v.state!='current'){extra_bad})")
+    return f"({alias}.status='verified' AND {stale} AND NOT {good})"
+
+
 def file_uri(path: str, mode: str) -> str:
     import pathlib
     return pathlib.Path(os.path.abspath(path)).as_uri() + f"?mode={mode}"
@@ -373,16 +390,25 @@ class KnowledgeStore:
                 raise BrainError(f"the shared file's '{t}' table has other columns")
             c = ", ".join(f'"{x}"' for x in cols)
             shared_part = f"SELECT {c} FROM shared.{t}"
+            main_part = f"SELECT {c} FROM main.{t}"
             if t == "claims":                   # verified only while support remains (B5.2)
-                c2 = ", ".join(f'"{x}"' if x != "status" else _STATUS_SQL for x in cols)
+                ch = _changed_sql("shared", "s", f" AND NOT {_WITHDRAWN_SQL}")
+                c2 = ", ".join(f'"{x}"' if x != "status" else
+                               f"CASE WHEN {ch} THEN 'awaiting_verification' ELSE "
+                               + _STATUS_SQL.replace('END AS "status"', 'END END AS "status"')
+                               for x in cols)
                 shared_part = f"SELECT {c2} FROM shared.claims s"
+                c3 = ", ".join(f'"{x}"' if x != "status" else
+                               f"CASE WHEN {_changed_sql('main', 'm')} THEN "
+                               "'awaiting_verification' ELSE m.status END AS \"status\""
+                               for x in cols)
+                main_part = f"SELECT {c3} FROM main.claims m"
             key = {"contributors": "id", "relations": "key", "sources": "id",
                    "evidence": "id"}.get(t)
             if key:                             # one's own full row wins over the shared one
                 shared_part += (" WHERE " if t != "claims" else " AND ") + \
                     f'"{key}" NOT IN (SELECT "{key}" FROM main.{t})'
-            self._db.execute(f'CREATE TEMP VIEW "{t}" AS SELECT {c} FROM main.{t} '
-                             f"UNION ALL {shared_part}")
+            self._db.execute(f'CREATE TEMP VIEW "{t}" AS {main_part} UNION ALL {shared_part}')
         self.attached = True
         clash = self.id_collisions()
         if clash:
@@ -1167,9 +1193,13 @@ class KnowledgeStore:
             if not self.can_see(c, viewer):
                 return None
             if self.attached:
+                from . import sources as B6
                 raw = self._db.execute("SELECT status FROM shared.claims WHERE id=?",
                                        (claim_id,)).fetchone()
-                c["withdrawn_support"] = bool(raw and raw[0] != c["status"])
+                changed = B6.source_changed(self, claim_id)
+                c["withdrawn_support"] = bool(raw and raw[0] != c["status"]) and \
+                    bool(self.withdrawn_evidence(claim_id))
+                c["source_changed"] = changed
             return c
 
     def claims(self, subject: Optional[str] = None, status: Optional[str] = None,
@@ -1236,7 +1266,7 @@ class KnowledgeStore:
     # -- evidence ------------------------------------------------------------------
     @_atomic
     def add_evidence(self, claim_id: int, kind: str, source_id: Optional[int] = None,
-                     locator: str = "", by: Optional[str] = None) -> int:
+                     locator: str = "", by: Optional[str] = None, _located: bool = False) -> int:
         if kind not in EVIDENCE_KINDS:
             raise BrainError(f"unknown evidence kind {kind!r}")
         if kind in ("direct", "confirmation") and source_id is None:
@@ -1258,6 +1288,10 @@ class KnowledgeStore:
                 if src["private"] and c["scope"] != "personal":
                     raise BrainError("a shared / proposed claim cannot get evidence from a "
                                      "private source")
+                from . import sources as B6
+                if not _located and B6.is_imported(self, source_id):
+                    raise BrainError("quotations from an imported source are added with cite(), "
+                                     "which checks they are in the source exactly")
             if kind == "derived" and not self._db.execute(
                     "SELECT 1 FROM claim_links WHERE from_claim=? AND kind='derived_from'",
                     (claim_id,)).fetchone():
@@ -1284,19 +1318,50 @@ class KnowledgeStore:
         """How well supported a claim is. The same material (same content
         hash) counts once, however many people submit it; assertions are
         counted separately and never count as support."""
+        from . import sources as B6
         ev = self.evidence(claim_id)
         direct, confirm = set(), set()
         statements = 0
+        claim = self._claim(claim_id)
+        imported = {"direct": [], "confirmation": []}    # B6: (key, version) that count
+        not_evidence = 0
         for e in ev:
             key = e["content_hash"] or f"source:{e['source_id']}"
             if e["kind"] in ("direct", "confirmation") and e["source_kind"] == "user_statement":
                 statements += 1                  # someone's own words: never support
+            elif e["kind"] in ("direct", "confirmation") and B6.is_imported(self, e["source_id"]):
+                ok, _ = B6.evidence_check(self, e["id"], claim, strict=False)
+                if ok:                           # B6: exact, current, not self / AI
+                    imported[e["kind"]].append((key, B6.evidence_info(self, e["id"])))
+                else:
+                    not_evidence += 1
             elif e["kind"] == "direct":
                 direct.add(key)
             elif e["kind"] == "confirmation":
                 confirm.add(key)
+        attested = 0
+        for key, v in imported["direct"]:
+            direct.add(key)
+            attested += v is not None and v["provenance"] == "attested"
+        # B6 independence: a confirmation from an imported source counts only if
+        # it and a direct source are both ATTESTED, with different publishers and
+        # different material (an unknown author never confirms anything)
+        good_direct = [v for _, v in imported["direct"] if v and v["provenance"] == "attested"
+                       and (v["publisher"] or "").strip()]
+        for key, v in imported["confirmation"]:
+            if not v or v["provenance"] != "attested" or v["author_kind"] != "named" or \
+                    not (v["publisher"] or "").strip():
+                continue
+            if any(d["publisher"].strip().lower() != v["publisher"].strip().lower() and
+                   d["text_tag"] != v["text_tag"] for d in good_direct):
+                confirm.add(key)
         confirm -= direct
         return {"direct": len(direct), "confirmations": len(confirm),
+                "imported": len(imported["direct"]) + len(imported["confirmation"]),
+                "attested": attested, "not_evidence": not_evidence,
+                "legacy": sum(1 for e in ev if e["kind"] in ("direct", "confirmation") and
+                              e["source_kind"] != "user_statement" and
+                              not B6.is_imported(self, e["source_id"])),
                 "derived": sum(1 for e in ev if e["kind"] == "derived"),
                 "assertions": sum(1 for e in ev if e["kind"] == "assertion") + statements,
                 "contributors": len({e["added_by"] for e in ev}),
@@ -1320,7 +1385,7 @@ class KnowledgeStore:
                 "FROM evidence e LEFT JOIN sources s ON s.id = e.source_id "
                 "WHERE e.claim_id=? ORDER BY e.id", (claim_id,)) if r["ev_id"] not in gone]
             for r in rows:
-                r.pop("ev_id")
+                r["evidence_id"] = r.pop("ev_id")
         out = []
         for r in rows:
             if r["source_id"] is not None and r["private"] and \
@@ -1355,6 +1420,11 @@ class KnowledgeStore:
                         for e in self.evidence(claim_id)):
                     raise BrainError("cannot verify shared knowledge without a quote its owner "
                                      "allowed to be shared")
+                if self.role == "shared" and s["imported"] and not s["legacy"] and \
+                        not s["attested"]:
+                    raise BrainError("cannot verify shared knowledge resting only on imported "
+                                     "sources until a moderator attests one source's authorship "
+                                     "(attestation is not a check of the facts)")
                 if rkind in AUTOMATIC_KINDS:
                     game = [e for e in self.evidence(claim_id) if e["kind"] == "direct"
                             and e["source_kind"] == "game_observation"]

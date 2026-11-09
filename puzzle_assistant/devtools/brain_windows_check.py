@@ -10,6 +10,10 @@ Runs on the user's own PC what could only be simulated elsewhere:
   * two programs writing at once; a write blocked by another program's
     read is rolled back and leaves nothing locked
   * FTS5 table breaking while running: plain search takes over
+  * B6: UTF-16 / CRLF source files from an awkward path, exact quotations,
+    a new version, a purge and a withdrawal checked by a raw byte scan while
+    SK is still running; the B5.2 -> B6 library upgrade (a real B5.2
+    library), also with the process killed between its two folder renames
   * the Brain's own automated tests (including the v1 -> v3 upgrade)
   * another program changing the database while a Brain has it cached
   * the whole application test suite (needs the app's packages: the .bat
@@ -394,6 +398,144 @@ def separated_storage():
                     f"migration (original unchanged, folder renamed, verified): {migrated}")
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+def _scan(top, marker: bytes):
+    hits = []
+    for dd, _, names in os.walk(top):
+        for n in names:
+            p = os.path.join(dd, n)
+            with open(p, "rb") as fh:
+                if marker in fh.read():
+                    hits.append(os.path.relpath(p, top).replace(os.sep, "/"))
+    return hits
+
+
+@check("B6 imported sources: UTF-16 / CRLF files, exact quotes, purge, withdrawal (Windows files)")
+def b6_sources():
+    """Windows-only behaviour B6 relies on: files with CRLF line endings and a
+    UTF-16 byte-order mark read from an awkward path, an exact quotation, a new
+    version, a purge and a withdrawal whose text is then absent from every SK
+    file (raw byte scan, with SK still running), and closed library files that
+    Windows lets us delete at once."""
+    from puzzle_assistant.brain.library import Library, mint_grant
+    root, d = _workdir()
+    try:
+        hk, lk = os.urandom(32), os.urandom(32)
+        lib = Library(os.path.join(d, "brain"), hk, lk)
+        g = lambda u, r="user": mint_grant(hk, lib.installation_id, lib.epoch, u, r)  # noqa: E731
+        ana, mod = lib.create_user("Ana"), lib.create_user("Mod", "moderator")
+        src_dir = os.path.join(d, "Mis documentos (José)")
+        os.makedirs(src_dir)
+        p16 = os.path.join(src_dir, "guía #1.txt")
+        with open(p16, "wb") as fh:
+            fh.write("Mira maintains the Demo Garden.\r\n\r\nWINB6PURGEMARK stays a while."
+                     "\r\n".encode("utf-16"))                       # BOM + CRLF
+        s = lib.open_session(g(ana))
+        r = s.import_file(p16, author_kind="named", author_name="Ada", publisher="Demo Press")
+        sid = r["source_id"]
+        c = s.learn("Mira maintains the Demo Garden.", "imported", "Demo Garden")
+        cited = s.cite(c, sid, "Mira maintains the Demo Garden.")["supports"]
+        documented = s.respond("Who maintains the Demo Garden?").category == "documented"
+        with open(p16, "wb") as fh:
+            fh.write("Mira maintains the Demo Garden.\r\n".encode("utf-16"))
+        new_version = s.reimport(sid)["state"] == "new_version"
+        changed = s.respond("Who maintains the Demo Garden?").category != "documented"
+        purge = s.purge_version(sid, 1)["state"]
+        purged_live = _scan(os.path.join(d, "brain"), b"WINB6PURGEMARK") == [] and \
+            _scan(os.path.join(d, "brain"), "WINB6PURGEMARK".encode("utf-16-le")) == []
+        s.cite(c, sid, "Mira maintains the Demo Garden.")
+        p2 = os.path.join(src_dir, "shared notes.md")
+        with open(p2, "w", encoding="utf-8", newline="\r\n") as fh:
+            fh.write("# Notes\n\nMira maintains the Demo Garden.\n\nWINB6SHAREDMARK is here.\n")
+        sid2 = s.import_file(p2, author_kind="named", author_name="Ada", publisher="Other")["source_id"]
+        s.cite(c, sid2, "Mira maintains the Demo Garden.")
+        tok = s.propose(c, {sid2: ["quote", "full_text"]})
+        m = lib.open_session(g(mod, "moderator"))
+        m.approve(m.proposals()[0]["file"], tok)
+        in_shared = any(h.startswith("shared") for h in
+                        _scan(os.path.join(d, "brain"), b"WINB6SHAREDMARK"))
+        state = s.withdraw_source(sid2)
+        left = _scan(os.path.join(d, "brain"), b"WINB6SHAREDMARK")
+        only_owner = bool(left) and all(h.startswith("personal/") for h in left)
+        m.close()
+        s.close()
+        lib.close()
+        locked = []
+        for dd, _, names in os.walk(os.path.join(d, "brain")):
+            for n in names:
+                try:
+                    os.remove(os.path.join(dd, n))
+                except OSError as exc:
+                    locked.append(f"{n}: {exc}")
+        ok = all((cited, documented, new_version, changed, purge == "purged", purged_live,
+                  in_shared, state == "complete", only_owner, not locked))
+        return ok, (f"UTF-16 + CRLF import from an awkward path, exact quote supports: {cited}; "
+                    f"documented: {documented}; new version: {new_version}, old quote no longer "
+                    f"documents: {changed}; purge: {purge}, purged text absent while running: "
+                    f"{purged_live}; full text shared: {in_shared}; withdrawal: {state}, text "
+                    f"left only in its owner's personal file: {only_owner}; closed files "
+                    f"deletable at once: {not locked}" + (f" {locked[:3]}" if locked else ""))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+@check("B6 library upgrade: copy, two folder renames, power loss between them (Windows renames)")
+def b6_upgrade():
+    """A real B5.2 library (tests/fixtures/b52_library.zip, written by the B5.2
+    code) upgraded in an awkward folder; then again with the process killed
+    between the two folder renames, recovered, answers compared."""
+    import json
+    import zipfile
+    from puzzle_assistant.brain import upgrade as UP
+    from puzzle_assistant.brain.library import Library, mint_grant
+    fixture = os.path.join(HERE, "tests", "fixtures", "b52_library.zip")
+    child = os.path.join(HERE, "tests", "b6_child.py")
+    if not os.path.isfile(fixture):
+        return None, "tests/fixtures/b52_library.zip not found (use the full download)"
+    lines, ok = [], True
+    for crash in ("", "between_renames", "after_swapping"):
+        root, d = _workdir()
+        try:
+            with zipfile.ZipFile(fixture) as z:
+                z.extractall(d)
+            with open(os.path.join(d, "fixture.json"), encoding="utf-8") as fh:
+                info = json.load(fh)
+            os.remove(os.path.join(d, "fixture.json"))
+            hk, lk = bytes.fromhex(info["hk"]), bytes.fromhex(info["lk"])
+            before = UP.tree_fingerprint(os.path.join(d, "brain"))
+            if crash:
+                r = subprocess.run([sys.executable, child, "upgrade", d, hk.hex()], cwd=HERE,
+                                   env=dict(os.environ, SK_TEST_CRASH_AT=crash),
+                                   capture_output=True, text=True, timeout=600)
+                rep = UP.recover_upgrade(d, hk)
+                step = f"killed at {crash} (exit {r.returncode}), recovery: " + \
+                    "; ".join(x["action"] for x in rep["recovered"]) + \
+                    ("; REPORT ONLY" if rep["report_only"] else "")
+                ok = ok and r.returncode == 77 and not rep["report_only"]
+                if UP.tree_fingerprint(os.path.join(d, "brain")) == before:
+                    UP.upgrade_library(d, hk)
+            else:
+                rep = UP.upgrade_library(d, hk)
+                step = "upgraded; old library and backup unchanged: " + \
+                    str(UP.tree_fingerprint(rep["old_library"]) == before ==
+                        UP.tree_fingerprint(rep["backup"]))
+                ok = ok and UP.tree_fingerprint(rep["old_library"]) == before
+            lib = Library(os.path.join(d, "brain"), hk, lk)
+            same = True
+            for who, ans in info["answers"].items():
+                s = lib.open_session(mint_grant(hk, lib.installation_id, lib.epoch,
+                                                info["ids"][who], "user"))
+                for q, want in ans.items():
+                    a = s.respond(q)
+                    same = same and [a.category, a.reason, a.value] == want
+                s.close()
+            lib.close()
+            ok = ok and same
+            lines.append(f"{step}; every answer as the B5.2 code gave it: {same}")
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+    return ok, "\n".join(lines)
 
 
 @check("Brain automated tests on this PC")

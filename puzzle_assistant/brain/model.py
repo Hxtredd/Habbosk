@@ -134,6 +134,7 @@ UNKNOWN_REASONS = (
     "not_understood",       # not a question SK can reason about (yet)
     "did_you_mean",         # B5.1: a name with a small typo - SK asks before answering
     "evidence_withdrawn",   # B5.2: a source behind it was withdrawn by its owner - awaiting review
+    "source_changed",       # B6: the quoted source has a newer version - awaiting a new quotation
 )
 
 
@@ -174,4 +175,8 @@ class Response:
     b3_status: str = ""                 # ask()'s own status, for comparison
     # B5.1: how a question outside B3's exact grammar was understood
     understood_as: str = ""             # shown with the answer ("Understood as: ...")
+    # B6: passages the asker may see that state another value. They never change an
+    # established answer (shown alongside it); a documented answer becomes
+    # sources_disagree. Each group has its own scope (personal = the asker's own).
+    challenges: List[dict] = field(default_factory=list)
     interpretation: Optional[dict] = None   # relation, entity, corrections (for "why")
