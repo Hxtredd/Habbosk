@@ -31,6 +31,7 @@ class MigratedOwnerSourceDetails(unittest.TestCase):
     DATE = "2026-02-03"
     DATE_ONLY = "2026-03-04"
     TITLE_ONLY = "ANA-TITLE-ONLY-MARK"
+    QUOTE = "ANA-PRIVATE-QUOTE-MARK says: Pia runs the Net Loft."
 
     def setUp(self):
         self.d = tempfile.mkdtemp(prefix="sk_f2_")
@@ -61,6 +62,14 @@ class MigratedOwnerSourceDetails(unittest.TestCase):
         b.propose_share(c3, by=ana)
         b.review(c3, "verified", reviewer=mod)
         b.approve_share(c3, mod)
+        # a source with NO title and NO date - only a reference - whose QUOTE differs from the
+        # claim's text: the quote is the personal detail (the auditor's F2-a case)
+        s4 = b.add_source("document", title="", reference="ANA-ONLY-REF", by=ana)
+        c4 = b.learn("Pia runs the Net Loft.", "imported", "Net Loft", by=ana)
+        b.add_evidence(c4, "direct", s4, self.QUOTE, by=ana)
+        b.propose_share(c4, by=ana)
+        b.review(c4, "verified", reviewer=mod)
+        b.approve_share(c4, mod)
         b.close()
         self.hk, self.lk = secrets.token_bytes(32), secrets.token_bytes(32)
         S.split_file(os.path.join(self.d, "knowledge.db"), self.d, self.hk, self.lk)
@@ -113,6 +122,36 @@ class MigratedOwnerSourceDetails(unittest.TestCase):
         self.assertEqual(o.audience, "shared")
         self.assertNotIn(self.TITLE_ONLY, blob(o))
 
+    def test_a_quote_alone_is_a_personal_detail_even_without_title_or_date(self):
+        """No title, no date, only a quote the owner never granted: the union view still hands
+        the owner HER quote under the shared evidence id, so her response must be personal;
+        the other person gets the shared view with the quote withheld."""
+        r = self.session("local_user").respond("Who runs the Net Loft?")
+        self.assertEqual((r.category, r.value), ("established", "Pia"))
+        e = self.evidence(r)[0]
+        self.assertEqual((e["source"], e["date"]), ("", ""))
+        self.assertIn("ANA-PRIVATE-QUOTE-MARK", e["quote"])          # the owner still sees it
+        self.assertEqual(r.audience, "personal")
+        o = self.session("external_user").respond("Who runs the Net Loft?")
+        self.assertEqual((o.category, o.audience), ("established", "shared"))
+        self.assertEqual(self.evidence(o)[0]["quote"], "")
+        self.assertNotIn("ANA-PRIVATE-QUOTE-MARK", blob(o))
+        self.assertNotIn("ANA-ONLY-REF", blob(o))
+
+    def test_a_demoted_claim_with_only_a_quote_is_not_marked_shared_for_the_owner(self):
+        import sqlite3
+        self.lib.close()
+        con = sqlite3.connect(os.path.join(self.d, "brain", "shared.db"))
+        con.execute("UPDATE claims SET status='submitted'")
+        con.commit()
+        con.close()
+        self.lib = Library(os.path.join(self.d, "brain"), self.hk, self.lk)
+        self.addCleanup(self.lib.close)
+        r = self.session("local_user").respond("Who runs the Net Loft?")
+        self.assertNotEqual(r.audience, "shared")              # documented or not: it is hers
+        o = self.session("external_user").respond("Who runs the Net Loft?")
+        self.assertNotIn("ANA-PRIVATE-QUOTE-MARK", blob(o))
+
     def test_a_demoted_shared_claim_answered_as_documented_names_the_title_only_to_the_owner(self):
         """The Documented branch: demote the shared claim in this temporary library (no longer
         verified) and the owner's answer reads 'According to <her title>, <her date>' - in the
@@ -137,10 +176,11 @@ class MigratedOwnerSourceDetails(unittest.TestCase):
         for kind in ("local_user", "external_user"):
             s = self.session(kind)
             for q in ("Who maintains the Lantern Garden?", "Who runs the Rope Shed?",
-                      "Who runs the Fish Market?"):
+                      "Who runs the Fish Market?", "Who runs the Net Loft?"):
                 r = s.respond(q)
                 if r.audience == "shared":
-                    for mark in (self.TITLE, self.DATE, self.DATE_ONLY, self.TITLE_ONLY):
+                    for mark in (self.TITLE, self.DATE, self.DATE_ONLY, self.TITLE_ONLY,
+                                 "ANA-PRIVATE-QUOTE-MARK", "ANA-ONLY-REF"):
                         self.assertNotIn(mark, blob(r), (kind, q))
 
 

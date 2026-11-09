@@ -1405,17 +1405,21 @@ class KnowledgeStore:
         return out
 
     def _personal_details(self, claim: dict, row: dict) -> bool:
-        """B6.1: True when a SHARED claim is cited with a source title / date taken from the
-        viewer's OWN full row of that source. A library migrated from one file keeps the
-        owner's full row under the SAME id as the shared stub (whose details were never
-        granted), and the union view lets the owner's row win: the owner sees their title and
-        date, and a response carrying them must not be marked shared."""
-        if claim["scope"] != "shared" or self.role != "personal" or row["source_id"] is None:
+        """B6.1: True when a SHARED claim is cited with evidence taken from the viewer's OWN
+        full rows. A library migrated from one file keeps the owner's FULL evidence row (with
+        the quote she never granted) and her FULL source row (title, date) under the SAME ids
+        as the shared projections, and the union views let the owner's rows win: the owner's
+        response then carries her quote, title or date, and must not be marked shared. Any
+        row of hers under those ids counts - not only one with a title or a date: the quote
+        alone is a personal detail. (main is always the viewer's own file; never True in a
+        shared-role store, and never for anyone but the owner.)"""
+        if claim["scope"] != "shared" or self.role != "personal":
             return False
-        if not (row["title"] or row["captured_at"]):
-            return False
-        return self._db.execute("SELECT 1 FROM main.sources WHERE id=?",
-                                (row["source_id"],)).fetchone() is not None
+        if self._db.execute("SELECT 1 FROM main.evidence WHERE id=?",
+                            (row["evidence_id"],)).fetchone() is not None:
+            return True
+        return row["source_id"] is not None and self._db.execute(
+            "SELECT 1 FROM main.sources WHERE id=?", (row["source_id"],)).fetchone() is not None
 
     def _cited_page(self, evidence_id: int) -> Optional[int]:
         """B6: the PDF page of a located quotation (None if none / not a PDF)."""
