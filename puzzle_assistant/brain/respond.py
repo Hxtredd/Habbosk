@@ -181,7 +181,8 @@ def _cite(store, claims: List[dict], viewer, check_support: bool) -> List[Citati
                        [{"kind": e["kind"], "quote": e["locator"] or "",
                          "source": e["title"] or "", "source_kind": e["source_kind"] or "",
                          "date": _date(e), "page": e.get("page"),
-                         "withheld": bool(e.get("withheld"))} for e in evs])
+                         "withheld": bool(e.get("withheld")),
+                         "personal_details": bool(e.get("personal_source"))} for e in evs])
         if check_support:
             full = store.claim(c["id"], viewer) or {}
             cit.supports = any(_supports(store, e, c, full) for e in evs)

@@ -115,6 +115,13 @@ class BrainAnswer:
     steps: List[dict] = field(default_factory=list)   # each: ask, outcome, value, claims
     audience: str = ""          # "shared" only if every claim used is shared
 
+    def shareable(self) -> "BrainAnswer":
+        """A sanitized COPY that may be passed on: raises NotShareable unless audience is
+        "shared"; drops the echoed question, the trace and every search hit that is not a
+        shared library claim. The original is never modified."""
+        from .shareable import sanitize_answer
+        return sanitize_answer(self)
+
 
 # -- B4: answer categories -----------------------------------------------------------
 # Every answer from Brain.respond() is in exactly ONE category. Only an
@@ -183,3 +190,13 @@ class Response:
     # sources_disagree. Each group has its own scope (personal = the asker's own).
     challenges: List[dict] = field(default_factory=list)
     interpretation: Optional[dict] = None   # relation, entity, corrections (for "why")
+
+    def shareable(self) -> "Response":
+        """A sanitized COPY that may be passed on (B6.2). Fails closed: raises NotShareable
+        unless the response is marked audience="shared" and every field can be established as
+        safe. Removes `related`, the echoed question, understood_as / interpretation (typo
+        corrections), non-shared challenges and every source title / publisher / author in
+        challenges; keeps only what is demonstrably shared. The original is never modified.
+        This only prepares a response; nothing here sends or shares anything."""
+        from .shareable import sanitize_response
+        return sanitize_response(self)
