@@ -608,6 +608,7 @@ Milestone log (approved commits only):
 | B4 | 17fa8b3 | da891e9 | owner, 2026-11-08 |
 | B5 | 33ef019 | 4351202 | owner, 2026-11-08 |
 | B5.1 | 80fe274 | 38533f4 | owner, 2026-11-08 |
+| B5.2 | 3d75dd4 | not deployed (prepared: 30c7a03, Brain fbe3f08, before the review fixes) | owner, 2026-11-09 (Linux validation only) |
 
 ### B3.5 (APPROVED by the owner, 2026-11-08)
 
@@ -842,7 +843,7 @@ removed; knowledge.db not read. Search speed on that PC: first 322 ms, median
 The owner approved B5.1; claude/brain-integration fast-forwarded 33ef019 ->
 80fe274 (this record is on claude/brain-b5.1, after 80fe274).
 
-### B5.2 Personal and shared storage separation (in review - not approved yet)
+### B5.2 Personal and shared storage separation (APPROVED by the owner, 2026-11-09; integrated at 3d75dd4; Windows validation OUTSTANDING)
 
 Branch claude/brain-b5.2 from abdaa1a (= integration 80fe274 + the B5.1
 approval record). Owner-approved design (all decisions in the B5.2 planning
@@ -911,6 +912,22 @@ user can read files and keys; copies outside SK (and disk remnants) can keep
 withdrawn text; duplicates across installations are not detected; moderators
 see what is proposed; whole shared-claim withdrawal is a later decision; a
 shared claim's original section reference stays with its owner.
+
+Approval record (B5.2): after independent review the owner approved integrating
+3d75dd4 on Linux validation only - claude/brain-integration fast-forwarded
+80fe274 -> 3d75dd4. Review fixes made on the way: block() refuses a missing
+token record; verify_library() checks the database together with its write-ahead
+log on a temporary copy (wal_state(): ok / torn tail / damaged); the integrity
+check refuses if the database or log changed while being copied
+(ChangedWhileChecking); B2 compared with the output of the approved B5.1 code
+(the 10 differences from the old reference are B3's intended improvements, not a
+reopen effect). Linux validation: full suite 486 tests OK; deliberate breaks
+45/45; B3 109/109, B2 218/218 vs the B5.1 code, B4 45/45, B5.1 answers identical
+on separated storage. WINDOWS VALIDATION HAS NOT BEEN RUN - Windows compatibility
+of B5.2 is NOT verified (BRAIN_WINDOWS_CHECK.bat at 3d75dd4 is outstanding: expect
+11 passed / 0 failed, the new B5.2 step reporting DPAPI True, application suite
+486 OK). The candidate lab (SK-Online claude/sk-lab-candidate 30c7a03) is not
+deployed and still uses Brain fbe3f08, without these fixes.
 
 ## Known limits / ideas
 
