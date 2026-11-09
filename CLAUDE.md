@@ -173,6 +173,14 @@ manual and needs the owner's approval.
 ChatGPT (independent reviewer, outside Claude) and the owner. Details:
 `docs/oversight/README.md`. All its files are append-only.
 
+- **Interim location (owner decision D-2026-11-09-1)**: until the bridge is
+  formally integrated, the single authoritative copy of the oversight files
+  is on `claude/keen-maxwell-ldizsi` (Session 2's branch). Read them with
+  `git fetch origin claude/keen-maxwell-ldizsi` and
+  `git show origin/claude/keen-maxwell-ldizsi:docs/oversight/<file>`.
+  Session 1 may fetch and read them but must not modify that branch or its
+  logs. Copies on any other branch are not authoritative.
+
 - **Check for reviews**: at the start of a session and before any milestone
   report or integration request, read `docs/oversight/CHATGPT_REVIEWS.md` and
   `docs/oversight/OWNER_DECISIONS.md` on the branch you work from, and on
