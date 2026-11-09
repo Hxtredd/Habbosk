@@ -1187,12 +1187,17 @@ reference, every plain assignment to a flags variable too, only `|=` may change 
 any aliased import of os / io / tempfile / pathlib, `from os import open`,
 `x = os`, getattr(os, <not O_*>), text-mode open / io.open / codecs.open /
 os.fdopen / Path.open writes and un-encoded reads, Path.read_text / write_text,
-text-mode temporary files, mkstemp(text=...) are refused (21 bypass sources and
-16 safe spellings tested). New tests: UTF-16 big-endian file with a real CR LF
+text-mode temporary files, mkstemp(text=...) are refused (41 bypass sources and
+15 safe spellings tested; the commit message of 41eaee5 says 36 / 16 - wrong). New tests: UTF-16 big-endian file with a real CR LF
 byte pair (also in the Windows check), the PDF reader process receives every
 byte (probe process counts and hashes its stdin), unreadable key files raise and
 stay byte-identical. 14 new deliberate breaks.
-Results (Linux): see the commit message of this record. Windows: NOT run.
+Results (Linux, commit 41eaee5): whole suite 740 tests OK (0 failed, 0 errors,
+0 skipped); binary-mode module 14 tests; the 26 deliberate breaks aimed at this
+change caught 26/26 (the earlier 12 + 14 new); the other 151 breaks were not
+re-run (they break only code and tests this commit does not touch; the harness
+now holds 177). Brain code fingerprint 2e6025b6fd6d5961 (unchanged; the Brain
+directory is byte-identical to 90741c3). Windows: NOT run.
 Decisions waiting for the owner: key-store hardening F1-F3 (separate small
 change before B7, or part of B7's file-access layer); Python floor / oldest
 Windows Python run; policy for an unreadable key (refuse and explain is the
