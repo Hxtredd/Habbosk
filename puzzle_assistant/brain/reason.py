@@ -374,7 +374,11 @@ def answer(a: Ask, index: FactIndex) -> Reasoned:
     steps: List[StepResult] = []
     resolve(a, index, steps)
     last = steps[-1]
-    used = [s for st in steps for s in st.supports] if last.outcome in ("value", "absent") else []
+    # B6.1: the audience covers every claim whose TEXT the answer carries: the supporting claims
+    # AND the unverified claims shown "also stated" on a verified step (their text is in the
+    # steps). A personal one among them makes the whole answer personal.
+    used = [s for st in steps for s in (st.supports + st.also_unverified)] \
+        if last.outcome in ("value", "absent") else []
     audience = "shared" if used and all(s.scope == "shared" for s in used) else "personal"
     lines = []
     for n, st in enumerate(steps, 1):
