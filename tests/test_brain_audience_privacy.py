@@ -153,6 +153,168 @@ class UnverifiedClaimsInAnswers(SharedVerifiedAnswer):
         self.assertNotEqual(a.audience, "shared")
 
 
+# ============================================================ F1 / F5-b: names in the step labels
+class PlaceNamesInStepLabels(World):
+    """Found by the security review: a step label ("who looks after it (<place>)") names the
+    place as written in the FIRST claim at that place, in claim-id order - a personal claim of
+    the asker (or a personal entity) created BEFORE the shared claim was approved named it, so
+    a name the asker did not type reached a response marked shared. Now a shared claim names it."""
+    SECRET = "PERSONAL MUMS GARDEN"                  # as the label writes it
+
+    def setUp(self):
+        super().setUp()
+        self.ids["rita"] = self.lib.create_user("Rita")
+
+    def personal_first(self):
+        luis = self.open("luis")
+        e = luis.add_entity("PERSONAL-MUMS-GARDEN", "room")
+        luis.approve_alias(luis.add_alias(e, "Lantern Garden"))
+        luis.learn("Odo runs PERSONAL-MUMS-GARDEN.", "user", "PERSONAL-MUMS-GARDEN")
+        return luis
+
+    def share_mira(self):
+        ana = self.open("ana")
+        sid = self.imp(ana, "Mira maintains the Lantern Garden.\n", "a.txt", publisher="Harbour Press")
+        c = ana.learn("Mira maintains the Lantern Garden.", "imported", "Lantern Garden")
+        ana.cite(c, sid, "Mira maintains the Lantern Garden.")
+        ana.attest_source(sid, "checked by me")
+        m = self.open("mod")
+        shared = m.approve(self.fid("ana"), ana.propose(c, {sid: ["quote", "full_text"]}))
+        ssid = m.store._db.execute("SELECT source_id FROM evidence WHERE claim_id=?",
+                                   (shared,)).fetchone()[0]
+        m.attest_source(ssid, "checked by a moderator")
+        m.review(shared, "verified")
+
+    def check(self, luis):
+        r, b = luis.respond(Q_MG), luis.ask(Q_MG)
+        self.assertEqual((r.category, r.value), ("established", "Mira"))
+        labels = [st["ask"] for st in r.steps]
+        self.assertEqual(labels, ["who looks after it (Lantern Garden)"])      # the shared name
+        for text in (blob(r, drop=()), " ".join(b.trace), json.dumps(b.steps)):
+            self.assertNotIn(self.SECRET, text.upper().replace("-", " "))
+        self.assertEqual(r.audience, "shared")
+
+    def test_a_personal_claim_created_first_no_longer_names_the_place_in_a_shared_answer(self):
+        luis = self.personal_first()           # lower claim ids than the shared claim
+        self.share_mira()
+        self.check(luis)
+
+    def test_a_personal_claim_created_after_the_share_does_not_either(self):
+        self.share_mira()
+        luis = self.personal_first()
+        self.check(luis)
+
+    def test_nobody_else_ever_sees_the_personal_name(self):
+        self.personal_first()
+        self.share_mira()
+        r = self.open("rita").respond(Q_MG)
+        self.assertEqual([st["ask"] for st in r.steps], ["who looks after it (Lantern Garden)"])
+        self.assertNotIn(self.SECRET, blob(r, drop=()).upper().replace("-", " "))
+
+
+class MultiStepAnswers(World):
+    """A personal unverified claim on a step that is NOT the last: the F1 rule must look at
+    every step of a derived answer (the review noted no test had more than one step)."""
+    GATE = "The north gate of the Plaza Nube leads to the Jardin Nube."
+    Q = "Who maintains the room the north gate of the Plaza Nube leads to?"
+
+    def setUp(self):
+        super().setUp()
+        self.ids["rita"] = self.lib.create_user("Rita")
+
+    def share(self, text, subject):
+        ana = self.open("ana")
+        sid = self.imp(ana, text + "\n", "s%d.txt" % len(self.sessions), publisher="Harbour Press")
+        c = ana.learn(text, "imported", subject)
+        ana.cite(c, sid, text)
+        ana.attest_source(sid, "checked by me")
+        m = self.open("mod")
+        shared = m.approve(self.fid("ana"), ana.propose(c, {sid: ["quote", "full_text"]}))
+        ssid = m.store._db.execute("SELECT source_id FROM evidence WHERE claim_id=?",
+                                   (shared,)).fetchone()[0]
+        m.attest_source(ssid, "checked by a moderator")
+        m.review(shared, "verified")
+
+    def two_hops(self):
+        self.share(self.GATE, "Plaza Nube")
+        self.share("Mira maintains the Jardin Nube.", "Jardin Nube")
+
+    def test_the_shared_chain_answers_for_everyone(self):
+        self.two_hops()
+        r = self.open("rita").respond(self.Q)
+        self.assertEqual((r.category, r.value, r.audience), ("established", "Mira", "shared"))
+        self.assertEqual(len(r.steps), 2)
+
+    def test_a_personal_unverified_claim_on_the_first_step_makes_the_answer_personal(self):
+        self.two_hops()
+        luis = self.open("luis")
+        luis.learn(self.GATE, "user", "Plaza Nube")        # personal, unverified: "also stated"
+        r, b = luis.respond(self.Q), luis.ask(self.Q)
+        self.assertEqual((r.category, r.value), ("established", "Mira"))
+        self.assertEqual([len(st["also_unverified"]) for st in r.steps], [1, 0])
+        self.assertEqual(r.audience, "personal")
+        self.assertEqual(b.audience, "personal")
+        rita = self.open("rita").respond(self.Q)
+        self.assertEqual((rita.audience, [len(st["also_unverified"]) for st in rita.steps]),
+                         ("shared", [0, 0]))
+
+    def test_a_personal_unverified_claim_on_the_last_step_makes_the_answer_personal(self):
+        self.two_hops()
+        luis = self.open("luis")
+        luis.learn("The Jardin Nube is maintained by Mira.", "user", "Jardin Nube")
+        r = luis.respond(self.Q)
+        self.assertEqual([len(st["also_unverified"]) for st in r.steps], [0, 1])
+        self.assertEqual(r.audience, "personal")
+
+
+class NothingOfTheAskersOwnRowsInASharedResponse(SharedVerifiedAnswer):
+    """The generic guard the review asked for: collect EVERY string in the asker's own personal
+    rows (claim texts, entity and alias names, source titles, evidence quotes) and require that
+    none of them - normalised - appears in any response or answer marked shared."""
+
+    @staticmethod
+    def norm(s):
+        import re
+        return re.sub(r"[^0-9a-z]+", " ", s.lower()).strip()
+
+    def own_strings(self, session):
+        con = session.store._db
+        out = set()
+        for sql in ("SELECT text FROM main.claims", "SELECT name FROM main.entities",
+                    "SELECT alias FROM main.aliases", "SELECT title FROM main.sources",
+                    "SELECT locator FROM main.evidence"):
+            try:
+                out |= {r[0] for r in con.execute(sql) if r[0]}
+            except Exception:                                  # a table this layout lacks
+                pass
+        return {self.norm(x) for x in out if len(self.norm(x)) >= 8}
+
+    def test_no_string_of_the_askers_own_rows_is_in_a_shared_response(self):
+        luis = self.open("luis")
+        e = luis.add_entity("LUIS-SECRET-ROOM-NAME", "room")
+        luis.approve_alias(luis.add_alias(e, "LUIS-SECRET-ALIAS-NAME"))
+        sid = self.imp(luis, "LUIS-PRIVATE-QUOTE-SENTENCE belongs to nobody else.\n", "p.txt",
+                       title="LUIS-SECRET-SOURCE-TITLE", publisher="My Notes")
+        c = luis.learn("LUIS-PERSONAL-CLAIM about the garden keeper.", "user", "Lantern Garden")
+        luis.cite(c, sid, "LUIS-PRIVATE-QUOTE-SENTENCE belongs to nobody else.")
+        luis.learn("The Lantern Garden is maintained by Mira.", "user", "Lantern Garden")
+        mine = self.own_strings(luis)
+        self.assertTrue(any("luis secret" in x for x in mine))
+        questions = [Q_MG, "Who is in charge of the Lantern Garden?", "Who takes care of the "
+                     "LUIS-SECRET-ALIAS-NAME?", "Who maintains the LUIS-SECRET-ROOM-NAME?"]
+        shared_seen = 0
+        for q in questions:
+            r, b = luis.respond(q), luis.ask(q)
+            for label, audience, text in (
+                    ("respond", r.audience, blob(r, drop=("related", "question"))),
+                    ("ask", b.audience, json.dumps(b.steps) + " ".join(b.trace))):
+                if audience == "shared":
+                    shared_seen += 1
+                    for mark in mine:
+                        self.assertNotIn(mark, self.norm(text), (q, label, mark))
+        self.assertGreaterEqual(shared_seen, 0)
+
+
 # ==================================================================================== F5
 class UnderstoodAsEchoesOnlyTheAskersWords(SharedVerifiedAnswer):
     """Investigated, not reproducible: understood_as shows names "as written" in the question.
