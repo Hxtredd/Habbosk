@@ -42,8 +42,8 @@ from .store import BrainError, install_b6, library_pragmas
 from .split import read_manifest, sha256_file, write_manifest
 
 B6_TABLES = {"shared": {"source_versions", "passages", "passage_index", "passage_facts",
-                        "evidence_locations"},   # (+ the passage_fts search index)
-             "outbox": {"material_versions"}, "registry": set()}
+                        "evidence_locations", "quote_checks"},   # (+ passage_fts)
+             "outbox": {"material_versions", "material_checks"}, "registry": set()}
 B6_TABLES["personal"] = B6_TABLES["shared"] | {"source_files", "claim_candidates"}
 FINAL = ("done", "abandoned", "rolled_back")
 

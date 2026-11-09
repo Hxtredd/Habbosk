@@ -349,6 +349,13 @@ CREATE TABLE IF NOT EXISTS passage_facts (     -- derived: the fact a passage st
     display TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_pfacts ON passage_facts(relation, place);
+CREATE TABLE IF NOT EXISTS quote_checks (       -- shared quote-only evidence: the owner's
+    evidence_id INTEGER PRIMARY KEY,               -- file checked the WHOLE passage (strict)
+    passage_kind TEXT NOT NULL,                    -- for this claim's exact wording before it
+    passage_flags TEXT NOT NULL,                   -- was proposed (no passage text is shared)
+    claim_sha TEXT NOT NULL,
+    checked_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS evidence_locations (  -- where a quote was found, exactly
     evidence_id INTEGER PRIMARY KEY,
     version_id INTEGER NOT NULL,
@@ -388,6 +395,16 @@ CREATE TABLE IF NOT EXISTS material_versions (
     author_kind TEXT NOT NULL,
     provenance TEXT NOT NULL,
     author_name TEXT, publisher TEXT, reference TEXT,   -- only with a details grant
+    flags TEXT NOT NULL DEFAULT '[]',      -- source-level warnings (html_not_rendered)
     PRIMARY KEY (token, opaque_id)
+);
+CREATE TABLE IF NOT EXISTS material_checks (   -- the owner's strict check of each quote
+    token TEXT NOT NULL,
+    opaque_id TEXT NOT NULL,
+    quote_sha TEXT NOT NULL,
+    passage_kind TEXT NOT NULL,
+    passage_flags TEXT NOT NULL,
+    claim_sha TEXT NOT NULL,
+    PRIMARY KEY (token, opaque_id, quote_sha)
 );
 """

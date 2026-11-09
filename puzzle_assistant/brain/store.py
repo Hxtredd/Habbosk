@@ -191,7 +191,7 @@ UNION_TABLES = ("contributors", "sources", "sections", "claims", "evidence", "cl
                 "entities", "aliases", "entity_links",
                 # B6
                 "source_versions", "passages", "passage_index", "passage_facts",
-                "evidence_locations")
+                "evidence_locations", "quote_checks")
 # tables whose new rows take an id from the library's allocator (unique across files)
 ALLOCATED = ("sources", "sections", "claims", "evidence", "claim_links", "claim_versions",
              "claim_events", "entities", "aliases", "entity_links",

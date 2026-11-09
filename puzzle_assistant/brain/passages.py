@@ -19,6 +19,10 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 SUPPORT_KINDS = ("sentence", "list_item")
+# source-level warnings every passage of the source carries (a flagged passage never
+# supports a claim and never challenges one): HTML is not rendered, so CSS classes or
+# external stylesheets could hide any of its text
+SOURCE_FLAGS = ("html_not_rendered",)
 
 _TERMINATORS = ".!?…"
 _CLOSERS = "\"'”’»)]"
@@ -39,7 +43,7 @@ class Passage:
     end: int
     heading_path: str
     ordinal: int
-    flags: tuple       # "suspicious", "mixed_script"
+    flags: tuple       # "suspicious", "mixed_script", + SOURCE_FLAGS of the source
     sha: str           # sha256 of the passage text (utf-8)
 
 
@@ -152,6 +156,7 @@ def split(parsed) -> list:
     """All passages of a Parsed, in document order."""
     text = parsed.text
     out: List[Passage] = []
+    source = tuple(f for f in SOURCE_FLAGS if f in tuple(getattr(parsed, "flags", ()) or ()))
 
     def add(kind: str, s: int, e: int, path: str) -> None:
         t = _trimmed(text, s, e)
@@ -159,7 +164,7 @@ def split(parsed) -> list:
             return
         s, e = t
         seg = text[s:e]
-        out.append(Passage(kind, s, e, path, len(out), suspicious(seg),
+        out.append(Passage(kind, s, e, path, len(out), suspicious(seg) + source,
                            hashlib.sha256(seg.encode("utf-8")).hexdigest()))
 
     for b in parsed.blocks:

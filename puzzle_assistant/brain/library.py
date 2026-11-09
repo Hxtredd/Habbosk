@@ -482,6 +482,8 @@ class Library:
                     B6.delete_passages(None, "source_id=?", (sid,), con=con)
                     con.execute("DELETE FROM evidence_locations WHERE evidence_id IN (SELECT id "
                                 "FROM evidence WHERE source_id=?)", (sid,))
+                    con.execute("DELETE FROM quote_checks WHERE evidence_id IN (SELECT id "
+                                "FROM evidence WHERE source_id=?)", (sid,))
                     con.execute("DELETE FROM source_versions WHERE source_id=?", (sid,))
                     for (eid,) in con.execute("SELECT id FROM evidence WHERE source_id=?",
                                               (sid,)).fetchall():
@@ -734,6 +736,7 @@ class Session(_Base):
         token = secrets.token_hex(16)
         out = []
         versions = []                            # B6: the proposed source versions
+        checks = []                              # B6: the owner's strict check of each quote
         from . import sources as B6
         for e in rows:
             if e["source_id"] in permissions and e["private"]:
@@ -749,18 +752,32 @@ class Session(_Base):
                 if v is None or v["author_kind"] in B6.NOT_EVIDENCE:
                     raise BrainError("self-written, AI-generated or purged material is not "
                                      "proposed as evidence")
-                if "quote" in lv and e["kind"] in ("direct", "confirmation") and \
-                        not B6.evidence_check(self.store, e["id"], dict(c),
-                                                           strict=False)[0]:
-                    raise BrainError("a quotation of this claim is not in the current version "
-                                     "of its source (cite it again first)")
+                if "quote" in lv and e["kind"] in ("direct", "confirmation"):
+                    # the owner's COMPLETE passage must pass the strict check for this
+                    # claim's wording: a shared copy without the text can never
+                    # check it again, so nothing weaker may leave this file
+                    ok, why = B6.evidence_check(self.store, e["id"], dict(c), strict=True)
+                    if not ok:
+                        raise BrainError("this quotation does not state the claim by itself in "
+                                         f"its passage ({why}); it is not proposed as "
+                                         "evidence - cite a passage that states it exactly")
+                    pas = self.store._db.execute(
+                        "SELECT p.kind, p.flags FROM main.evidence_locations l JOIN "
+                        "main.passages p ON p.id=l.passage_id WHERE l.evidence_id=?",
+                        (e["id"],)).fetchone()
+                    from .store import _text_sha
+                    checks.append((token, g["grant"]["opaque_id"],
+                                   hashlib.sha256((e["locator"] or "").encode()).hexdigest(),
+                                   pas["kind"], pas["flags"],
+                                   _text_sha(c["text"], c["subject"] or "")))
                 full_text = v["text"]
                 versions.append((token, g["grant"]["opaque_id"], v["fmt"],
                                  v["structure"] if "full_text" in lv else "[]",
                                  self._lib.tag(v["text_tag"]), v["author_kind"], "declared",
                                  v["author_name"] if "details" in lv else None,
                                  v["publisher"] if "details" in lv else None,
-                                 v["reference"] if "details" in lv else None))
+                                 v["reference"] if "details" in lv else None,
+                                 v["flags"]))
             out.append((token, e["kind"], g["grant"]["opaque_id"], src["kind"],
                         self._lib.tag(plain), self._lib.token_hash(g["grant"]["token"]),
                         e["locator"] if "quote" in lv else None,
@@ -778,8 +795,10 @@ class Session(_Base):
             con.executemany("INSERT INTO material (token, kind, opaque_id, source_kind, tag, "
                             "token_hash, quote, title, reference, captured_at, full_text, levels) "
                             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", out)
-            con.executemany("INSERT OR REPLACE INTO material_versions VALUES (?,?,?,?,?,?,?,?,?,?)",
-                            versions)
+            con.executemany("INSERT OR REPLACE INTO material_versions VALUES "
+                            "(?,?,?,?,?,?,?,?,?,?,?)", versions)
+            con.executemany("INSERT OR REPLACE INTO material_checks VALUES (?,?,?,?,?,?)",
+                            checks)
             con.commit()
         finally:
             con.close()
@@ -791,6 +810,7 @@ class Session(_Base):
         try:
             con.execute("DELETE FROM material WHERE token=?", (token,))
             con.execute("DELETE FROM material_versions WHERE token=?", (token,))
+            con.execute("DELETE FROM material_checks WHERE token=?", (token,))
             con.execute("DELETE FROM proposals WHERE token=?", (token,))
             con.commit()
             checkpoint(con)
@@ -853,6 +873,8 @@ class Session(_Base):
                                 "captured_at=NULL, full_text=NULL, tag=NULL, levels='[]' "
                                 "WHERE opaque_id=?", (g["opaque_id"],))
                     con.execute("DELETE FROM material_versions WHERE opaque_id=?",
+                                (g["opaque_id"],))
+                    con.execute("DELETE FROM material_checks WHERE opaque_id=?",
                                 (g["opaque_id"],))
                     con.commit()
                     self._lib._crash("outbox_after_delete")
@@ -945,6 +967,8 @@ class ModeratorSession(_Base):
                                                 (token,))]
             mver = {m["opaque_id"]: dict(m) for m in con.execute(
                 "SELECT * FROM material_versions WHERE token=?", (token,))}
+            mchk = {(m["opaque_id"], m["quote_sha"]): dict(m) for m in con.execute(
+                "SELECT * FROM material_checks WHERE token=?", (token,))}
             pseud = con.execute("SELECT value FROM meta WHERE key='pseudonym'").fetchone()[0]
         finally:
             con.close()
@@ -996,6 +1020,12 @@ class ModeratorSession(_Base):
                                   "kind, locator, added_by, added_at) VALUES (?,?,?,?,?,?)",
                                   (cid, sid, m["kind"], m["quote"] or "", pseud, now)).lastrowid
                     self._shared_location(eid, sid, m["quote"] or "")
+                    chk = mchk.get((m["opaque_id"], hashlib.sha256(
+                        (m["quote"] or "").encode()).hexdigest()))
+                    if chk is not None and m["quote"]:
+                        db.execute("INSERT INTO main.quote_checks VALUES (?,?,?,?,?)",
+                                   (eid, chk["passage_kind"], chk["passage_flags"],
+                                    chk["claim_sha"], now))
                 db.execute("INSERT INTO main.proposal_decisions VALUES (?,?,?,?,?,?)",
                            (token, "approved", note, cid, self._me_id, now))
                 db.commit()
@@ -1016,13 +1046,16 @@ class ModeratorSession(_Base):
         vid = st._new("source_versions", "INSERT INTO main.source_versions (source_id, version, "
                       "fmt, text, text_tag, bytes_tag, size, structure, author_kind, author_name, "
                       "publisher, reference, captured_at, provenance, imported_by, imported_at, "
-                      "flags, state) VALUES (?,1,?,?,?,NULL,?,?,?,?,?,?,?,'declared',?,?,'[]',"
+                      "flags, state) VALUES (?,1,?,?,?,NULL,?,?,?,?,?,?,?,'declared',?,?,?,"
                       "'current')",
                       (sid, mv["fmt"], text, mv["text_tag"], len(text) if text else None,
                        structure, mv["author_kind"], mv["author_name"], mv["publisher"],
-                       mv["reference"], m["captured_at"], pseud, now)).lastrowid
-        if text is not None:
-            B6.store_passages(st, vid, sid, B6._Text(text, structure), sha=self._lib.tag)
+                       mv["reference"], m["captured_at"], pseud, now,
+                       mv.get("flags") or "[]")).lastrowid
+        if text is not None:                     # source warnings carried to every passage
+            B6.store_passages(st, vid, sid, B6._Text(text, structure,
+                                                     json.loads(mv.get("flags") or "[]")),
+                              sha=self._lib.tag)
 
     def _shared_location(self, eid: int, sid: int, quote: str) -> None:
         """B6: where a shared quotation is in the shared copy's text (if it has text)."""

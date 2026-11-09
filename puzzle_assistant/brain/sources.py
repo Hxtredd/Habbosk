@@ -43,7 +43,7 @@ from typing import Dict, List, Optional
 from . import importer
 from .facts import display as _display
 from .facts import extract
-from .passages import SUPPORT_KINDS, split
+from .passages import SOURCE_FLAGS, SUPPORT_KINDS, split
 from .store import BrainError, _now
 from .text import index_text, terms
 
@@ -108,9 +108,19 @@ def label(v: Optional[dict]) -> str:
     who = f"author {v['author_name']}" if ak == "named" and v.get("author_name") else \
         "author unknown"
     pub = f", publisher {v['publisher']}" if v.get("publisher") else ""
+    html = "html_not_rendered" in _flags(v.get("flags"))
+    if html:
+        pub += " - unrendered HTML: reference only, never evidence or a challenge"
     if v.get("provenance") == "attested":
         return f"{who}{pub} (authorship attested by a person - not a check of the facts)"
     return f"{who}{pub} (declared, not attested)"
+
+
+def _flags(raw) -> tuple:
+    try:
+        return tuple(json.loads(raw or "[]"))
+    except (TypeError, ValueError):
+        return ("unreadable",)
 
 
 def current_version(store, source_id: int) -> Optional[dict]:
@@ -138,8 +148,9 @@ def is_imported(store, source_id: Optional[int]) -> bool:
 class _Text:
     """A Parsed-like view of a stored version (text + blocks) for passages.split."""
 
-    def __init__(self, text: str, structure: str):
+    def __init__(self, text: str, structure: str, flags=()):
         self.text = text
+        self.flags = tuple(flags or ())
         self.blocks = tuple(importer.Block(k, s, e, h, lv)
                             for k, s, e, h, lv in json.loads(structure or "[]"))
 
@@ -380,16 +391,27 @@ def evidence_check(store, evidence_id: int, claim: Optional[dict], strict: bool)
     loc = store._db.execute("SELECT * FROM evidence_locations WHERE evidence_id=?",
                             (evidence_id,)).fetchone()
     if loc is None:
-        # shared copy granted with the quote only: no text here to check against;
-        # the owner's file checked it before it was proposed
+        # shared copy granted with the quote only: no text here to check against.
+        # It counts only with the owner's file's STRICT check of the whole passage
+        # for exactly this claim's wording, recorded when it was proposed and
+        # copied with the approval (quote_checks) - never on the quote alone
         if v_any is None or v_any["text"] is not None or v_any["state"] != "current":
             return False, "not_located"
         if v_any["author_kind"] in NOT_EVIDENCE:
             return False, v_any["author_kind"]
-        if not quote.strip():
+        if any(f in _flags(v_any["flags"]) for f in SOURCE_FLAGS):
+            return False, "source_flagged"
+        if not terms(quote):
             return False, "no_quote"
-        if strict and not quote_supports(claim["text"], claim.get("subject") or "", quote):
-            return False, "quote_does_not_state_it"
+        chk = store._db.execute("SELECT * FROM quote_checks WHERE evidence_id=?",
+                                (evidence_id,)).fetchone()
+        if chk is None:
+            return False, "passage_not_checked"
+        if chk["passage_kind"] not in SUPPORT_KINDS or _flags(chk["passage_flags"]):
+            return False, "passage_kind_or_flags"
+        from .store import _text_sha
+        if chk["claim_sha"] != _text_sha(claim["text"], claim.get("subject") or ""):
+            return False, "checked_for_other_wording"
         return True, "quote_only"
     v = store._db.execute("SELECT * FROM source_versions WHERE id=?",
                           (loc["version_id"],)).fetchone()
@@ -397,6 +419,8 @@ def evidence_check(store, evidence_id: int, claim: Optional[dict], strict: bool)
         return False, "source_changed"
     if v["author_kind"] in NOT_EVIDENCE:
         return False, v["author_kind"]
+    if any(f in _flags(v["flags"]) for f in SOURCE_FLAGS):
+        return False, "source_flagged"             # e.g. unrendered HTML
     if v["text"][loc["start_pos"]:loc["end_pos"]] != quote or not quote:
         return False, "quote_not_at_location"
     p = store._db.execute("SELECT * FROM passages WHERE id=?", (loc["passage_id"],)).fetchone()

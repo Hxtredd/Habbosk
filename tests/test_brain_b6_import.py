@@ -44,7 +44,11 @@ def check_invariants(tc, parsed):
         tc.assertEqual(seg, seg.strip())
         tc.assertEqual(p.sha, sha(seg))
         tc.assertEqual(p.ordinal, ordinal)
-        tc.assertEqual(p.flags, suspicious(seg))
+        # B6 review fix: source-level warnings (unrendered HTML) on EVERY passage
+        src = tuple(f for f in passages.SOURCE_FLAGS if f in parsed.flags)
+        tc.assertEqual(p.flags, suspicious(seg) + src)
+        if parsed.fmt == "html":
+            tc.assertIn("html_not_rendered", p.flags)
         inside = [b for b in parsed.blocks if b.start <= p.start and p.end <= b.end]
         tc.assertEqual(len(inside), 1, p)
         tc.assertNotEqual(inside[0].kind, "raw_html")
@@ -558,16 +562,16 @@ class MaliciousHtml(unittest.TestCase):
     def test_zero_width_entity_flagged(self):
         p = parse(b"<p>Hello&#x200B; world. Plain one.</p>", "html")
         pas = split(p)
-        self.assertEqual(pas[0].flags, ("suspicious",))
-        self.assertEqual(pas[1].flags, ())
+        self.assertEqual(pas[0].flags, ("suspicious", "html_not_rendered"))
+        self.assertEqual(pas[1].flags, ("html_not_rendered",))
 
     def test_bidi_entity_flagged(self):
         p = parse(b"<p>abc &#x202E;def.</p>", "html")
-        self.assertEqual(split(p)[0].flags, ("suspicious",))
+        self.assertEqual(split(p)[0].flags, ("suspicious", "html_not_rendered"))
 
     def test_homoglyph_flagged(self):
         p = parse("<p>p&#x430;ypal is a site.</p>".encode("utf-8"), "html")
-        self.assertEqual(split(p)[0].flags, ("mixed_script",))
+        self.assertEqual(split(p)[0].flags, ("mixed_script", "html_not_rendered"))
 
     def test_entity_nul_replaced(self):
         p = parse(b"<p>a&#0;b</p>", "html")

@@ -970,6 +970,21 @@ provenance, suggestions, separation, sharing, backups). Corpus correction:
 case ac05 (a decomposed accent) is genuine support under the approved NFC
 cleaning, relabelled `nfc_ok`. Speed, 50,000 passages: import ~2 s per
 10,000, search 10-55 ms, answer 14 ms, 100 suggestions 0.09 s, purge 0.07 s.
+Independent review fixes (after 4abe9ee):
+1. Quote-only sharing bypassed the whole-passage rule (propose checked
+   strict=False; the shared copy has no passage to check). Now a quote of an
+   imported source is proposed only if the owner's COMPLETE passage passes the
+   strict check for the claim's exact wording; that check (passage kind,
+   flags, wording hash) goes to the outbox (material_checks) and with the
+   approval into shared.db (quote_checks); shared quote-only evidence counts
+   only with it, for that wording. Withdrawal removes both.
+2. html_not_rendered was not enforced: now a source-level warning carried to
+   EVERY passage of an HTML source (also in shared copies). Such passages
+   never support (cite / verification / proposal), never challenge, store no
+   facts, are never suggested; they stay searchable, labelled "unrendered
+   HTML: reference only". Consequence: in B6 no HTML source can support a
+   claim. Import tests updated to require the warning on HTML passages.
+Regression tests reproduce both issues on 4abe9ee (16 failures there).
 Linux: whole suite 628 tests OK (3ec01df); 49/49 deliberate B6 breaks caught
 (the search-index secure-delete and the index merge each remove deleted words
 on their own - only breaking both is caught, by the marker scan).

@@ -602,6 +602,191 @@ class Sharing(World):
             ana.propose(c, {sid: ["quote", "full_text"]})
 
 
+# ======================================================================== review fixes
+HEDGED = (("hedged", "Perhaps Mira maintains the Lantern Garden."),
+          ("negated", "It is not true that Mira maintains the Lantern Garden."),
+          ("conditional", "If it rains, Mira maintains the Lantern Garden."))
+GRANTS = (["quote"], ["quote", "full_text"])
+
+
+class ReviewFixQuoteOnlySharing(World):
+    """Independent review, issue 1: a quote taken from a hedged / negated /
+    conditional passage must never become support after sharing, whatever the
+    grant - and approval cannot bypass the owner's strict check."""
+
+    def setup_claim(self, passage, name="g.txt", publisher="Harbour Press"):
+        ana = self.open("ana")
+        sid = self.imp(ana, passage + "\n", name, publisher=publisher)
+        c = ana.learn("Mira maintains the Lantern Garden.", "imported", "Lantern Garden")
+        r = ana.cite(c, sid, "Mira maintains the Lantern Garden.")
+        return ana, sid, c, r
+
+    def outbox_count(self, table):
+        con = sqlite3.connect(os.path.join(self.lib.root, "outbox", self.fid("ana") + ".db"))
+        try:
+            return con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        finally:
+            con.close()
+
+    def test_weak_passages_cannot_be_proposed_with_a_quote(self):
+        for what, passage in HEDGED:
+            for levels in GRANTS:
+                with self.subTest(what=what, levels=levels):
+                    ana, sid, c, r = self.setup_claim(passage, f"{what}{len(levels)}.txt")
+                    self.assertFalse(r["supports"])
+                    with self.assertRaises(BrainError):
+                        ana.propose(c, {sid: levels})
+                    self.assertEqual(self.outbox_count("proposals"), 0)
+                    self.assertEqual(self.outbox_count("material_checks"), 0)
+                    self.assertEqual(self.open("luis").respond(Q_MG).category != "documented",
+                                     True)
+
+    def test_a_genuine_passage_is_documented_after_sharing_with_either_grant(self):
+        for levels in GRANTS:
+            with self.subTest(levels=levels):
+                self.tearDown()
+                self.setUp()
+                ana, sid, c, r = self.setup_claim("Mira maintains the Lantern Garden.")
+                self.assertTrue(r["supports"])
+                tok = ana.propose(c, {sid: levels})
+                self.open("mod").approve(self.fid("ana"), tok)
+                a = self.open("luis").respond(Q_MG)
+                self.assertEqual((a.category, a.audience), ("documented", "shared"))
+
+    def share_genuine(self, tamper=None):
+        ana, sid, c, r = self.setup_claim("Mira maintains the Lantern Garden.")
+        tok = ana.propose(c, {sid: ["quote"]})
+        if tamper:
+            con = sqlite3.connect(os.path.join(self.lib.root, "outbox", self.fid("ana") + ".db"))
+            con.execute(tamper)
+            con.commit()
+            con.close()
+        m = self.open("mod")
+        shared = m.approve(self.fid("ana"), tok)
+        return m, shared
+
+    def test_approval_cannot_bypass_the_owners_check(self):
+        for tamper in ("DELETE FROM material_checks",
+                       "UPDATE material_checks SET passage_kind='table_row'",
+                       "UPDATE material_checks SET passage_flags='[\"suspicious\"]'",
+                       "UPDATE material_checks SET claim_sha='0'"):
+            with self.subTest(tamper=tamper):
+                self.tearDown()
+                self.setUp()
+                m, shared = self.share_genuine(tamper)
+                self.assertNotEqual(self.open("luis").respond(Q_MG).category, "documented")
+                with self.assertRaises(BrainError):
+                    m.review(shared, "verified")
+
+    def test_quote_only_support_is_tied_to_the_checked_wording(self):
+        m, shared = self.share_genuine()
+        e = m.store._db.execute("SELECT id FROM evidence WHERE claim_id=?", (shared,)).fetchone()[0]
+        claim = m.store._claim(shared)
+        self.assertEqual(B6.evidence_check(m.store, e, claim, True), (True, "quote_only"))
+        other = dict(claim, text="Mira maintains the Lantern Garden at night.")
+        self.assertFalse(B6.evidence_check(m.store, e, other, True)[0])
+        m.store._db.execute("DELETE FROM quote_checks WHERE evidence_id=?", (e,))
+        self.assertEqual(B6.evidence_check(m.store, e, claim, True),
+                         (False, "passage_not_checked"))
+        self.assertFalse(B6.evidence_check(m.store, e, claim, False)[0])
+
+    def test_withdrawal_removes_the_checks_too(self):
+        ana, sid, c, r = self.setup_claim("Mira maintains the Lantern Garden.")
+        tok = ana.propose(c, {sid: ["quote"]})
+        self.open("mod").approve(self.fid("ana"), tok)
+        self.assertEqual(ana.withdraw_source(sid), "complete")
+        con = sqlite3.connect(os.path.join(self.lib.root, "shared.db"))
+        try:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM quote_checks").fetchone()[0], 0)
+        finally:
+            con.close()
+        self.assertEqual(self.outbox_count("material_checks"), 0)
+
+
+HTML_VISIBLE = "<p>Mira maintains the Lantern Garden.</p>"
+HTML_CLASS_HIDDEN = ('<style>.gone{display:none}</style><p class="gone">Kai maintains the '
+                     'Lantern Garden.</p>')
+HTML_EXTERNAL = ('<link rel="stylesheet" href="hide.css"><p class="x">Kai maintains the '
+                 'Lantern Garden.</p>')
+
+
+class ReviewFixUnrenderedHtml(World):
+    """Independent review, issue 2: HTML is never rendered, so any of its text
+    may be hidden by a class or an external stylesheet. Its passages are
+    searchable reference material - never support, never a challenge, never a
+    suggestion."""
+
+    def html(self, s, text, name="page.html"):
+        return s.import_file(self.write(name, text), author_kind="named", author_name="Ada",
+                             publisher="Web Press")["source_id"]
+
+    def test_html_passages_carry_the_warning_and_never_support(self):
+        s = self.open("ana")
+        sid = self.html(s, HTML_VISIBLE)
+        flags = [json.loads(r[0]) for r in s.store._db.execute(
+            "SELECT flags FROM main.passages WHERE source_id=?", (sid,))]
+        self.assertTrue(flags and all("html_not_rendered" in f for f in flags))
+        c = s.learn("Mira maintains the Lantern Garden.", "imported", "Lantern Garden")
+        r = s.cite(c, sid, "Mira maintains the Lantern Garden.")
+        self.assertEqual((r["supports"], r["why"]), (False, "source_flagged"))
+        self.assertNotEqual(s.respond(Q_MG).category, "documented")
+        with self.assertRaises(BrainError):
+            s.review(c, "verified")                # not evidence for verification either
+        with self.assertRaises(BrainError):
+            s.propose(c, {sid: ["quote"]})
+
+    def test_hidden_or_possibly_hidden_html_never_challenges(self):
+        s = self.open("ana")
+        c = s.learn("Mira maintains the Lantern Garden.", "imported", "Lantern Garden")
+        md = self.imp(s, "Mira maintains the Lantern Garden.\n", "a.md")
+        s.cite(c, md, "Mira maintains the Lantern Garden.")
+        self.assertEqual(s.respond(Q_MG).category, "documented")
+        for i, page in enumerate((HTML_CLASS_HIDDEN, HTML_EXTERNAL,
+                                  "<p>Kai maintains the Lantern Garden.</p>")):
+            self.html(s, page, f"p{i}.html")
+        a = s.respond(Q_MG)
+        self.assertEqual((a.category, a.challenges), ("documented", []))
+        s.review(c, "verified")
+        a = s.respond(Q_MG)
+        self.assertEqual((a.category, a.challenges), ("established", []))
+        self.assertEqual(s.store._db.execute(
+            "SELECT COUNT(*) FROM main.passage_facts f JOIN main.passages p ON "
+            "p.id=f.passage_id JOIN main.sources x ON x.id=p.source_id WHERE "
+            "x.title LIKE '%.html'").fetchone()[0], 0)
+
+    def test_html_is_searchable_labelled_reference_and_never_suggested(self):
+        s = self.open("ana")
+        self.html(s, HTML_CLASS_HIDDEN)
+        hits = s.search_passages("kai lantern garden")
+        self.assertTrue(hits)
+        for h in hits:
+            self.assertFalse(h["can_support"])
+            self.assertIn("html_not_rendered", h["flags"])
+            self.assertIn("unrendered HTML", h["label"])
+        self.assertEqual(s.suggestions(), [])
+
+    def test_shared_full_text_keeps_the_warning(self):
+        ana = self.open("ana")
+        sid = self.html(ana, HTML_VISIBLE + "<p>Lio runs the Rope Shed.</p>")
+        c = ana.learn("Lio runs the Rope Shed.", "imported", "Rope Shed")
+        ana.cite(c, sid, "Lio runs the Rope Shed.")
+        tok = ana.propose(c, {sid: ["full_text"]})          # the text, not the quote
+        self.open("mod").approve(self.fid("ana"), tok)
+        con = sqlite3.connect(os.path.join(self.lib.root, "shared.db"))
+        try:
+            rows = [json.loads(r[0]) for r in con.execute("SELECT flags FROM passages")]
+            vflags = [json.loads(r[0]) for r in con.execute("SELECT flags FROM source_versions")]
+            facts = con.execute("SELECT COUNT(*) FROM passage_facts").fetchone()[0]
+        finally:
+            con.close()
+        self.assertTrue(rows and all("html_not_rendered" in f for f in rows))
+        self.assertTrue(all("html_not_rendered" in f for f in vflags))
+        self.assertEqual(facts, 0)
+        luis = self.open("luis")
+        self.assertTrue(all(not h["can_support"] for h in luis.search_passages("rope shed")))
+        self.assertNotEqual(luis.respond("Who runs the Rope Shed?").category, "documented")
+
+
 # ======================================================================== backups
 class Backups(unittest.TestCase):
     """Withdrawal after an upgrade: the text is still in the SK-managed backups
