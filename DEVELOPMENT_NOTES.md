@@ -1018,6 +1018,14 @@ import their text pages and list image-only pages. The PDF's SHA-256 is the
 version's bytes tag; the PDF itself and its metadata are never stored.
 Not run on Windows yet (BRAIN_WINDOWS_CHECK.bat installs requirements-brain.txt
 hash-checked and has a B6 PDF step).
+PDF results (Linux, 09570ed): tests/test_brain_b6_pdf.py 65 tests OK; whole suite
+702 tests, 701 OK, 1 FAILING: test_brain_b4_guards.NetworkBoundary.
+test_no_network_code_in_the_brain forbids `subprocess` in the Brain package, and
+pdf_import.py uses it to start the isolated reader (the approved design). The
+guard was NOT changed - an owner decision is needed (see the report). Deliberate
+breaks: 98/98 caught (35 PDF). Found and fixed by the tests: tables with no line
+spanning them were read as prose columns; short-piece columns are now
+layout-uncertain.
 Linux after the fixes (2923feb): whole suite 637 tests OK; 63/63 deliberate B6
 breaks caught (14 new for the two fixes; two older breaks re-aimed because the
 fixes moved / doubled their target checks). Brain code fingerprint
