@@ -190,6 +190,12 @@ def _indirect_problems(name, tree):
         if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in (
                 "builtins", "__builtin__"):
             bad.append((name, "from builtins import"))
+        if isinstance(n, ast.ImportFrom):                  # review of 04fe365: from ANY module
+            for a in n.names:
+                if a.name in LOOKUPS:
+                    bad.append((name, "from %s import %s%s (line %d)" % (
+                        n.module or ".", a.name, " as " + a.asname if a.asname else "",
+                        n.lineno)))
         if isinstance(n, ast.Name) and n.id in LOOKUPS:
             par = parents.get(n)
             if not (isinstance(par, ast.Call) and par.func is n):
@@ -440,6 +446,21 @@ class Static(unittest.TestCase):
                                         "bi.hasattr(os, 'spawnv')",
             "aliased builtins globals": "import builtins as b\nb.globals()['os']",
             "__builtin__": "import __builtin__",
+            "from helpers import getattr as lookup": "from helpers import getattr as lookup\n"
+                                                     "import shutil\n"
+                                                     "lookup(shutil, 'os').system('x')",
+            "from helpers import getattr": "from helpers import getattr\nimport shutil\n"
+                                           "getattr(shutil, 'os')",
+            "from helpers import hasattr": "from helpers import hasattr",
+            "from helpers import hasattr as h": "from helpers import hasattr as h",
+            "from helpers import setattr": "from helpers import setattr",
+            "from helpers import setattr as s": "from helpers import setattr as s",
+            "from helpers import delattr": "from helpers import delattr",
+            "from helpers import delattr as d": "from helpers import delattr as d",
+            "from a package module": "from pkg.tools import getattr as ga",
+            "relative import": "from .tools import getattr as ga",
+            "among other names": "from helpers import x, getattr as g, y",
+            "from helpers import vars as v": "from helpers import vars as v",
             "a lookup re-exported by another module": "import helpers\nimport shutil\n"
                                                       "helpers.getattr(shutil, 'os')",
             "getattr bound to a name": "import shutil\ng = getattr\ng(shutil, 'os')",
@@ -466,6 +487,7 @@ class Static(unittest.TestCase):
                 "def f(o, name):\n    return getattr(o.brain, name)",
                 "def g(fn):\n    return fn.__code__.co_varnames",
                 "class B:\n    def __new__(cls):\n        return object.__new__(cls)",
+                "from helpers import get_attribute_name, lookup_table",
                 "from pypdf import filters\nfor name in ('ZLIB_MAX_OUTPUT_LENGTH', 'A_B'):\n"
                 "    if hasattr(filters, name):\n        setattr(filters, name, 1)")
         for src in fine:

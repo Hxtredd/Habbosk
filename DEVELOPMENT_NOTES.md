@@ -1065,7 +1065,11 @@ used as a value (g = getattr, passed along, put in a container) and never
 reached as an attribute (b.getattr, helpers.getattr). 15 new bypass sources;
 8 new deliberate breaks. Results (Linux, 04fe365): whole suite 716 OK; B4 + B6 +
 PDF + process-guard regressions 239 OK; deliberate breaks 141/141 caught. Brain
-code fingerprint 2fcd0d66dcff19ea (unchanged). Not run on Windows. Deliberate
+code fingerprint 2fcd0d66dcff19ea (unchanged). Not run on Windows.
+Review fix (04fe365, lookup imports): importing getattr / setattr / delattr /
+hasattr / vars / globals / locals / breakpoint from ANY module, under its own
+name or an alias, is refused (also relative imports and among other names).
+12 new bypass sources, 1 new allowed pattern; 4 new deliberate breaks. Deliberate
 breaks: 98/98 caught (35 PDF). Found and fixed by the tests: tables with no line
 spanning them were read as prose columns; short-piece columns are now
 layout-uncertain.
