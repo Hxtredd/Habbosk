@@ -1,0 +1,13 @@
+SK AI Speed Check 1.0
+started 2026-11-09T18:05:35, finished 2026-11-09T18:16:03
+Python 3.14.10 on win32
+SK would pick today: gemini-3.5-flash-lite; tested as current: gemini-3.5-flash-lite
+Flash-Lite models available: gemini-3.5-flash-lite, gemini-3.1-flash-lite, gemini-2.5-flash-lite
+Comparison                                             first  median     p90  slowest   right  err
+SK today (new connection each time)                    0.77s   0.77s   3.79s    7.07s  14/20     4
+SK today + reused connection                           0.65s   0.65s   0.84s    1.57s  16/20     2
+SK today, streamed (first-text timing)                 0.55s   0.61s   0.78s    0.81s   8/10     1
+SK today + thinking off                                0.70s   0.70s   0.88s    2.57s  16/20     1
+alternative gemini-3.1-flash-lite + reused connectio   0.78s   0.78s   7.29s   13.89s  16/20     2
+alternative gemini-2.5-flash-lite + reused connectio   0.00s   0.00s   0.00s    0.00s   0/20    20
+first = time to first response (streamed: first text). Times include the connection.
