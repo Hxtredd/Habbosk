@@ -58,20 +58,27 @@ class Tmp(unittest.TestCase):
 
 # -- 1. B2-B5.1 behaviour on separated storage -----------------------------------------------
 class ReferencesOnSeparatedStorage(Tmp):
-    def test_b3_reference_identical_and_b2_identical_to_the_reopened_file(self):
+    def test_b3_reference_and_b2_identical_to_the_approved_b51_code(self):
         b2, b3 = REF.b2_b3_fingerprints(self.d)
         with open(os.path.join(HERE, "data", "b3_ask_reference.json"), encoding="utf-8") as fh:
             r3 = json.load(fh)
         with open(os.path.join(HERE, "data", "b2_search_reference.json"), encoding="utf-8") as fh:
             r2 = json.load(fh)
+        with open(os.path.join(HERE, "data", "b2_b51_baseline.json"), encoding="utf-8") as fh:
+            b51 = json.load(fh)              # recorded with the B5.1 code (b52_b2_baseline.py)
         self.assertEqual(sorted(k for k in r3 if r3[k] != b3.get(k)), [])
         self.assertEqual(len(r3), 109)
-        # B2: identical to the same single file closed and reopened (the recorded
-        # reference was made without reopening: 10 equally scored results are in
-        # another order after any reopen, with or without B5.2 - see the report)
-        rb2 = REF.reopened_b2(self.d)
-        self.assertEqual(sorted(k for k in rb2 if rb2[k] != b2.get(k)), [])
-        self.assertGreaterEqual(sum(r2[k] == b2.get(k) for k in r2), 208)
+        # B2: every result identical to the approved B5.1 code (80fe274), fresh AND reopened
+        self.assertEqual(b51["brain_commit"], "80fe2745fa78f87b572b00166dddfb1ed05e1eba")
+        self.assertEqual(set(b51["fresh"]), set(r2))
+        self.assertEqual(sorted(k for k in r2 if b2.get(k) != b51["fresh"][k]), [])
+        self.assertTrue(b51["reopened_equals_fresh"])
+        # against the older recorded reference: exactly B3's 10 intended improvements
+        import test_brain_reason as TR
+        diff = sorted(k for k in r2 if r2[k] != b2.get(k))
+        self.assertEqual(diff, b51["differs_from_reference"])
+        self.assertEqual({k.split("|", 3)[3] for k in diff}, TR.B2UnchangedTests.INTENDED)
+        self.assertEqual(len(diff), 10)
 
     def test_b4_answers_identical(self):
         pairs = REF.respond_pairs(A.build, [(q, a) for q, a, *_ in A.QUESTIONS + A.GENERAL],
@@ -565,15 +572,52 @@ class Withdrawal(Tmp):
         shared = {x for x in self.w.files() if os.path.basename(x).startswith("shared.db")}
         self.assertEqual(self.w.where("BLOCKED-TITLE-MARK") & shared, set())
 
+    def _withdrawals(self):
+        con = sqlite3.connect(self.w.lib.path("shared.db"))
+        try:
+            return con.execute("SELECT COUNT(*) FROM withdrawals").fetchone()[0]
+        finally:
+            con.close()
+
     def test_a_wrong_token_is_refused_and_leaves_no_trace(self):
         con = sqlite3.connect(self.w.lib.path("shared.db"))
         oid = con.execute("SELECT opaque_id FROM source_opaque").fetchone()[0]
         con.close()
         with self.assertRaises(BrainError):
             self.w.lib.block(oid, "not-the-token")
-        con = sqlite3.connect(self.w.lib.path("shared.db"))
-        self.assertEqual(con.execute("SELECT COUNT(*) FROM withdrawals").fetchone()[0], 0)
+        self.assertEqual(self._withdrawals(), 0)
+
+    def test_a_missing_token_record_is_refused_and_leaves_no_trace(self):
+        with self.assertRaises(BrainError):                       # an id never registered
+            self.w.lib.block("0" * 32, "any-token")
+        self.assertEqual(self._withdrawals(), 0)
+        con = sqlite3.connect(self.w.lib.path("shared.db"))       # a record removed
+        oid = con.execute("SELECT opaque_id FROM source_opaque").fetchone()[0]
+        con.execute("DELETE FROM source_tokens WHERE opaque_id=?", (oid,))
+        con.commit()
         con.close()
+        s = self.w.open("ana")
+        tok = s.store._db.execute("SELECT token FROM main.source_grants WHERE opaque_id=?",
+                                  (oid,)).fetchone()[0]
+        s.close()
+        with self.assertRaises(BrainError):                       # even with the real token
+            self.w.lib.block(oid, tok)
+        self.assertEqual(self._withdrawals(), 0)
+
+    def test_outbox_only_material_is_registered_and_can_be_withdrawn(self):
+        s = self.w.open("ana")
+        src = s.add_source("document", title="OUTBOX-ONLY-MARK", content_hash="oo1")
+        c = s.learn("Lio maintains the Outbox Hall.", "imported")
+        s.add_evidence(c, "direct", src, "Lio maintains the Outbox Hall.")
+        s.propose(c, {src: ["quote", "details"]})
+        oid, tok = s.store._db.execute("SELECT opaque_id, token FROM main.source_grants WHERE "
+                                       "source_id=?", (src,)).fetchone()
+        with self.assertRaises(BrainError):                       # someone else's token
+            self.w.lib.register_token(oid, self.w.lib.token_hash("intruder"))
+        self.assertEqual(s.withdraw_source(src), "complete")
+        s.close()
+        own = self.w.personal_files("ana")
+        self.assertEqual({p for p in self.w.where("OUTBOX-ONLY-MARK")} - own, set())
 
 
 class WithdrawalPowerLoss(Tmp):
@@ -922,6 +966,81 @@ class Recovery(Tmp):
         self.damage_a_file()
         with self.assertRaises(S.RecoveryNeeded):
             S.verify_library(os.path.join(self.data, "brain"), self.hk)
+
+    # -- write-ahead logs: post-migration writes vs corruption --------------------------
+    def _writes_in_the_log(self):
+        """A person writes after the migration while another connection keeps the
+        log open: the personal file keeps a NON-EMPTY write-ahead log."""
+        lib = Library(os.path.join(self.data, "brain"), self.hk, self.lk)
+        u = [x for x in lib.users() if lib._user(x["user_id"])["kind"] != "moderator"][0]
+        path = lib.path("personal", u["file_id"] + ".db")
+        holder = sqlite3.connect(path)
+        holder.execute("SELECT COUNT(*) FROM claims").fetchone()
+        s = lib.open_session(mint_grant(self.hk, lib.installation_id, lib.epoch, u["user_id"],
+                                        "user"))
+        for n in range(30):
+            s.learn(f"A note written after the migration, number {n}.", "user")
+        s.close()
+        lib.close()
+        self.assertGreater(os.path.getsize(path + "-wal"), 0)
+        return holder, path
+
+    def test_writes_after_migration_with_a_non_empty_log_are_verified(self):
+        holder, path = self._writes_in_the_log()
+        try:
+            self.assertEqual(S.wal_state(path + "-wal"), "ok")
+            self.assertEqual(S.verify_library(os.path.join(self.data, "brain"), self.hk),
+                             "verified")
+        finally:
+            holder.close()
+
+    def test_damaged_database_with_a_non_empty_log_needs_recovery(self):
+        holder, path = self._writes_in_the_log()
+        try:
+            size = os.path.getsize(path)
+            with open(path, "r+b") as fh:                 # every page but the first
+                fh.seek(4096)
+                fh.write(os.urandom(size - 4096))
+            with self.assertRaises(S.RecoveryNeeded):
+                S.verify_library(os.path.join(self.data, "brain"), self.hk)
+        finally:
+            holder.close()
+
+    def test_damaged_log_needs_recovery(self):
+        holder, path = self._writes_in_the_log()
+        try:
+            with open(path + "-wal", "r+b") as fh:        # inside the first frame's page
+                fh.seek(32 + 24 + 100)
+                fh.write(b"\xff" * 16)
+            self.assertEqual(S.wal_state(path + "-wal"), "damaged")
+            with self.assertRaises(S.RecoveryNeeded):
+                S.verify_library(os.path.join(self.data, "brain"), self.hk)
+            rep = S.recovery_check(self.data, self.hk)
+            name = os.path.relpath(path, os.path.join(self.data, "brain"))
+            self.assertFalse(rep["brain_files"][name]["integrity"])
+            self.assertNotIn("delete_damaged_brain", rep["options"])
+        finally:
+            holder.close()
+
+    def test_a_log_torn_by_a_power_cut_is_not_damage(self):
+        holder, path = self._writes_in_the_log()
+        try:
+            size = os.path.getsize(path + "-wal")
+            with open(path + "-wal", "r+b") as fh:        # the last frame half written
+                fh.truncate(size - 100)
+            self.assertEqual(S.wal_state(path + "-wal"), "torn_tail")
+            self.assertEqual(S.verify_library(os.path.join(self.data, "brain"), self.hk),
+                             "verified")
+        finally:
+            holder.close()
+
+    def test_wal_reader_rejects_bad_headers(self):
+        p = os.path.join(self.d, "x.db")
+        for blob, want in ((b"", "empty"), (b"short", "damaged"), (b"\0" * 64, "damaged")):
+            with open(p + "-wal", "wb") as fh:
+                fh.write(blob)
+            self.assertEqual(S.wal_state(p + "-wal"), want, blob[:8])
+        self.assertEqual(S.wal_state(os.path.join(self.d, "none.db-wal")), "absent")
 
     def test_set_aside_and_rescue_never_delete(self):
         rescued = S.rescue_readable_rows(self.data)

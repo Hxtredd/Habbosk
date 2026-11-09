@@ -891,11 +891,19 @@ rounds). Nothing here touches habbosk.db, atlas.db or a real knowledge.db.
   development / test files.
 Tests: tests/test_brain_b52.py (56, ~9 min) + b52_world / b52_child /
 b52_reference. On separated storage (datasets migrated): B3 109/109 identical
-to the reference; B2 218/218 identical to the same file closed and reopened
-(208/218 against the recorded reference - the 10 differences are the order of
-equally scored results after ANY reopen, also without B5.2: a pre-existing B2
-cache effect); B4 Puerto Nube 45/45 and B5.1 Isla Brisa answers identical.
-Deliberate breaks 33/33. Full suite 471+ OK (Linux). Speed ~10,000 claims:
+to the reference; B2 218/218 identical to the APPROVED B5.1 code (80fe274,
+recorded by tests/b52_b2_baseline.py in tests/data/b2_b51_baseline.json, fresh
+and reopened alike); against the older recorded b2_search_reference.json 208/218
+- the 10 others are exactly B3's intended improvements (5 questions x FTS5 /
+plain, test_brain_reason.B2UnchangedTests.INTENDED), the same 10 the approved
+code shows. (An earlier draft wrongly called them a reopen / cache effect: that
+was measured with B5.2 code and misread; corrected after independent review.)
+B4 Puerto Nube 45/45 and B5.1 Isla Brisa answers identical.
+Review fixes: block() refuses a missing token record as well as a mismatch
+(token hashes are registered insert-only when material is first proposed);
+verify_library() checks a database together with its write-ahead log on a
+temporary copy (wal_state(): ok / torn_tail after a power cut / damaged when a
+failing frame is followed by a commit). Deliberate breaks: see the report. Speed ~10,000 claims:
 session answers +7-10 ms (19-30 ms), session open ~23 ms, migration 6.5 s.
 Not run on Windows yet (BRAIN_WINDOWS_CHECK.bat has a new B5.2 step).
 Limits: people are not authenticated; programs running as the same Windows

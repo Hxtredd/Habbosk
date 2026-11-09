@@ -71,9 +71,7 @@ class Separated:
 
 def b2_b3_fingerprints(root: str):
     """The same procedure as the recorded references: a fresh dataset for the
-    searches only (B2) and another for the asks only (B3). (Asking between
-    searches changes the order of equally scored results - a B2 cache effect
-    that exists without B5.2 too - so the procedures are kept apart.)"""
+    searches only (B2) and another for the asks only (B3)."""
     b2, b3 = {}, {}
     for name, mod, qs in (("brisa", E1, E1.QUESTIONS + E1.HELDOUT), ("coral", E2, E2.QUESTIONS)):
         d = Separated(mod.build, name + "-b2", root)
@@ -98,29 +96,6 @@ def b2_b3_fingerprints(root: str):
         finally:
             d.close()
     return b2, b3
-
-
-def reopened_b2(root: str) -> dict:
-    """B2 search fingerprints of each dataset's single file CLOSED AND REOPENED
-    (no B5.2 involved) - the like-for-like baseline for a migrated library."""
-    from puzzle_assistant.brain import Brain
-    out = {}
-    for name, mod, qs in (("brisa", E1, E1.QUESTIONS + E1.HELDOUT), ("coral", E2, E2.QUESTIONS)):
-        d = os.path.join(root, name + "-reopen")
-        os.makedirs(d)
-        b, ids, users = mod.build(os.path.join(d, "k.db"))
-        b.close()
-        b = Brain(os.path.join(d, "k.db"), "", "")
-        try:
-            for q, _, _, asker in qs:
-                for fts in (True, False):
-                    blob = json.dumps(R2._flat(b.search(q, viewer=users[asker], use_fts=fts)),
-                                      ensure_ascii=False)
-                    out[f"{name}|{'fts' if fts else 'plain'}|{asker}|{q}"] = \
-                        hashlib.sha256(blob.encode()).hexdigest()[:20]
-        finally:
-            b.close()
-    return out
 
 
 def respond_pairs(build, questions, root: str, name: str):
@@ -151,10 +126,13 @@ if __name__ == "__main__":
             r2 = json.load(fh)
         with open(os.path.join(HERE, "data", "b3_ask_reference.json"), encoding="utf-8") as fh:
             r3 = json.load(fh)
-        print("B2 on separated storage:", sum(r2[k] == b2.get(k) for k in r2), "/", len(r2))
-        rb2 = reopened_b2(root)
-        print("B2 separated vs the same file closed and reopened:",
-              sum(rb2[k] == b2.get(k) for k in rb2), "/", len(rb2))
+        with open(os.path.join(HERE, "data", "b2_b51_baseline.json"), encoding="utf-8") as fh:
+            b51 = json.load(fh)
+        print("B2 separated vs the approved B5.1 code:",
+              sum(b51["fresh"][k] == b2.get(k) for k in r2), "/", len(r2))
+        print("B2 separated vs the older recorded reference:",
+              sum(r2[k] == b2.get(k) for k in r2), "/", len(r2), "(the 10 others: B3's intended "
+              "improvements)")
         print("B3 on separated storage:", sum(r3[k] == b3.get(k) for k in r3), "/", len(r3))
     finally:
         shutil.rmtree(root, ignore_errors=True)

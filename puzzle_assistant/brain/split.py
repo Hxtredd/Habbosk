@@ -616,6 +616,83 @@ def _leak_check(shared: str, data, plan) -> None:
         con.close()
 
 
+# -- write-ahead logs: valid, torn by a power cut, or damaged --------------------------------------------
+WAL_MAGIC = (0x377F0682, 0x377F0683)
+
+
+def _wal_sum(data: bytes, big: bool, s0: int = 0, s1: int = 0):
+    import struct
+    fmt = (">" if big else "<") + "%dI" % (len(data) // 4)
+    w = struct.unpack(fmt, data)
+    for i in range(0, len(w), 2):
+        s0 = (s0 + w[i] + s1) & 0xFFFFFFFF
+        s1 = (s1 + w[i + 1] + s0) & 0xFFFFFFFF
+    return s0, s1
+
+
+def wal_state(path: str) -> str:
+    """'absent' / 'empty' / 'ok' / 'torn_tail' / 'damaged' for <db>-wal.
+    SQLite silently ignores log frames that fail their checksum, so a damaged
+    log could lose committed data without any error - this reads the log the
+    way SQLite does and tells the cases apart:
+      ok         every frame of the current log generation checks out
+      torn_tail  an incomplete or failing frame AFTER the last commit (a power
+                 cut while writing: that data was never committed)
+      damaged    a bad header, or a failing frame followed by a commit frame
+                 (committed data would be lost)."""
+    import struct
+    if not os.path.isfile(path):
+        return "absent"
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if not data:
+        return "empty"
+    if len(data) < 32:
+        return "damaged"
+    magic, _ver, psize, _seq, salt1, salt2, c1, c2 = struct.unpack(">8I", data[:32])
+    if magic not in WAL_MAGIC or psize < 512 or psize & (psize - 1):
+        return "damaged"
+    big = magic & 1 == 1
+    if _wal_sum(data[:24], big) != (c1, c2):
+        return "damaged"
+    s0, s1 = c1, c2
+    off, fsize = 32, 24 + psize
+    while off + 24 <= len(data):
+        pg, dbsize, fs1, fs2, k1, k2 = struct.unpack(">6I", data[off:off + 24])
+        if (fs1, fs2) != (salt1, salt2):
+            return "ok"                      # older frames of a previous generation: ignored
+        if off + fsize > len(data):
+            return "torn_tail"               # an incomplete last frame
+        t0, t1 = _wal_sum(data[off:off + 8], big, s0, s1)
+        t0, t1 = _wal_sum(data[off + 24:off + fsize], big, t0, t1)
+        if (t0, t1) != (k1, k2):
+            # committed data after this point would be lost: damaged; otherwise torn
+            o = off
+            while o + 24 <= len(data):
+                _p, ds, a, b, _x, _y = struct.unpack(">6I", data[o:o + 24])
+                if (a, b) != (salt1, salt2):
+                    break
+                if ds:
+                    return "damaged"
+                o += fsize
+            return "torn_tail"
+        s0, s1 = t0, t1
+        off += fsize
+    return "ok" if off == len(data) else "torn_tail"
+
+
+def _check_with_log(path: str) -> Tuple[str, str]:
+    """(state, why) of a database together with its write-ahead log, checked
+    on a TEMPORARY copy of both (the files themselves are never opened)."""
+    w = wal_state(path + "-wal")
+    if w == "damaged":
+        return "damaged", "its write-ahead log is damaged (committed changes would be lost)"
+    ok = _db_ok(path)
+    if not ok:
+        return "damaged", "it fails its integrity check"
+    return "ok", w
+
+
 # -- opening a migrated library: checked against its record first ------------------------------------
 def verify_library(root: str, host_key: bytes) -> str:
     """Before the first use after a migration: every file must match manifest
@@ -639,16 +716,13 @@ def verify_library(root: str, host_key: bytes) -> str:
         p = os.path.join(root, name)
         if not os.path.isfile(p):
             raise RecoveryNeeded(f"{name} is missing")
-        if os.path.isfile(p + "-wal") and os.path.getsize(p + "-wal") > 0:
-            continue                                      # changed since: checked by integrity
-        if sha256_file(p) != rec["sha256"]:
-            con = sqlite3.connect(file_uri(p, "ro"), uri=True)
-            try:
-                ok = con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-            finally:
-                con.close()
-            if not ok:
-                raise RecoveryNeeded(f"{name} is damaged")
+        pending = os.path.isfile(p + "-wal") and os.path.getsize(p + "-wal") > 0
+        if pending or sha256_file(p) != rec["sha256"]:
+            # writes since the migration (in the file or still in its log) are normal;
+            # corruption is not: the file and its log are checked TOGETHER, on a copy
+            state, why = _check_with_log(p)
+            if state != "ok":
+                raise RecoveryNeeded(f"{name}: {why}")
     data_dir = os.path.dirname(os.path.abspath(root))
     mig = body["start"]["migration_id"]
     reg = sqlite3.connect(file_uri(os.path.join(root, "registry.db"), "rw"), uri=True)
@@ -762,7 +836,9 @@ def recovery_check(data_dir: str, host_key: Optional[bytes]) -> dict:
             p = os.path.join(root, name)
             st = {"present": os.path.isfile(p)}
             if st["present"]:
-                st["integrity"] = _db_ok(p)
+                state, why = _check_with_log(p)
+                st["integrity"] = state == "ok"
+                st["log"] = why if state == "ok" else "damaged"
                 wal = p + "-wal"
                 st["changed_since_migration"] = (name not in rec or sha256_file(p) !=
                                                  rec[name]["sha256"] or

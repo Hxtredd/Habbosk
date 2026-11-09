@@ -406,12 +406,33 @@ class Library:
             con.execute("BEGIN IMMEDIATE")
             known = con.execute("SELECT token_hash FROM source_tokens WHERE opaque_id=?",
                                 (opaque_id,)).fetchone()
-            if known and not hmac.compare_digest(known[0], th):
+            # refused unless a token record exists AND the token matches it (the record
+            # is registered when the material is first proposed - see register_token)
+            if known is None or not hmac.compare_digest(known[0], th):
                 con.rollback()
                 raise BrainError("not your source")
             con.execute("INSERT OR IGNORE INTO withdrawals VALUES (?,?,'blocked',?,NULL)",
                         (opaque_id, th, _now()))
             self._crash("block_before_commit")
+            con.commit()
+        finally:
+            con.close()
+
+    def register_token(self, opaque_id: str, token_hash: str) -> None:
+        """Record the keyed hash of a source's withdrawal token in shared.db when
+        its material is first proposed (narrow, insert-only: an existing record
+        is never replaced, so nobody can take over another person's source).
+        Holds no content and no owner identity."""
+        con = self._shared_writer()
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            known = con.execute("SELECT token_hash FROM source_tokens WHERE opaque_id=?",
+                                (opaque_id,)).fetchone()
+            if known is not None and not hmac.compare_digest(known[0], token_hash):
+                con.rollback()
+                raise BrainError("this source is registered to someone else")
+            con.execute("INSERT OR IGNORE INTO source_tokens VALUES (?,?)",
+                        (opaque_id, token_hash))
             con.commit()
         finally:
             con.close()
@@ -624,6 +645,8 @@ class Session(_Base):
                         src["reference"] if "details" in lv else None,
                         src["captured_at"] if "details" in lv else None,
                         src["raw_text"] if "full_text" in lv else None, json.dumps(lv)))
+        for row in out:                          # before anything reaches the outbox
+            self._lib.register_token(row[2], row[5])
         con = self._lib._outbox(self._user["file_id"], write=True)
         try:
             con.execute("INSERT INTO proposals VALUES (?,?,?,?,?,?,?)",
