@@ -299,7 +299,8 @@
   "old": "    if r.audience != \"shared\":\n        _bad(\"only a response marked audience='shared' can be passed on\")",
   "new": "    pass",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -308,7 +309,8 @@
   "old": "question=\"\", related=[], understood_as=\"\"",
   "new": "question=\"\", related=src.related, understood_as=\"\"",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -317,7 +319,8 @@
   "old": "src, question=\"\", related=[], understood_as=\"\"",
   "new": "src, question=src.question, related=[], understood_as=\"\"",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -326,7 +329,8 @@
   "old": "understood_as=\"\", interpretation=None, clarification=None,",
   "new": "understood_as=src.understood_as, interpretation=None, clarification=None,",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -335,7 +339,8 @@
   "old": "understood_as=\"\", interpretation=None, clarification=None,",
   "new": "understood_as=\"\", interpretation=src.interpretation, clarification=None,",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -344,7 +349,8 @@
   "old": "understood_as=\"\", interpretation=None, clarification=None,",
   "new": "understood_as=\"\", interpretation=None, clarification=src.clarification,",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -353,7 +359,8 @@
   "old": "    if g.get(\"scope\") != \"shared\":\n",
   "new": "    if False:\n",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -362,7 +369,8 @@
   "old": "\"scope\": \"shared\", \"internal\": bool(g.get(\"internal\")),",
   "new": "\"scope\": \"shared\", \"internal\": bool(g.get(\"internal\")), \"publisher\": g.get(\"publisher\"),",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -371,7 +379,8 @@
   "old": "\"scope\": \"shared\", \"internal\": bool(g.get(\"internal\")),",
   "new": "\"scope\": \"shared\", \"internal\": bool(g.get(\"internal\")), \"labels\": g.get(\"labels\"),",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -380,7 +389,8 @@
   "old": "\"page\": _page(e.get(\"page\"))}\n                         for e in ex",
   "new": "\"source\": e.get(\"source\"), \"page\": _page(e.get(\"page\"))}\n                         for e in ex",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -389,7 +399,8 @@
   "old": "if not isinstance(c, dict) or c.get(\"scope\") != \"shared\":",
   "new": "if not isinstance(c, dict):",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -398,7 +409,8 @@
   "old": "    if c.scope != \"shared\":\n        _bad(\"citation: not a shared claim\")",
   "new": "    pass",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -407,7 +419,8 @@
   "old": "if e.get(\"personal_details\") is False:",
   "new": "if e.get(\"personal_details\") is not True:",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -416,7 +429,8 @@
   "old": "if e.get(\"personal_details\") is False:",
   "new": "if True:",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -425,7 +439,8 @@
   "old": "\"candidates\": [],",
   "new": "\"candidates\": list(st.get(\"candidates\") or []),",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -434,7 +449,8 @@
   "old": "        if k not in out:\n            residue.texts += _strings(v)",
   "new": "        if k not in out:\n            out[k] = v",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -443,7 +459,8 @@
   "old": "    src = copy.deepcopy(r)",
   "new": "    src = r",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ],
   "equivalent": "shareable() rebuilds every list and dict it returns, so the extra deep copy is a second layer of the same protection"
  },
@@ -453,7 +470,8 @@
   "old": "    src = copy.deepcopy(a)\n    residue",
   "new": "    src = a\n    residue",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ],
   "equivalent": "same: the answer copy is rebuilt field by field"
  },
@@ -463,16 +481,18 @@
   "old": "if s.get(\"from\") == \"passage\" and s.get(\"scope\") == \"shared\":",
   "new": "if s.get(\"from\") == \"passage\":",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
   "name": "[shareable] residue scan disabled (response)",
   "file": "puzzle_assistant/brain/shareable.py",
-  "old": "    _check_residue(residue.names, residue.texts, kept)\n    return out\n\n\n@_guarded\ndef sanitize_answer",
-  "new": "    return out\n\n\n@_guarded\ndef sanitize_answer",
+  "old": "    _check_residue(residue.names, residue.texts, kept)\n    _check_provenance(out.value",
+  "new": "    _check_provenance(out.value",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -481,7 +501,8 @@
   "old": "_bad(f\"unknown field {f.name!r}\")",
   "new": "pass",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -490,7 +511,8 @@
   "old": "    if r.save_offer is not None:\n        _bad(\"save_offer is not part of a shareable response\")",
   "new": "    pass",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -499,7 +521,8 @@
   "old": "h.detail.get(\"scope\") == \"shared\":",
   "new": "True:",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -508,7 +531,8 @@
   "old": " _str(h.category, \"hit category\"), [], {\"scope\": \"shared\"}))",
   "new": " _str(h.category, \"hit category\"), h.sources, h.detail))",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -517,7 +541,8 @@
   "old": "out = dataclasses.replace(src, question=\"\", trace=[], hits=hits, steps=steps)",
   "new": "out = dataclasses.replace(src, question=\"\", trace=src.trace, hits=hits, steps=steps)",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -526,7 +551,8 @@
   "old": "out = dataclasses.replace(src, question=\"\", trace=[], hits=hits, steps=steps)",
   "new": "out = dataclasses.replace(src, question=src.question, trace=[], hits=hits, steps=steps)",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -535,7 +561,8 @@
   "old": "out = dataclasses.replace(src, question=\"\", trace=[], hits=hits, steps=steps)",
   "new": "out = dataclasses.replace(src, question=\"\", trace=[], hits=hits, steps=src.steps)",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -544,7 +571,8 @@
   "old": "    if a.audience != \"shared\":\n        _bad(\"only an answer marked audience='shared' can be passed on\")",
   "new": "    pass",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -553,7 +581,8 @@
   "old": "        return sanitize_response(self)",
   "new": "        return self",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -562,16 +591,8 @@
   "old": "        return sanitize_answer(self)",
   "new": "        return self",
   "tests": [
-   "tests.test_brain_shareable"
-  ]
- },
- {
-  "name": "[shareable] step claim extra key (note) carried",
-  "file": "puzzle_assistant/brain/shareable.py",
-  "old": "\"status\": _str(c.get(\"status\"), what + \" status\"), \"scope\": \"shared\"}",
-  "new": "\"status\": _str(c.get(\"status\"), what + \" status\"), \"scope\": \"shared\", \"note\": c.get(\"note\")}",
-  "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -580,17 +601,19 @@
   "old": "\"personal_details\": bool(e.get(\"personal_source\"))",
   "new": "\"personal_details\": False",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ],
   "equivalent": "the same condition already lowers the response's audience to personal, and shareable() refuses a personal response"
  },
  {
   "name": "[shareable] answer residue scan disabled",
   "file": "puzzle_assistant/brain/shareable.py",
-  "old": "    kept = [out.answer or \"\", out.possible or \"\"] + _strings([steps, [h.text for h in hits]])\n    _check_residue(residue.names, residue.texts, kept)\n",
-  "new": "    kept = []\n",
+  "old": "    _check_residue(residue.names, residue.texts, kept)\n    _check_provenance(out.answer",
+  "new": "    _check_provenance(out.answer",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -599,7 +622,8 @@
   "old": "        if any(x in k for x in windows for k in low):",
   "new": "        if any(n in k for k in low):",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -608,7 +632,8 @@
   "old": "    t = unicodedata.normalize(\"NFKD\", t)\n    t = \"\".join(c for c in t if not unicodedata.combining(c)).casefold()",
   "new": "    t = t.lower()",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -617,7 +642,8 @@
   "old": "    t = re.sub(r\"[\\u2018\\u2019\\u201a\\u201b\\u2032`]\", \"'\", t)\n",
   "new": "",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -626,7 +652,8 @@
   "old": "    return re.sub(r\"\\s+\", \" \", t).strip()",
   "new": "    return t.strip()",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -635,16 +662,18 @@
   "old": "        b3_status=\"\", steps=steps",
   "new": "        steps=steps",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
   "name": "[shareable] hit score carried",
   "file": "puzzle_assistant/brain/shareable.py",
-  "old": "_str(h.status, \"hit status\"), _str(h.origin, \"hit origin\"), 0.0,",
-  "new": "_str(h.status, \"hit status\"), _str(h.origin, \"hit origin\"), h.score,",
+  "old": "_one_of(h.origin, set(ORIGINS), \"hit origin\"), 0.0,",
+  "new": "_one_of(h.origin, set(ORIGINS), \"hit origin\"), h.score,",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -653,7 +682,8 @@
   "old": "    _one_of(r.ai, {\"none\"}, \"ai\")",
   "new": "    pass",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -662,7 +692,8 @@
   "old": "    _one_of(r.category, CATEGORIES, \"category\")",
   "new": "    pass",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -671,7 +702,8 @@
   "old": "    _unknown_fields(a, _KNOWN_ANSWER_FIELDS)",
   "new": "    pass",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -680,7 +712,8 @@
   "old": "    _one_of(a.status, _STATUSES, \"status\")",
   "new": "    pass",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -689,7 +722,8 @@
   "old": "        if not isinstance(h, Hit):\n            _bad(\"hit: not a Hit\")\n",
   "new": "        if not isinstance(h, Hit):\n            continue\n",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -698,7 +732,8 @@
   "old": "\"id\": _int(c.get(\"id\"), what + \" id\")",
   "new": "\"id\": c.get(\"id\")",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -707,7 +742,8 @@
   "old": "return v if type(v) is int else None",
   "new": "return v if isinstance(v, int) else None",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ]
  },
  {
@@ -716,7 +752,8 @@
   "old": "        except (TypeError, ValueError, AttributeError, KeyError, IndexError) as e:\n            raise NotShareable(f\"cannot be established as safe ({type(e).__name__})\") from None",
   "new": "        except ZeroDivisionError:\n            raise NotShareable(\"x\")",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ],
   "allow_other": "the tests expect NotShareable; a raw TypeError escaping is the detection"
  },
@@ -726,7 +763,8 @@
   "old": "    if not isinstance(c, Citation):\n        _bad(\"citation: not a Citation\")\n",
   "new": "",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ],
   "equivalent": "a non-Citation object is also refused by the general error guard around shareable()"
  },
@@ -736,8 +774,179 @@
   "old": "\"personal_details\": bool(e.get(\"personal_source\"))",
   "new": "\"personal_details\": True if False else False",
   "tests": [
-   "tests.test_brain_shareable"
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
   ],
   "equivalent": "same condition as the previous line: the audience check already refuses the response"
+ },
+ {
+  "name": "[shareable] provenance check disabled (response)",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    _check_provenance(out.value, out.possible, out.sentence, steps, cits, ch, sides,\n                      residue.shared_words)\n",
+  "new": "    pass\n",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] provenance check disabled (answer)",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    _check_provenance(out.answer, out.possible, \"\", steps, [], [], [], residue.shared_words)\n",
+  "new": "    pass\n",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] step labels not checked",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "        for w in _words(st[\"ask\"]):\n            if w not in corpus and w not in fixed:\n                _bad(\"a step label holds a name not found in the shared material\")",
+  "new": "        pass",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] step values not checked",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "        for w in _words(st[\"value\"] or \"\"):\n            if w not in corpus and w not in fixed:\n                _bad(\"a step value holds a name not found in the shared material\")",
+  "new": "        pass",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] value/possible/sentence not checked",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    for what, text in ((\"value\", value), (\"possible\", possible), (\"sentence\", sentence)):\n        for w in _words(text or \"\"):\n            if w not in corpus and w not in fixed:\n                _bad(f\"the {what} holds a word not found in the shared material\")",
+  "new": "    pass",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] sentence not checked",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "(\"possible\", possible), (\"sentence\", sentence)):",
+  "new": "(\"possible\", possible)):",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] label words: everything allowed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "            if w not in corpus and w not in fixed:\n                _bad(\"a step label",
+  "new": "            if False:\n                _bad(\"a step label",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] claim texts not in the corpus",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "        for c in st[\"claims\"] + st[\"also_unverified\"]:\n            corpus |= set(_words(c[\"text\"]))",
+  "new": "        pass",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] step claim extra key carried",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    return {\"id\": _int(c.get(\"id\"), what + \" id\"), \"text\": _str(c.get(\"text\"), what + \" text\"),",
+  "new": "    return {\"note\": c.get(\"note\"), \"id\": _int(c.get(\"id\"), what + \" id\"), \"text\": _str(c.get(\"text\"), what + \" text\"),",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] subject words not collected",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    residue.shared_words |= set(_words(_str(c.subject, \"citation subject\")))   # vouches only\n",
+  "new": "    pass\n",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] subject kept in the output",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "                    \"shared\", ev, bool(c.supports))",
+  "new": "                    \"shared\", ev, bool(c.supports), c.subject)",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] step outcome enum removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "\"outcome\": _one_of(st.get(\"outcome\", \"\"), _OUTCOMES, \"step outcome\"),",
+  "new": "\"outcome\": _str(st.get(\"outcome\", \"\"), \"step outcome\"),",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] hit status enum removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "_one_of(h.status, _statuses(), \"hit status\")",
+  "new": "_str(h.status, \"hit status\")",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] claim status enum removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "\"status\": _one_of(c.get(\"status\"), _statuses(), what + \" status\")",
+  "new": "\"status\": _str(c.get(\"status\"), what + \" status\")",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] fixed vocabulary missing from step values",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "        for w in _words(st[\"value\"] or \"\"):\n            if w not in corpus and w not in fixed:",
+  "new": "        for w in _words(st[\"value\"] or \"\"):\n            if w not in corpus:",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] citation subject not read from the store",
+  "file": "puzzle_assistant/brain/respond.py",
+  "old": "subject = ((store.claim(c[\"id\"], viewer) or {}).get(\"subject\") or \"\")",
+  "new": "subject = \"\"",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
+ },
+ {
+  "name": "[shareable] hit text does not vouch on the answer path",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "        residue.shared_words |= set(_words(h.text))\n",
+  "new": "        pass\n",
+  "tests": [
+   "tests.test_brain_shareable",
+   "tests.test_brain_shareable_labels"
+  ]
  }
 ]

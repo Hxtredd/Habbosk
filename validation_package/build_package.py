@@ -2,7 +2,7 @@ import hashlib, io, os, shutil, subprocess, sys, tarfile, zipfile
 S = os.path.dirname(os.path.abspath(__file__))
 REPO = "/home/user/priv"
 SHA = subprocess.check_output(["git", "-C", REPO, "rev-parse", sys.argv[1]], text=True).strip()
-assert SHA == "68b500f3d691f714425497ceb6eac3beac8967ac", SHA
+BRANCH = sys.argv[2]
 TREE = subprocess.check_output(["git", "-C", REPO, "rev-parse", SHA + "^{tree}"], text=True).strip()
 BR = subprocess.check_output(["git", "-C", REPO, "branch", "-r", "--contains", SHA], text=True)
 NAME = "SK-Privacy-Validation-" + SHA[:7]
@@ -15,6 +15,9 @@ for f in os.listdir(os.path.join(S, "pkg")):
     p = os.path.join(S, "pkg", f)
     if os.path.isfile(p):
         shutil.copy(p, root)
+st = open(os.path.join(root, "START_HERE.txt"), newline="").read()
+st = st.replace("@SHA@", SHA).replace("@SHA7@", SHA[:7]).replace("@TREE@", TREE).replace("@BRANCH@", BRANCH)
+open(os.path.join(root, "START_HERE.txt"), "w", newline="").write(st)
 sys.path.insert(0, os.path.join(root, "tools"))
 import common
 fp = subprocess.check_output([sys.executable, "-B", "-c",
@@ -26,7 +29,7 @@ files = common.file_list(os.path.join(root, "source"))
 assert common.source_tree_sha(os.path.join(root, "source"), files) == TREE
 with open(os.path.join(root, "MANIFEST.txt"), "w", encoding="utf-8", newline="\n") as m:
     m.write("# SK Brain privacy validation package - what is in source\\\n".replace("\\\n", "\n"))
-    m.write(f"source commit: {SHA}\nsource branch: claude/brain-privacy-shareable\nsource tree: {TREE}\n")
+    m.write(f"source commit: {SHA}\nsource branch: {BRANCH}\nsource tree: {TREE}\n")
     m.write(f"brain fingerprint: {fp}\nsource files: {len(files)}\n")
     for rel in files:
         m.write("FILE %s %s\n" % (common.sha256_file(os.path.join(root, "source", *rel.split("/"))), rel))

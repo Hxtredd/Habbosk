@@ -18,13 +18,14 @@ MODULES = [
     "tests.test_brain_audience_privacy",     # F1 / F5: unverified claims, place names, aliases
     "tests.test_brain_audience_details",     # F2: source titles / dates / quotes
     "tests.test_brain_shareable",            # Response.shareable() / BrainAnswer.shareable()
+    "tests.test_brain_shareable_labels",     # step labels, values and sentences (reviewer's concern)
     "tests.test_brain_b6",                    # B6 incl. ChallengeAudience (personal passages)
     "tests.test_brain_reason",               # the reasoning the audience is computed from
     "tests.test_brain_b6_process_guard",     # the static guards over the Brain code
 ]
 FULL = "--full" in sys.argv
 
-MINIMUM = [10, 8, 18, 14, 4, 1, 4, 16]       # fewest tests each line below may match
+MINIMUM = [10, 8, 18, 14, 4, 1, 4, 12, 16]       # fewest tests each line below may match
 
 # requirement -> test-id prefixes that must exist, run and all pass
 REQUIREMENTS = [
@@ -55,6 +56,8 @@ REQUIREMENTS = [
       "tests.test_brain_shareable.RealResponses.test_a_shared_response_is_cleaned_and_the_asker_view_is_whole",
       "tests.test_brain_shareable.RealResponses.test_a_response_for_someone_without_material_is_cleaned_too",
       "tests.test_brain_audience_details.GrantedDetailsStayShared"]),
+    ("Step labels, values and sentences hold only shared words",
+     ["tests.test_brain_shareable_labels"]),
     ("Unknown or unexpected fields fail closed",
      ["tests.test_brain_shareable.FailClosed",
       "tests.test_brain_shareable.MoreFailClosed",
@@ -90,11 +93,11 @@ def main():
         print(s, flush=True)
         log.append(s)
 
-    say("SK Brain - privacy validation (exact commit 68b500f)")
-    say("=" * 60)
     ok, head = verify_package.verify(quiet=False)
     if not ok:
         return 1
+    say("SK Brain - privacy validation (exact commit " + head["source commit"][:7] + ")")
+    say("=" * 60)
     say(common.python_banner())
     if common.python_warning():
         say(common.python_warning())

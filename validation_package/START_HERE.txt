@@ -1,6 +1,6 @@
 SK BRAIN - PRIVACY VALIDATION PACKAGE
-Exact code under test: commit 68b500f3d691f714425497ceb6eac3beac8967ac
-Branch: claude/brain-privacy-shareable   (NOT integrated; nothing here is a release)
+Exact code under test: commit @SHA@
+Branch: @BRANCH@   (NOT integrated; nothing here is a release)
 
 WHAT THIS DOES
 It runs the privacy tests for the SK Brain on your Windows computer, using only the folder
@@ -14,27 +14,27 @@ If "py -3.14" worked for you before, this works too.
 
 DO IT ONE STEP AT A TIME
 1. Unzip the whole zip to a simple place, for example  C:\SKcheck  (right-click the zip,
-   "Extract All"). Open the unzipped folder "SK-Privacy-Validation-68b500f".
+   "Extract All"). Open the unzipped folder "SK-Privacy-Validation-@SHA7@".
    You do NOT need to close SK Assistant.
 
 2. Double-click  STEP1_CHECK_PACKAGE.bat
-   Takes a few seconds. It proves the code in this folder is exactly commit 68b500f.
+   Takes a few seconds. It proves the code in this folder is exactly commit @SHA7@.
    You should see:  PACKAGE CHECK: OK ...   then   FINISHED: PASS
    Check that the line "Git tree id (recomputed)" shows the same number I gave you in the
-   chat (34b167cea159bd5794b9524b3615044fbd9431e1). Also compare the zip's SHA-256 if you
+   chat (@TREE@). Also compare the zip's SHA-256 if you
    like:  certutil -hashfile <zipfile> SHA256   (I give you the expected value in the chat).
    Press any key to close the window.
 
 3. Double-click  STEP2_RUN_PRIVACY_TESTS.bat
-   Takes about 1 to 3 minutes. At the end you should see a list of eight lines that all
-   start with [PASS], and the last lines:  RESULT: PASS   commit 68b500f...
+   Takes about 1 to 3 minutes. At the end you should see a list of nine lines that all
+   start with [PASS], and the last lines:  RESULT: PASS   commit @SHA7@...
    A report file called  privacy_check_report.txt  appears in the same folder.
 
 4. Double-click  STEP3_RUN_BREAK_TESTS.bat
-   Takes roughly 10 to 20 minutes (81 deliberate breaks; it prints one line per break).
+   Takes roughly 10 to 20 minutes (about 95 deliberate breaks; it prints one line per break).
    It breaks a COPY of the code on purpose and checks that the tests notice.
    At the end:  RESULT: PASS   deliberate breaks ...
-   Eight lines say "same-as-before (equivalent, expected)" - that is normal and explained
+   Some lines say "same-as-before (equivalent, expected)" - that is normal and explained
    on the screen. A report file  privacy_breaks_report.txt  appears.
 
 5. (Optional, about 15 minutes) STEP4_OPTIONAL_FULL_SUITE.bat runs every test in the repo.
@@ -52,7 +52,7 @@ WHEN YOU ARE DONE
 You can delete the whole folder. Nothing else on your computer was touched.
 
 WHAT IS IN THE FOLDER
-source\            the exact code of commit 68b500f (unchanged)
+source\            the exact code of commit @SHA7@ (unchanged)
 tools\             the scripts these steps run
 MANIFEST.txt       the commit id, the git tree id and a fingerprint of every file
 test_area\         created when you run the tests; safe to delete
