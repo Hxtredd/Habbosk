@@ -1264,6 +1264,28 @@ change before B7, or part of B7's file-access layer); Python floor / oldest
 Windows Python run; policy for an unreadable key (refuse and explain is the
 current behaviour); regression manifest entry at the next merge.
 
+### B6.2 - audience privacy and Response.shareable() (branch claude/brain-privacy-shareable)
+
+State: NOT integrated; waits for the owner's review, a Windows run and explicit approval.
+Integration order followed (owner-approved): claude/brain-integration fast-forwarded
+e38e606 -> 9c16e8e (the audience fix); the privacy commits were cherry-picked in
+order onto a new branch from it (linear, no merge commits).
+Fixes: F1 (unverified claims count toward the audience), F2 / F2-a (source details or
+quote from the owner's own rows under shared ids make a response personal), F5-b / F5-c
+(place names in step labels and reverse answers come from shared claims).
+New: Response.shareable() / BrainAnswer.shareable() (brain/shareable.py) - allow-list,
+fail-closed sanitized copy of a response marked shared; removes related, question,
+understood_as / interpretation / clarification, non-shared challenges, source titles,
+publishers, hit scores, trace, b3_status; keeps citations only when evidence is marked
+personal_details False; the original is never modified. It prepares only - no sharing
+feature exists.
+Results (Linux, tip 68b500f, Brain fingerprint 2315b604c9b3d87c): whole suite 872 tests OK,
+2 skipped; shareable tests 54; shareable breaks 44/49 caught (5 equivalent), privacy
+breaks 20/22, audience breaks 9/10 (the misses are documented equivalents). Security
+Auditor reviews were Claude reviews, not independent. Windows: NOT run.
+Known limits: personal_details is set by respond() and trusted by the copy helper; text the
+asker typed is not residue-scanned; challenge publishers / source titles are dropped by design.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the
