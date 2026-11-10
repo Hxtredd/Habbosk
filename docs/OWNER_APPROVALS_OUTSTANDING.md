@@ -3,7 +3,7 @@
 Nothing below has happened. Each item names the exact thing to approve.
 
 ## Privacy work
-1. **Windows results for the privacy validation package.** Run the NEWER package (commit a79e2ed, zip
+1. **DONE 2026-11-10: Windows results for a79e2ed** (privacy suite 219/219, breaks 89 caught + 8 equivalents, 0 unexpected; the whole-suite Step 4 and the official Windows check were not run). Previously: **Windows results for the privacy validation package.** Run the NEWER package (commit a79e2ed, zip
    SHA-256 `cf69352f921d2b97314042b7081c2b0a81790fdd9915fcebdb8fbf65552d9393`); the 68b500f package
    (`4cb41119...`) is superseded unless you prefer to integrate 68b500f alone.
 2. **Integration** into `claude/brain-integration` (fast-forward only, to an exact SHA). Two candidates:

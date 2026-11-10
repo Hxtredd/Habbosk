@@ -1324,6 +1324,22 @@ Security Auditor reviews: 3 rounds, Claude reviews (not independent). Windows: N
 Package zip SHA-256 cf69352f921d2b97314042b7081c2b0a81790fdd9915fcebdb8fbf65552d9393
 (supersedes the 68b500f package for the candidate; the 68b500f result stays valid for 68b500f).
 
+### B6.3 Windows validation result (owner's run, 2026-11-10)
+
+Commit a79e2ed474bf1d38c73f871d5618dde96ad0e77b, package zip SHA-256 56e7729b... (v3 tooling),
+Python 3.14.10 on Windows 11 (win32), private test area inside the package folder, network blocked.
+- Privacy suite (Step 2): 219 tests, 219 passed, 0 failed, 0 errors, 0 skipped; all nine
+  protection lines PASS; Brain fingerprint 2e607284c4b6b2ed matched; config.DATA_DIR, temp, home
+  and APPDATA all inside the test area; pypdf 6.21.4 from the package's .venv-check; source
+  unchanged after the run.
+- Deliberate breaks (Step 3): baseline 132 tests pass; 97 breaks: 89 caught, 8 documented
+  equivalents, 0 unexpected, 0 setup errors; 2556 s; source unchanged.
+- NOT run on Windows for this commit: the whole repository suite (Step 4, optional) and the
+  official BRAIN_WINDOWS_CHECK.bat. Linux whole suite: 896 tests, 894 passed, 2 skipped.
+- Earlier attempts on the same commit failed for package reasons only (pypdf missing from the
+  plain Python; compiled caches left in source): fixed in the tooling (ff4b436, e40e3bc).
+Reports: privacy_check_report.txt, privacy_breaks_report.txt (owner's upload).
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the
