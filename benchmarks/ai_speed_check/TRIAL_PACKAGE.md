@@ -5,11 +5,11 @@ and the release branch untouched, the in-app updater never sees it.
 
 | | |
 |---|---|
-| Package | `trial_dist/SK_Assistant_TRIAL_172d63b.zip` (top folder "SK Assistant TRIAL", 171 files, 12 000 041 bytes) |
-| SHA-256 | `5750b8ce9d80027ae8601da8b3e322f96602f359e614a5a4d2d12c381276c2da` |
-| Code | commit `172d63b` = A-D (`e9cee60`) + closed-memory counting fix + trial tooling (`f03b38a`, `8fc56b2`) + Windows test fix (`172d63b`) |
-| Built by | `tools/build_trial.py 172d63b` |
-| Replaces | `SK_Assistant_TRIAL_8fc56b2.zip` (SHA-256 b4ffdec1...): its self-test failed on the owner's PC, see below |
+| Package | `trial_dist/SK_Assistant_TRIAL_ba3a640.zip` (top folder "SK Assistant TRIAL", 12001314 bytes) |
+| SHA-256 | `3c3b555fe44cd7ca7366faf86bc242d30335a2b8c6f7f09a23f55c05671885b0` |
+| Code | commit `172d63b` = A-D (`e9cee60`) + closed-memory counting fix + trial tooling (`f03b38a`, `8fc56b2`) + Windows test fix (`172d63b`) + Windows cancel fix (`ba3a640`) |
+| Built by | `tools/build_trial.py ba3a640` |
+| Replaces | `SK_Assistant_TRIAL_8fc56b2.zip` and `SK_Assistant_TRIAL_172d63b.zip`: their self-tests failed on the owner's PC, see below |
 
 ## Isolation (what makes it safe)
 
@@ -70,6 +70,18 @@ on the key comparison; the "trial inside the normal folder" test could open
 a trial window from a temporary folder. Fixed in 172d63b: fake folder at
 both platforms' locations, and every trial test refuses to run unless the
 protected folder is inside its own temp folder.
+
+## Owner's second Windows setup (172d63b): isolation OK, one real Windows finding
+
+Self-test: 102 tests, 1 error, 0 blocked accesses. The isolation tests all
+passed. Error: RealSockets.test_cancel_stops_a_real_hanging_request - on
+Windows, socket.shutdown() from another thread does not wake a thread waiting
+for the reply, so a stopped request kept running until the server answered.
+(The newest question still did not wait - second lane - so the earlier
+Windows benchmark's "question changed" result stands, but old requests were
+not really cut short on Windows.) Fixed in ba3a640: the socket is also closed on
+Windows. Verified on Linux with a Windows-like fake socket and with real
+sockets (close forced on); real-Windows proof is the owner's next self-test.
 
 ## Limitations
 
