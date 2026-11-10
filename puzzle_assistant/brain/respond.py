@@ -177,12 +177,14 @@ def _cite(store, claims: List[dict], viewer, check_support: bool) -> List[Citati
             continue
         seen.add(c["id"])
         evs = store.cited_evidence(c["id"], viewer)
+        subject = ((store.claim(c["id"], viewer) or {}).get("subject") or "")
         cit = Citation(c["id"], c["text"], c["status"], c["scope"],
                        [{"kind": e["kind"], "quote": e["locator"] or "",
                          "source": e["title"] or "", "source_kind": e["source_kind"] or "",
                          "date": _date(e), "page": e.get("page"),
                          "withheld": bool(e.get("withheld")),
-                         "personal_details": bool(e.get("personal_source"))} for e in evs])
+                         "personal_details": bool(e.get("personal_source"))} for e in evs],
+                       subject=subject)
         if check_support:
             full = store.claim(c["id"], viewer) or {}
             cit.supports = any(_supports(store, e, c, full) for e in evs)

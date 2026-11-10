@@ -189,10 +189,9 @@ class Brain:
         steps = [{"ask": st.ask, "outcome": st.outcome, "value": st.display or st.value,
                   "verified": st.verified, "candidates": st.candidates,
                   "claims": [{"id": s.claim_id, "text": s.text, "status": s.status,
-                              "scope": s.scope, "subject": s.subject} for s in st.supports],
+                              "scope": s.scope} for s in st.supports],
                   "also_unverified": [{"id": s.claim_id, "text": s.text, "status": s.status,
-                                       "scope": s.scope, "subject": s.subject}
-                                      for s in st.also_unverified]}
+                                       "scope": s.scope} for s in st.also_unverified]}
                  for st in r.steps]
         answered = r.status in ("established", "absent")
         return BrainAnswer(question, answered=answered, answer=r.answer,

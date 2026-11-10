@@ -194,7 +194,6 @@ class Support:
     scope: str
     fact: Fact
     written: str = ""     # B6.1: the place as THIS claim has it (before aliases made it canonical)
-    subject: str = ""     # B6.3: the claim's own subject (a place name may be taken from it)
 
 
 @dataclass
@@ -246,7 +245,7 @@ class FactIndex:
                          self.canon(f.value) if f.relation == "leads_to" and f.value else f.value,
                          f.qualifier, f.display)
             s = Support(int(d.record_id), d.text, d.status, (d.detail or {}).get("scope", ""), f,
-                        written, d.subject or "")
+                        written)
             self.by_place.setdefault((f.relation, f.place), []).append(s)
             if f.value is not None:
                 self.by_value.setdefault((f.relation, f.value), []).append(s)

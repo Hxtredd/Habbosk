@@ -247,12 +247,12 @@ class SubjectDerivedName(unittest.TestCase):
         r.steps[0]["value"] = "Rope Shed"
         r.steps[0]["ask"] = "where it leads (Harbour Steps, north side)"
         r.steps[0]["claims"][0]["text"] = "The northern exit leads to the Rope Shed."
-        r.steps[0]["claims"][0]["subject"] = "Harbour Steps"
+        r.citations[0].subject = "Harbour Steps"
         r.citations[0].text = "The northern exit leads to the Rope Shed."
         r.citations[0].evidence[0]["quote"] = "The northern exit leads to the Rope Shed."
         self.assertIn("Harbour Steps", r.shareable().steps[0]["ask"])
-        self.assertNotIn("subject", r.shareable().steps[0]["claims"][0])      # vouches only
-        del r.steps[0]["claims"][0]["subject"]
+        self.assertEqual(r.shareable().citations[0].subject, "")             # vouches only
+        r.citations[0].subject = ""
         with self.assertRaises(NotShareable):
             r.shareable()
 

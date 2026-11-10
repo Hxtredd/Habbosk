@@ -154,6 +154,7 @@ class Citation:
     scope: str
     evidence: List[dict] = field(default_factory=list)   # kind, quote, source title/kind/date
     supports: bool = False      # Documented only: this claim's quote states the fact by itself
+    subject: str = ""           # B6.3: the claim's subject (vouches for a place name taken from it)
 
 
 @dataclass

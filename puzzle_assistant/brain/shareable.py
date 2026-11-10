@@ -71,12 +71,10 @@ def _opt_str(v: Any, what: str):
     return None if v is None else _str(v, what)
 
 
-def _shared_claim(c: Any, what: str, residue: "Residue" = None) -> dict:
+def _shared_claim(c: Any, what: str) -> dict:
     """A claim entry of a step: its scope must be 'shared' (it would contradict the audience)."""
     if not isinstance(c, dict) or c.get("scope") != "shared":
         _bad(f"{what}: not a shared claim")
-    if residue is not None and isinstance(c.get("subject"), str):
-        residue.shared_words |= set(_words(c["subject"]))      # vouches for a name only; not kept
     return {"id": _int(c.get("id"), what + " id"), "text": _str(c.get("text"), what + " text"),
             "status": _one_of(c.get("status"), _statuses(), what + " status"), "scope": "shared"}
 
@@ -91,8 +89,8 @@ def _step(st: Any, residue: "Residue") -> dict:
            # names of other candidate places can only exist in an ambiguous (never shared)
            # answer; they are never carried over
            "candidates": [],
-           "claims": [_shared_claim(c, "step claim", residue) for c in (st.get("claims") or [])],
-           "also_unverified": [_shared_claim(c, "step also_unverified", residue)
+           "claims": [_shared_claim(c, "step claim") for c in (st.get("claims") or [])],
+           "also_unverified": [_shared_claim(c, "step also_unverified")
                                for c in (st.get("also_unverified") or [])]}
     for k, v in st.items():                       # whatever else a step carries is not copied
         if k not in out:
@@ -131,6 +129,7 @@ def _citation(c, residue: "Residue"):
                        "personal_details": False})
         else:                                      # personal, or not established: left out
             residue.names += _strings(e.get("source"))   # a title a sentence may name
+    residue.shared_words |= set(_words(_str(c.subject, "citation subject")))   # vouches only
     return Citation(_int(c.claim_id, "citation id"), _str(c.text, "citation text"),
                     _one_of(c.status, _statuses(), "citation status"),
                     "shared", ev, bool(c.supports))

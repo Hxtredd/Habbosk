@@ -353,25 +353,25 @@ class MoreFailClosed(unittest.TestCase):
         with self.assertRaises(NotShareable):
             r.shareable()
 
+    # The removed titles below are made only of words the shared material itself contains (so the
+    # word-by-word provenance check cannot be what refuses them): only the residue check can.
+    def refused(self, title, sentence):
+        r = contaminated(sentence=sentence)
+        r.citations[0].evidence[1]["source"] = title
+        with self.assertRaises(NotShareable, msg=(title, sentence)):
+            r.shareable()
+
     def test_removed_names_are_found_after_accents_quotes_spacing_and_truncation(self):
-        for said in ("According to  LUIS-source-TITLE, Mira.", "According to Luis\u2019s Field Diary Notes, ok",
-                     "see the h\u00e1ndbook of Luis Field Diary Notes"):
-            r = contaminated(sentence=said)
-            r.citations[0].evidence[1]["source"] = ("LUIS-SOURCE-TITLE" if "LUIS-source" in said
-                                                    else "Luis\u2019s Field Diary Notes 2020.txt")
-            if "h\u00e1ndbook" in said:
-                r.citations[0].evidence[1]["source"] = "Luis Field Diary Notes 2020.txt"
-            with self.assertRaises(NotShareable, msg=said):
-                r.shareable()
+        self.refused("Garden Lantern Mira", "According to Garden Lantern Mira, Mira maintains it.")
+        # a long removed title, only its first three words in the kept sentence
+        self.refused("Garden Lantern Mira Archive Volume Two", "Garden Lantern Mira says so.")
+        self.refused("Garden Lantern Mira", "According to garden   lantern MIRA, it is so.")
 
     def test_normalisation_alone_finds_a_removed_name(self):
-        for title, said in (("Caf\u00e9 Notes", "According to CAFE   NOTES, Mira maintains it."),
-                            ("Luis's Notes", "According to Luis\u2019s Notes, Mira maintains it."),
-                            ("Luis Notes", "According to Luis    Notes, Mira maintains it.")):
-            r = contaminated(sentence=said)
-            r.citations[0].evidence[1]["source"] = title
-            with self.assertRaises(NotShareable, msg=said):
-                r.shareable()
+        self.refused("L\u00e1ntern G\u00e1rden", "According to Lantern Garden, Mira maintains it.")
+        self.refused("\u201cLantern\u201d Garden", 'According to "Lantern" Garden, Mira maintains it.')
+        self.refused("Lantern  Garden", "According to Lantern Garden, Mira maintains it.")
+        self.refused("LANTERN garden", "According to lantern GARDEN, Mira maintains it.")
 
     def test_a_malformed_container_is_notshareable(self):
         for over in ({"steps": 5}, {"citations": 5}, {"challenges": 5}, {"sides": 5}):
@@ -389,9 +389,10 @@ class MoreFailClosed(unittest.TestCase):
 
 class MoreAnswers(Answers):
     def test_the_answer_path_checks_what_it_removed(self):
-        a = self.make(possible="LUIS-SOURCE-TITLE")      # also named in a dropped step key
-        a.steps[0]["x"] = "Luis visits SECRET-VISIT"
-        a = dataclasses.replace(a, possible="Luis visits SECRET-VISIT")
+        # words all present in the shared material (so only the residue check can refuse this)
+        a = self.make()
+        a.steps[0]["x"] = "Garden Mira Lantern"
+        a = dataclasses.replace(a, possible="Garden Mira Lantern")
         with self.assertRaises(NotShareable):
             a.shareable()
 
