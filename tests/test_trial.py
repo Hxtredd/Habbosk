@@ -34,9 +34,17 @@ def tree(path):
     return out
 
 
+def fake_normal_dir(home):
+    """Where the fake everyday SK data folder is for this platform (inside the temp HOME)."""
+    if sys.platform == "win32":
+        return os.path.join(home, "AppData", "Roaming", "SK Assistant")
+    return os.path.join(home, ".local", "share", "SK Assistant")
+
+
 def make_normal_sk(home):
-    """A fake everyday SK data folder (Linux location) with real-looking contents."""
-    d = os.path.join(home, ".local", "share", "SK Assistant")
+    """A fake everyday SK data folder with real-looking contents. Windows finds it
+    through APPDATA, Linux through XDG_DATA_HOME - env_for() sets both to the temp HOME."""
+    d = fake_normal_dir(home)
     os.makedirs(os.path.join(d, "diagnostics"))
     for name in ("habbosk.db", "atlas.db", "knowledge.db"):
         con = sqlite3.connect(os.path.join(d, name))
@@ -67,7 +75,9 @@ def make_trial_root(base):
 
 def env_for(home):
     e = dict(os.environ)
-    e.update({"HOME": home, "XDG_DATA_HOME": os.path.join(home, ".local", "share"),
+    e.update({"HOME": home, "USERPROFILE": home,
+              "XDG_DATA_HOME": os.path.join(home, ".local", "share"),
+              "APPDATA": os.path.join(home, "AppData", "Roaming"),
               "PYTHONDONTWRITEBYTECODE": "1"})
     for k in ("SK_ASSISTANT_DATA", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
               "ALL_PROXY", "all_proxy"):
@@ -82,6 +92,17 @@ class TrialBase(unittest.TestCase):
         self.normal = make_normal_sk(self.home)
         self.before = tree(self.normal)
         self.root = make_trial_root(self.tmp)
+        # never run a trial test against a real folder: the "normal SK" the trial
+        # will protect must be the fake one inside this test's temp folder
+        sys.path.insert(0, os.path.join(ROOT, "trial"))
+        import guard
+        seen = guard.normal_data_dirs(env_for(self.home))
+        if not all(os.path.realpath(d).startswith(os.path.realpath(self.tmp)) for d in seen):
+            self.fail(f"refusing to run: the trial would protect a folder outside the test ({seen})")
+        self.assertEqual(os.path.realpath(seen[0]), os.path.realpath(self.normal))
+        for plat in ("win32", "linux"):                     # both rules stay inside the test folder
+            for d in guard.normal_data_dirs(env_for(self.home), plat):
+                self.assertTrue(os.path.realpath(d).startswith(os.path.realpath(self.tmp)), (plat, d))
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -108,7 +129,10 @@ class GuardTests(TrialBase):
             g = guard.Guard([normal], allow_read=[os.path.join(normal, "keys.bin")],
                             log_path=os.path.join(sys.argv[1], "blocked.log"))
             link = os.path.join(sys.argv[1], "link")
-            os.symlink(normal, link)            # made before the guard (it refuses links into the folder)
+            try:                                # made before the guard (it refuses links into the folder)
+                os.symlink(normal, link, target_is_directory=True)
+            except OSError:                     # Windows without the right to make links
+                link = None
             g.install()
             res = {}
             def t(name, fn):
@@ -134,8 +158,10 @@ class GuardTests(TrialBase):
             t("copy out", lambda: shutil.copy(j("habbosk.db"), sys.argv[1]))
             t("relative path", lambda: (os.chdir(normal), open("habbosk.db", "rb")))
             os.chdir(sys.argv[1])
-            t("make a link", lambda: os.symlink(normal, os.path.join(sys.argv[1], "link2")))
-            t("through a link", lambda: open(os.path.join(link, "habbosk.db"), "rb"))
+            if link:
+                t("make a link", lambda: os.symlink(normal, os.path.join(sys.argv[1], "link2"),
+                                                    target_is_directory=True))
+                t("through a link", lambda: open(os.path.join(link, "habbosk.db"), "rb"))
             t("diagnostics", lambda: open(j("diagnostics", "ai_timing.jsonl"), "a"))
             t("outside", lambda: open(os.path.join(sys.argv[1], "ok.txt"), "w").write("x"))
             res["blocked"] = g.blocked
