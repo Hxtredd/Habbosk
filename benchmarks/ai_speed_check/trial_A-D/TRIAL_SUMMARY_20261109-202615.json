@@ -1,0 +1,37 @@
+{
+ "trial_starts": 1,
+ "log_lines": 37,
+ "first": "2026-11-09T20:14:03",
+ "last": "2026-11-09T20:25:10",
+ "outcomes": {
+  "shown": 35,
+  "stale": 1,
+  "no_answer": 1
+ },
+ "no_answer_reasons": {
+  "bad_reply": 1
+ },
+ "answer_time_all": {
+  "n": 35,
+  "median_s": 0.82,
+  "p90_s": 1.38,
+  "max_s": 2.0
+ },
+ "answer_time_express": {
+  "n": 0
+ },
+ "answer_time_library": {
+  "n": 35,
+  "median_s": 0.82,
+  "p90_s": 1.38,
+  "max_s": 2.0
+ },
+ "waited_for_free_lane_ms_max": 0.4,
+ "requests_sent": 37,
+ "connection_reused": 35,
+ "reconnected": 0,
+ "slow_answers_over_2_5_s": 0,
+ "overload_or_timeout": 0,
+ "e_evidence_share": 0.0,
+ "blocked_accesses_to_normal_sk": 0
+}
