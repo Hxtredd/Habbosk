@@ -93,6 +93,15 @@ cancel token between steps. A test with real sockets and every wake-up
 disabled (as on Windows) stops < 0.5 s; it fails without the fix, i.e. it
 reproduces the owner's failure.
 
+## Trial package for the v3.4 candidate (d531c89)
+
+`trial_dist/SK_Assistant_TRIAL_d531c89.zip` (12 022 701 bytes, SHA-256
+0a281d1bb996abc19bdd3a2c124d6be60a853d1c60522854e1c4b7725cec37b9), built from
+the release-candidate code after both review rounds. Its quick self-test
+(128 tests incl. cancelling over real TLS 1.3 with Windows-like sockets) passed
+from the extracted package on Linux / Python 3.14.6 with 0 blocked accesses;
+to be run on the owner's Windows PC as the Windows proof.
+
 ## Limitations
 
 - Nothing of this has run on Windows yet: the overlay, DPAPI key reading,
