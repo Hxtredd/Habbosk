@@ -1,6 +1,6 @@
 # SK Assistant v3.4.0 - release candidate checklist
 
-Status: **candidate ready, NOT published.** Publishing needs the owner's final approval.
+Status: **PUBLISHED 2026-11-10** as release commit `7b96415` (Option B) - see RELEASE_v3.4.md.
 
 | | |
 |---|---|
@@ -23,8 +23,8 @@ Status: **candidate ready, NOT published.** Publishing needs the owner's final a
 - [x] Trial accounting: 37 = 35 shown + 1 stopped (question changed) + 1 unusable reply.
 
 ## Before publishing (owner)
-- [ ] Windows self-test of the final code: `SK_Assistant_TRIAL_d531c89.zip` covers the transport/cancel code incl. TLS 1.3 tests (211541e adds only `reset_call_info`, tested on Linux 3.12-3.14).
-- [ ] Final release approval.
+- [x] Windows self-test of the final code (cec97c9 = 8718eb6 app files): PASSED, see windows_selftest_v34/ -: `SK_Assistant_TRIAL_d531c89.zip` covers the transport/cancel code incl. TLS 1.3 tests (211541e adds only `reset_call_info`, tested on Linux 3.12-3.14).
+- [x] Final release approval (owner, Option B).
 
 ## Publishing (only after approval) - owner to choose
 - A) Fast-forward the release branch to the candidate commit (history linear from 417e0f9). Simple; puts the development files (benchmarks, trial, trial packages ~50 MB) on the GitHub default branch too (they never ship in the ZIP).
