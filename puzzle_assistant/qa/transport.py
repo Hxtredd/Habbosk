@@ -15,14 +15,16 @@ Safety rules:
     at once (reset / "remote end closed"): it is reopened and the request is
     sent again ONCE. A failure on a fresh connection is reported as before.
     A connection idle for more than MAX_IDLE seconds is not reused.
-  * A cancelled request (ai_jobs.CancelToken) has its connection closed so it
-    stops immediately; the connection is reopened for the next request.
+  * A cancelled request (ai_jobs.CancelToken) stops within POLL seconds: the
+    reply is read in short, cancellable steps (_PollingRaw); the connection
+    is then dropped and reopened for the next request.
   * Same interface as qa.ai.default_http: (method, url, headers, body,
     timeout) -> (status, json payload). Same timeout per network step.
 """
 from __future__ import annotations
 
 import http.client
+import io
 import json
 import select
 import socket
@@ -89,42 +91,76 @@ def _decode(raw: bytes) -> dict:
 POLL = 0.1                      # seconds between checks while waiting for the reply
 
 
-def wait_for_reply(conn, token, timeout: float) -> None:
-    """Wait until the reply starts arriving, in short steps, so a cancelled
-    request stops within POLL seconds (v3.4 B).
+class _PollingRaw(io.RawIOBase):
+    """Reads the reply in short, cancellable steps (v3.4 B).
 
-    Found on the owner's PC: on Windows neither shutdown() nor close() from
-    another thread ends a thread that is already waiting for the reply
-    (http.client keeps the socket open while its reader exists). So the
-    request never waits in one long call: it checks the CancelToken every
-    POLL seconds and only reads once data is there. Same time limit as
-    before (the socket timeout). A reply that stalls after it has started
-    is still ended by the socket timeout."""
-    sock = getattr(conn, "sock", None)
-    if token is None or sock is None:
-        return
-    try:
-        sock.fileno()
-    except Exception:                   # not a real socket (tests)
-        return
-    deadline = time.monotonic() + timeout
-    while True:
-        if token.cancelled:
-            raise Aborted("request cancelled", sent=True)
-        pending = getattr(sock, "pending", None)          # TLS bytes already decrypted
-        if pending is not None and pending() > 0:
-            return
-        left = deadline - time.monotonic()
-        if left <= 0:
-            raise socket.timeout("timed out")
-        try:
-            ready, _, _ = select.select([sock], [], [], min(POLL, left))
-        except (OSError, ValueError):
-            if token.cancelled:
+    Found on the owner's PC and in the independent review: on Windows a read
+    that is already waiting can't be ended from another thread (neither
+    shutdown() nor close() wakes it), and with TLS 1.3 the socket becomes
+    "readable" for session tickets that carry no reply data, so checking
+    once before reading is not enough. So EVERY read of the reply - status
+    line, headers and body - waits with select() in POLL steps, checks the
+    CancelToken between steps, and reads without blocking (an empty TLS read
+    just means "keep waiting"). Same time limit as before: `timeout` seconds
+    without any new data. Nothing is done to the socket from other threads.
+    """
+
+    def __init__(self, sock, token, timeout: float, state: dict):
+        super().__init__()
+        self.sock, self.token, self.timeout, self.state = sock, token, timeout, state
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buf) -> int:
+        sock = self.sock
+        deadline = time.monotonic() + self.timeout
+        while True:
+            if self.token is not None and self.token.cancelled:
                 raise Aborted("request cancelled", sent=True)
-            raise
-        if ready:
-            return
+            pending = getattr(sock, "pending", None)      # TLS data already decrypted
+            if not (pending is not None and pending() > 0):
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    raise socket.timeout("timed out")
+                try:
+                    ready, _, _ = select.select([sock], [], [], min(POLL, left))
+                except (OSError, ValueError) as exc:
+                    if self.token is not None and self.token.cancelled:
+                        raise Aborted("request cancelled", sent=True) from exc
+                    raise OSError(f"connection closed while waiting ({exc.__class__.__name__})") from exc
+                if not ready:
+                    continue
+            old = sock.gettimeout()
+            try:
+                sock.settimeout(0.0)
+                n = sock.recv_into(buf)
+            except (ssl.SSLWantReadError, ssl.SSLWantWriteError, BlockingIOError, InterruptedError):
+                continue                                   # e.g. TLS 1.3 tickets, no reply data yet
+            finally:
+                try:
+                    sock.settimeout(old)
+                except OSError:
+                    pass
+            self.state["received"] += n or 0
+            return n
+
+
+class _PollingSocket:
+    """What http.client.HTTPResponse needs from a socket: makefile('rb')."""
+
+    def __init__(self, sock, token, timeout: float, state: dict):
+        self._args = (sock, token, timeout, state)
+
+    def makefile(self, mode="rb", *args, **kwargs):
+        return io.BufferedReader(_PollingRaw(*self._args))
+
+
+def _polling_response_class(token, timeout: float, state: dict):
+    class PollingResponse(http.client.HTTPResponse):
+        def __init__(self, sock, *args, **kwargs):
+            super().__init__(_PollingSocket(sock, token, timeout, state), *args, **kwargs)
+    return PollingResponse
 
 
 _RETRY_ON_REUSED = (http.client.RemoteDisconnected, http.client.BadStatusLine,
@@ -207,12 +243,13 @@ class KeepAliveHttp:
         token = current_token()
         reconnected = False
         conn, reused = self._get(host, timeout)
+        resent = False
         for attempt in (0, 1):
             if token is not None and token.cancelled:
                 raise Aborted("request cancelled", sent=attempt > 0)
             connect_ms = 0.0
-            if token is not None:
-                token.attach(conn)
+            state = {"received": 0}             # reply bytes read on this attempt
+            conn.response_class = _polling_response_class(token, timeout, state)
             try:
                 if not reused:
                     t0 = time.perf_counter()
@@ -221,7 +258,6 @@ class KeepAliveHttp:
                 if getattr(conn, "sock", None) is not None:
                     conn.sock.settimeout(timeout)
                 conn.request(method, path, body=data, headers=hdrs)
-                wait_for_reply(conn, token, timeout)
                 resp = conn.getresponse()
                 raw = resp.read()
                 status = resp.status
@@ -230,14 +266,17 @@ class KeepAliveHttp:
                 else:
                     self._conns()[host] = (conn, self._clock())
                 _set_info(keepalive=True, reused=reused, reconnected=reconnected,
-                          connect_ms=connect_ms)
+                          connect_ms=connect_ms, resent=resent)
                 return status, _decode(raw)
             except _RETRY_ON_REUSED:
                 self._drop(host)
                 if token is not None and token.cancelled:
                     raise Aborted("request cancelled", sent=True)
-                if reused and attempt == 0:     # the server had closed it: reopen once
-                    conn, reused, reconnected = self._factory(host, timeout), False, True
+                # The server had closed the kept-open connection: reopen and send
+                # again ONCE - but only if nothing of a reply came back (a reply
+                # that broke off may mean Gemini already handled the request).
+                if reused and attempt == 0 and state["received"] == 0:
+                    conn, reused, reconnected, resent = self._factory(host, timeout), False, True, True
                     continue
                 raise
             except (OSError, http.client.HTTPException) as exc:
@@ -247,7 +286,4 @@ class KeepAliveHttp:
                 if isinstance(exc, http.client.HTTPException) and not isinstance(exc, OSError):
                     raise OSError(f"HTTP protocol error ({exc.__class__.__name__})") from exc
                 raise
-            finally:
-                if token is not None:
-                    token.detach(conn)
         raise OSError("unreachable")            # pragma: no cover

@@ -479,8 +479,7 @@ class Engine(threading.Thread):
         if j is None:
             return
         if j.future.done() and not j.token.cancelled:
-            if not j.logged:                    # answered, but nobody needs it any more
-                j.logged = True
+            if j.claim_log():                   # answered, but nobody needs it any more
                 self._log_ai(j, self._result(j.future), outcome="late")
             return
         self._ai_jobs.cancel(j)
@@ -535,8 +534,7 @@ class Engine(threading.Thread):
         j = job[4] if len(job) > 4 else None
         shown = st.get("shown")
         if not shown or shown[0] != ident or shown[1] != "thinking":
-            if j is not None and not j.logged:     # the question changed or was answered
-                j.logged = True
+            if j is not None and j.claim_log():    # the question changed or was answered
                 self._log_ai(j, self._result(fut), outcome="late")
             return
         try:
@@ -550,8 +548,7 @@ class Engine(threading.Thread):
         poll_ms = (time.monotonic() - j.finished) * 1000 if j is not None and j.finished else 0.0
         if ans is None:
             st["shown"] = (ident, "unknown")
-            if j is not None and not j.logged:
-                j.logged = True
+            if j is not None and j.claim_log():
                 self._log_ai(j, res, outcome="no_answer", status="unknown", poll_ms=poll_ms)
             self._emit(state="question", question=q, answer=None, status="unknown",
                        place=place, ai_note=note)
@@ -562,8 +559,7 @@ class Engine(threading.Thread):
         # v3.4: the time shown is what the player waited (asked -> shown), not
         # only the request itself
         waited = (time.monotonic() - j.submitted) if j is not None else res.ms / 1000
-        if j is not None and not j.logged:
-            j.logged = True
+        if j is not None and j.claim_log():
             self._log_ai(j, res, outcome="shown", status=status, poll_ms=poll_ms)
         self._emit(state="question", question=q, answer=ans, status=status, place=place,
                    progress=st.get("progress", 0), ai_info=f"{res.provider} · {waited:.1f} s"

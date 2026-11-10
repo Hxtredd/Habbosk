@@ -61,6 +61,33 @@ class LetterMatching(unittest.TestCase):
         for raw in ("B", "b", "B.", "(B)", "B)", "B) París", "B. París", "B París", "B: París"):
             self.assertEqual(self.pick(raw, opts), "París", raw)
 
+    def test_loose_text_of_another_option_is_ambiguous(self):
+        """Independent review: Spanish one-letter words and case."""
+        trips = ["En coche", "A pie", "En tren"]
+        for raw in ("a pie", "A pie.", "a PIE"):
+            with self.assertRaises(ValueError, msg=raw):
+                ai.option_index(raw, trips)
+        self.assertEqual(self.pick("A pie", trips), "A pie")      # exact text: no letter reading
+        with self.assertRaises(ai.AmbiguousReply):                # letter B, text "b"
+            ai.option_index("B", ["b", "a", "c"])
+        with self.assertRaises(ai.AmbiguousReply):
+            ai.option_index("a", ["B", "a"])
+
+    def test_text_after_the_letter_must_be_that_option(self):
+        opts = ["Madrid", "París", "Roma"]
+        self.assertEqual(self.pick("B) parís", opts), "París")    # case ignored for the check
+        self.assertEqual(self.pick("(B) \"París\"", opts), "París")
+        with self.assertRaises(ValueError):
+            ai.option_index("B) Lisboa", opts)                      # names no option: not used
+        with self.assertRaises(ai.AmbiguousReply):
+            ai.option_index("B) roma", opts)
+
+    def test_only_text_replies(self):
+        with self.assertRaises(ValueError):
+            ai.option_index(1, ["3", "1", "2"])                     # a number could be a position
+        with self.assertRaises(ValueError):
+            ai.option_index(None, ["a", "b"])
+
     def test_ambiguous_replies_are_rejected(self):
         with self.assertRaises(ai.AmbiguousReply):        # letter B = "A", text "B" = option C
             ai.option_index("B", ["C", "A", "B", "D"])
@@ -322,28 +349,6 @@ class ConnectionReuse(unittest.TestCase):
         t.join()
         self.assertEqual(srv.connects, 2)
 
-    def test_cancel_stops_a_hanging_request_at_once(self):
-        h, srv, _ = self.make(["hang"])
-        tok = ai_jobs.CancelToken()
-        out = {}
-
-        def run():
-            ai_jobs._local.token = tok
-            try:
-                h("POST", GEMINI, {}, {}, 8.0)
-            except transport.Aborted as exc:
-                out["aborted"], out["sent"] = True, exc.sent
-            finally:
-                ai_jobs._local.token = None
-        t = threading.Thread(target=run)
-        t0 = time.monotonic()
-        t.start()
-        time.sleep(0.1)
-        tok.cancel()
-        t.join(2)
-        self.assertLess(time.monotonic() - t0, 1.5)
-        self.assertEqual(out, {"aborted": True, "sent": True})
-
     def test_cancelled_before_sending_sends_nothing(self):
         h, srv, _ = self.make([])
         tok = ai_jobs.CancelToken()
@@ -363,8 +368,9 @@ class ConnectionReuse(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class LocalGemini(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    mode = "ok"                 # ok | close_after | overload | hang
+    mode = "ok"                 # ok | close_after | overload | hang | partial_reset
     conns = set()
+    posts = 0
     lock = threading.Lock()
 
     def log_message(self, *a):
@@ -375,9 +381,26 @@ class LocalGemini(http.server.BaseHTTPRequestHandler):
         self.rfile.read(n)
         with self.lock:
             LocalGemini.conns.add(self.client_address)
+            LocalGemini.posts += 1
         mode = LocalGemini.mode
         if mode == "hang":
             time.sleep(3)
+        if mode == "partial_reset":                   # the reply breaks off half-way
+            import struct
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "1000")
+            self.end_headers()
+            self.wfile.write(b'{"candidates": [')
+            self.wfile.flush()
+            raw = getattr(self.connection, "_sock", None) or self.connection
+            try:
+                raw.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            except OSError:
+                pass
+            self.close_connection = True
+            self.connection.close()
+            return
         status = 503 if mode == "overload" else 200
         body = json.dumps({"error": {"message": "high demand"}} if status == 503 else
                           gemini_reply({"answer": "B", "confidence": 0.9})).encode()
@@ -398,11 +421,43 @@ class QuietServer(http.server.ThreadingHTTPServer):
         pass
 
 
+TLS_DIR = os.path.join(HERE, "fixtures", "tls")
+
+
+def windows_like():
+    """Patches: shutdown()/close() on a socket from the main (cancelling) test
+    thread do nothing - like Windows, where they don't wake a waiting read
+    (owner's PC). A request can then only stop by noticing the cancel itself."""
+    import contextlib
+    import ssl
+    main = threading.get_ident()
+    stack = contextlib.ExitStack()
+    for cls in (socket.socket, ssl.SSLSocket):
+        for name in ("shutdown", "close"):
+            real = getattr(cls, name)
+
+            def spy(sock, *args, _real=real):
+                if threading.get_ident() == main:
+                    return None
+                return _real(sock, *args)
+            stack.enter_context(mock.patch.object(cls, name, spy))
+    return stack
+
+
 class RealSockets(KeyPatch):
+    """A real local server; RealTLS13 runs every test again over TLS 1.3 (as Gemini)."""
+    tls = False
+
     @classmethod
     def setUpClass(cls):
         cls.srv = QuietServer(("127.0.0.1", 0), LocalGemini)
         cls.srv.daemon_threads = True
+        if cls.tls:
+            import ssl
+            sctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            sctx.minimum_version = ssl.TLSVersion.TLSv1_3
+            sctx.load_cert_chain(os.path.join(TLS_DIR, "localhost.pem"), os.path.join(TLS_DIR, "localhost-key.pem"))
+            cls.srv.socket = sctx.wrap_socket(cls.srv.socket, server_side=True)
         cls.port = cls.srv.server_address[1]
         threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
 
@@ -415,10 +470,18 @@ class RealSockets(KeyPatch):
         super().setUp()
         LocalGemini.mode = "ok"
         LocalGemini.conns = set()
+        LocalGemini.posts = 0
         port = self.port
-        self.http = transport.KeepAliveHttp(
-            proxies=lambda: {},
-            connection_factory=lambda host, t: http.client.HTTPConnection("127.0.0.1", port, timeout=t))
+        if self.tls:
+            import ssl
+            cctx = ssl.create_default_context(cafile=os.path.join(TLS_DIR, "localhost.pem"))
+
+            def factory(host, t):
+                return http.client.HTTPSConnection("127.0.0.1", port, timeout=t, context=cctx)
+        else:
+            def factory(host, t):
+                return http.client.HTTPConnection("127.0.0.1", port, timeout=t)
+        self.http = transport.KeepAliveHttp(proxies=lambda: {}, connection_factory=factory)
         self.addCleanup(self.http.close)
 
     def test_answers_over_one_kept_connection(self):
@@ -455,34 +518,84 @@ class RealSockets(KeyPatch):
         self.assertLess(time.monotonic() - t0, 2.0)
         self.assertEqual(r.error_kind, "timeout")
 
-    def test_cancel_stops_a_real_hanging_request_when_nothing_wakes_the_socket(self):
-        """Like Windows (owner's PC): neither shutdown nor close ends a waiting
-        read. The request must still stop quickly: it waits in 0.1 s steps."""
+    def test_cancel_stops_a_hanging_request_on_a_fresh_connection(self):
+        """Nothing is done to the socket from the cancelling thread (on Windows
+        that can't wake a waiting read anyway): the request itself must notice
+        within 0.1 s steps - also over TLS 1.3, whose session tickets make the
+        socket readable without any reply data."""
         LocalGemini.mode = "hang"
         sched = ai_jobs.AiScheduler()
         a = ai_answerer(self.http)
-        with mock.patch.object(ai_jobs, "_shutdown", lambda conn: None):
-            job = sched.submit("q1", a.answer, Question("PREGUNTA", "x", ["A1", "B1"]), 8.0)
-            time.sleep(0.3)
+        job = sched.submit("q1", a.answer, Question("PREGUNTA", "x", ["A1", "B1"]), 8.0)
+        time.sleep(0.5)
+        with windows_like():
             t0 = time.monotonic()
             sched.cancel(job)
-            res = job.future.result(timeout=2)
-            self.assertLess(time.monotonic() - t0, 0.5)
+            res = job.future.result(timeout=3)
+        self.assertLess(time.monotonic() - t0, 0.5)
         self.assertTrue(res.stale)
         self.assertEqual(res.error_kind, "stale")
+        sched.shutdown()
+
+    def test_cancel_stops_a_hanging_request_on_a_reused_connection(self):
+        sched = ai_jobs.AiScheduler()
+        a = ai_answerer(self.http)
+        q = Question("PREGUNTA", "x", ["A1", "B1"])
+        self.assertEqual(sched.submit("q0", a.answer, q, 8.0).future.result(timeout=3).answer.choice, "B1")
+        LocalGemini.mode = "hang"
+        job = sched.submit("q1", a.answer, q, 8.0)
+        time.sleep(0.5)
+        with windows_like():
+            t0 = time.monotonic()
+            sched.cancel(job)
+            res = job.future.result(timeout=3)
+        self.assertLess(time.monotonic() - t0, 0.5)
+        self.assertTrue(res.stale)
+        self.assertEqual(len(LocalGemini.conns), 1)              # it was the kept connection
         sched.shutdown()
 
     def test_waiting_in_steps_keeps_the_time_limit(self):
         LocalGemini.mode = "hang"
         sched = ai_jobs.AiScheduler()
         a = ai_answerer(self.http)
-        with mock.patch.object(ai_jobs, "_shutdown", lambda conn: None):
-            t0 = time.monotonic()
-            job = sched.submit("q1", a.answer, Question("PREGUNTA", "x", ["A1", "B1"]), 0.5)
-            res = job.future.result(timeout=3)
+        t0 = time.monotonic()
+        job = sched.submit("q1", a.answer, Question("PREGUNTA", "x", ["A1", "B1"]), 0.5)
+        res = job.future.result(timeout=3)
         self.assertLess(time.monotonic() - t0, 1.5)
         self.assertEqual(res.error_kind, "timeout")
         sched.shutdown()
+
+    def test_a_reply_that_broke_off_is_not_sent_again(self):
+        """Gemini may already have handled it: no second send (quota)."""
+        a = ai_answerer(self.http)
+        q = Question("PREGUNTA", "x", ["A1", "B1"])
+        self.assertIsNotNone(a.answer(q).answer)                 # a kept connection exists
+        LocalGemini.posts = 0
+        LocalGemini.mode = "partial_reset"
+        r = a.answer(q)
+        self.assertIsNone(r.answer)
+        self.assertEqual(LocalGemini.posts, 1)
+        self.assertEqual(r.calls, 1)
+
+    def test_a_request_sent_twice_is_counted_twice(self):
+        tmp = tempfile.mkdtemp()
+        mem = Memory(os.path.join(tmp, "m.db"))
+        self.addCleanup(mem.close)
+        a = ai_answerer(self.http, mem)
+        q = Question("PREGUNTA", "x", ["A1", "B1"])
+        LocalGemini.mode = "close_after"                          # the server drops the kept connection
+        self.assertIsNotNone(a.answer(q).answer)
+        time.sleep(0.05)
+        LocalGemini.mode = "ok"
+        before = a._today()
+        r = a.answer(q)
+        self.assertIsNotNone(r.answer)
+        if r.reconnected:                                         # sent on the dead connection, then again
+            self.assertEqual(r.calls, 2)
+            self.assertEqual(a._today() - before, 2)
+        else:                                                     # the dead connection was noticed first
+            self.assertEqual(r.calls, 1)
+            self.assertEqual(a._today() - before, 1)
 
     def test_cancel_stops_a_real_hanging_request(self):
         LocalGemini.mode = "hang"
@@ -497,6 +610,43 @@ class RealSockets(KeyPatch):
         self.assertTrue(res.stale)
         self.assertEqual(res.error_kind, "stale")
         sched.shutdown()
+
+
+class RealTLS13(RealSockets):
+    tls = True
+
+    def test_cancelling_never_touches_the_socket_from_another_thread(self):
+        """Independent review: SSLSocket.shutdown() from the cancelling thread could
+        let a concurrent send go out unencrypted. Cancelling must only set a flag."""
+        import ssl
+        touched = []
+        main = threading.get_ident()
+        real_shutdown, real_close = ssl.SSLSocket.shutdown, ssl.SSLSocket.close
+
+        def spy_shutdown(sock, how):
+            touched.append(("shutdown", threading.get_ident() == main))
+            return real_shutdown(sock, how)
+
+        def spy_close(sock):
+            touched.append(("close", threading.get_ident() == main))
+            return real_close(sock)
+        LocalGemini.mode = "hang"
+        sched = ai_jobs.AiScheduler()
+        a = ai_answerer(self.http)
+        with mock.patch.object(ssl.SSLSocket, "shutdown", spy_shutdown), \
+                mock.patch.object(ssl.SSLSocket, "close", spy_close):
+            job = sched.submit("q1", a.answer, Question("PREGUNTA", "x", ["A1", "B1"]), 8.0)
+            time.sleep(0.5)
+            sched.cancel(job)                                     # from this (main) thread
+            self.assertTrue(job.future.result(timeout=3).stale)
+        self.assertFalse([t for t in touched if t[1]], touched)   # nothing from the main thread
+        sched.shutdown()
+
+    def test_tls_1_3_is_used(self):
+        a = ai_answerer(self.http)
+        self.assertIsNotNone(a.answer(Question("PREGUNTA", "x", ["A1", "B1"])).answer)
+        conn = next(iter(self.http._conns().values()))[0]
+        self.assertEqual(conn.sock.version(), "TLSv1.3")
 
 
 # ---------------------------------------------------------------------------
@@ -888,6 +1038,43 @@ class Quota(KeyPatch):
         a2.answer(Question("PREGUNTA", "y", ["a", "b"]))
         self.assertEqual(a2._today(), 1)                     # never sent: not counted
         mem.close()
+
+
+class CountingWithTwoLanes(KeyPatch):
+    def test_daily_count_is_exact_when_two_lanes_finish_together(self):
+        """Independent review: the counter is read-then-write; two lanes must not lose counts."""
+        tmp = tempfile.mkdtemp()
+        mem = Memory(os.path.join(tmp, "m.db"))
+        self.addCleanup(mem.close)
+        a = ai_answerer(FakeHttp([]), mem)
+        start = threading.Barrier(2)
+
+        def lane():
+            start.wait()
+            for _ in range(150):
+                a._count("gemini", 10, 5)
+        ts = [threading.Thread(target=lane) for _ in range(2)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        self.assertEqual(a._today(), 300)
+        self.assertEqual(mem.month_usage()[0], 300)
+
+    def test_a_job_is_logged_once(self):
+        job = ai_jobs.AiJob("q", ai_jobs.CancelToken())
+        wins = []
+        start = threading.Barrier(8)
+
+        def claim():
+            start.wait()
+            wins.append(job.claim_log())
+        ts = [threading.Thread(target=claim) for _ in range(8)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        self.assertEqual(wins.count(True), 1)
 
 
 class ShutdownCounting(KeyPatch):

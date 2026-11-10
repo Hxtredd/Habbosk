@@ -20,7 +20,6 @@ Now:
 """
 from __future__ import annotations
 
-import socket
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -31,52 +30,26 @@ _local = threading.local()
 
 
 class CancelToken:
+    """Set when the question a request is for has changed; the request checks
+    it (transport._PollingRaw, AIAnswerer) and stops itself."""
+
     def __init__(self):
         self._event = threading.Event()
-        self._lock = threading.Lock()
-        self._conns: list = []
 
     @property
     def cancelled(self) -> bool:
         return self._event.is_set()
 
-    def attach(self, conn) -> None:
-        """A connection in use for this request (closed on cancel)."""
-        with self._lock:
-            self._conns.append(conn)
-            cancelled = self.cancelled
-        if cancelled:
-            _shutdown(conn)
-
-    def detach(self, conn) -> None:
-        with self._lock:
-            if conn in self._conns:
-                self._conns.remove(conn)
-
     def cancel(self) -> None:
-        with self._lock:
-            self._event.set()
-            conns = list(self._conns)
-        for c in conns:
-            _shutdown(c)
+        self._event.set()
 
 
-# Stopping a running request: transport.wait_for_reply checks the token every
-# 0.1 s while waiting for the reply (works on Windows and Linux). shutdown()
-# below additionally ends a read that is already in progress on Linux; on
-# Windows it does not, and closing the socket from here doesn't either
-# (found on the owner's PC) - there the socket time limit ends such a read.
-
-
-def _shutdown(conn) -> None:
-    """Make a blocked read on this connection return immediately."""
-    sock = getattr(conn, "sock", None)
-    if sock is None:
-        return
-    try:
-        sock.shutdown(socket.SHUT_RDWR)
-    except OSError:
-        pass
+# Stopping a running request: transport._PollingRaw reads the reply in 0.1 s
+# steps and checks the token between steps (Windows and Linux, TLS 1.2 and
+# 1.3). Nothing is done to the socket from the cancelling thread: shutting an
+# SSL socket down from another thread can make a concurrent send go out
+# unencrypted (independent review), and on Windows it does not wake a waiting
+# read anyway (owner's PC).
 
 
 def current_token() -> Optional[CancelToken]:
@@ -93,7 +66,17 @@ class AiJob:
         self.started: Optional[float] = None
         self.finished: Optional[float] = None
         self.logged = False                     # written to the timing log once
+        self._log_lock = threading.Lock()
         self.meta: dict = {}                    # category / kind / timed, for the log
+
+    def claim_log(self) -> bool:
+        """True exactly once: the caller writes this job's timing-log line
+        (the engine and the request's own thread may both try)."""
+        with self._log_lock:
+            if self.logged:
+                return False
+            self.logged = True
+            return True
 
     @property
     def queue_ms(self) -> float:
@@ -151,9 +134,8 @@ class AiScheduler:
 
     def _stale(self, job: AiJob, result) -> None:
         cb = self.on_stale
-        if cb is None or job.logged:
+        if cb is None or not job.claim_log():
             return
-        job.logged = True
         try:
             cb(job, result)
         except Exception:

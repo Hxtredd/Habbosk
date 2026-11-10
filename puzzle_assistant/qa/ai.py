@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import re
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -172,25 +173,42 @@ _ONE_LETTER = re.compile(r"\(?([A-Ja-j])\)?[.):]?")
 _LETTER_THEN_TEXT = re.compile(r"\(?([A-Ja-j])\)?(?:[.):\-]|\s)\s*(.+)", re.S)
 
 
+_EDGE = " \t\r\n.,;:!?¡¿\"'()[]{}«»“”‘’-"
+
+
+def _loose(s) -> str:
+    """For spotting ambiguity only: case, accents form and edge punctuation ignored."""
+    return _nfc(s).casefold().strip(_EDGE)
+
+
 def option_index(raw, options: List[str]) -> int:
     """Which option the model means (v3.4, owner-approved change D).
 
     The model is asked for a letter ("B"). It sometimes replies with the
     option's text instead ("V" for the options U, X, W, V). Rules:
-      * a letter of an option ("B", "b", "B.", "(B)", "B) París") -> that option,
-        unless the text after it is exactly ANOTHER option's text (ambiguous);
-      * otherwise the reply must be exactly one option's text (after removing
-        surrounding spaces) -> that option;
-      * a reply that is a valid letter AND exactly the text of a different
-        option (options "C", "A", "B": is "B" the letter or the text?) is
-        ambiguous and is rejected, as are duplicate option texts.
+      * a letter of an option ("B", "b", "B.", "(B)", "B) París") -> that
+        option. Text after the letter must be that same option's text
+        (ignoring case and edge punctuation), otherwise the reply is not used;
+      * a reply that is a letter and, read loosely, also another option's
+        text ("B" with options "b", "a", "c"; "a pie" or "A pie." with
+        "En coche", "A pie") is ambiguous and is rejected - unless it is
+        EXACTLY one option's text and as "letter + text" it would not fit
+        that letter's option ("A pie" -> "A pie");
+      * otherwise the reply must be EXACTLY one option's text (surrounding
+        spaces ignored) -> that option; a reply that only matches loosely
+        (other case or punctuation) or matches several options is rejected;
+      * only text replies count (a bare number like 1 could mean a position).
     v3.3 took the first character as the letter, so the reply "Bambú" silently
     meant option B; such replies are now matched by their exact text or
     rejected. Raises ValueError (AmbiguousReply when ambiguous)."""
+    if not isinstance(raw, str):
+        raise ValueError("the answer is not text")
     s = _nfc(raw)
     texts = [_nfc(o) for o in options]
+    loose = [_loose(o) for o in options]
     n = len(options)
-    text_hits = [i for i, t in enumerate(texts) if t and t == s]
+    exact_hits = [i for i, t in enumerate(texts) if t and t == s]
+    loose_hits = [i for i, t in enumerate(loose) if t and t == _loose(s)]
     letter_idx = None
     m = _ONE_LETTER.fullmatch(s)
     rest = ""
@@ -203,18 +221,25 @@ def option_index(raw, options: List[str]) -> int:
         if i < n:
             letter_idx = i
     if letter_idx is not None:
-        if text_hits and text_hits != [letter_idx]:
+        # "A pie" with the options "En coche", "A pie": exactly one option's text,
+        # and as "letter A + text" it would not fit option A - so it means "A pie"
+        if (rest and len(exact_hits) == 1 and exact_hits[0] != letter_idx
+                and _loose(rest) != loose[letter_idx] and len(loose_hits) == 1):
+            return exact_hits[0]
+        if loose_hits and loose_hits != [letter_idx]:
             raise AmbiguousReply(f"{s!r} is a letter and another option's text")
         if rest:
-            rest_hits = [i for i, t in enumerate(texts) if t == rest]
-            if rest_hits and letter_idx not in rest_hits:
-                raise AmbiguousReply(f"{s!r}: the letter and the text name different options")
+            r = _loose(rest)
+            if r != loose[letter_idx]:
+                if r in loose:
+                    raise AmbiguousReply(f"{s!r}: the letter and the text name different options")
+                raise ValueError(f"{s[:20]!r}: the text after the letter is not that option")
         return letter_idx
-    if len(text_hits) == 1:
-        return text_hits[0]
-    if len(text_hits) > 1:
+    if len(exact_hits) > 1 or len(loose_hits) > 1:
         raise AmbiguousReply(f"{s!r} matches several options")
-    raise ValueError(f"answer {s[:20]!r} is not an option")
+    if len(exact_hits) == 1:
+        return exact_hits[0]
+    raise ValueError(f"answer {s[:20]!r} is not exactly an option")
 
 
 def parse_reply(text: str, q: Question) -> Answer:
@@ -451,6 +476,7 @@ class AIAnswerer:
         # hosts, and any PC with a proxy, keep the v3.3 method (default_http)
         self.http = http or transport.KeepAliveHttp(fallback=default_http)
         self.paused_until = 0.0
+        self._count_lock = threading.Lock()     # v3.4: two lanes count at the same time
         self.atlas = None                       # world_atlas.db.Atlas, set by the UI
 
     def provider(self) -> Optional[Provider]:
@@ -487,9 +513,10 @@ class AIAnswerer:
         pin, pout = self._prices(provider)
         cost = (tin * pin + (tout or 0) * pout) / 1e6
         try:
-            self.memory.add_usage(provider, 1, cost)
-            k = "ai_day:" + _dt.date.today().isoformat()
-            self.memory.set_meta(k, str(self._today() + 1))
+            with self._count_lock:              # read-then-write: one lane at a time
+                self.memory.add_usage(provider, 1, cost)
+                k = "ai_day:" + _dt.date.today().isoformat()
+                self.memory.set_meta(k, str(self._today() + 1))
         except Exception:
             # v3.4: the memory may already be closed (SK shutting down while a
             # stopped request finishes); counting must never break an answer
@@ -520,14 +547,20 @@ class AIAnswerer:
         res.tokens_in += int(tin or 0)
         res.tokens_out += int(tout or 0)
         self._count(p.name, tin, tout)
-        self._note_connection(res)
+        if self._note_connection(res):          # sent twice (connection reopened)
+            res.calls += 1
+            self._count(p.name, 0, 0)
         return text
 
-    def _note_connection(self, res: AIResult) -> None:
+    def _note_connection(self, res: AIResult) -> bool:
+        """Connection details for the timing log. True if the request was sent
+        a second time (a closed kept-open connection was reopened): that send
+        counts as a request too."""
         info = transport.last_call()
         res.connect_ms += float(info.get("connect_ms", 0.0) or 0.0)
         res.reused = res.reused or bool(info.get("reused"))
         res.reconnected = res.reconnected or bool(info.get("reconnected"))
+        return bool(info.get("resent"))
 
     def answer(self, q: Question, timeout: float = 8.0, allow_search: bool = True) -> AIResult:
         t0 = time.perf_counter()

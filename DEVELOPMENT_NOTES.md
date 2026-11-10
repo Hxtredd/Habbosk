@@ -605,15 +605,26 @@ change):
   engine by the UI (`Engine.diag`), config `ai_timing_log`.
 - B `qa/ai_jobs.py`: AiScheduler; the engine calls `_drop_ai` wherever a
   question is finished (memory, solver, game reveal, window closed).
-  Windows: shutdown()/close() from another thread do not wake a waiting
-  read, so `transport.wait_for_reply` waits in 0.1 s steps and checks the
-  token (found in the owner's Windows trial).
-- C `qa/transport.py`: KeepAliveHttp, Gemini host only, reconnect once,
-  50 s idle limit, any proxy -> urllib.
+  Stopping a running request: the reply is read in 0.1 s steps
+  (`transport._PollingRaw`, non-blocking reads, CancelToken checked between
+  steps; an empty TLS read - TLS 1.3 session tickets - means "keep waiting").
+  Nothing is done to the socket from the cancelling thread: on Windows
+  shutdown()/close() from another thread don't wake a waiting read (owner's
+  trial), and SSLSocket.shutdown() from another thread can let a concurrent
+  send go out unencrypted (independent review of the first release candidate).
+- C `qa/transport.py`: KeepAliveHttp, Gemini host only, reconnect and send
+  again once only if no reply byte came back (a reply that broke off may have
+  been handled: never resent), a second send is counted, 50 s idle limit,
+  any proxy -> urllib.
 - D `qa/ai.option_index`: exact option text accepted when unambiguous
-  (CHOICE, ORDER); the first character is no longer taken as the letter.
+  (CHOICE, ORDER); the first character is no longer taken as the letter;
+  ambiguity is judged loosely (case, edge punctuation: "a pie" / "A pie."
+  vs a letter A), text after a letter must be that option's text, only
+  text replies count. Options that are themselves letters ("c", "a", "b")
+  with a letter reply are now ambiguous (v3.3 took the letter).
 - The AI answer time shown is asked -> shown; a stopped request that was
-  sent counts towards the daily free limit; counting never fails an answer.
+  sent counts towards the daily free limit; counting never fails an answer
+  and is locked (two lanes); each job's timing-log line is written once.
 Results: Windows before/after (accuracy 16/20 -> 19/20, "question changed"
 0.98 -> 0.63 s) and a real-play trial (37 requests, typical 0.82 s, max 2.0 s,
 0 overload) - `benchmarks/ai_speed_check/after_A-D/`, `trial_A-D/`.
