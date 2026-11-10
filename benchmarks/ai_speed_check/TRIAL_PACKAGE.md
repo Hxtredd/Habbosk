@@ -5,11 +5,11 @@ and the release branch untouched, the in-app updater never sees it.
 
 | | |
 |---|---|
-| Package | `trial_dist/SK_Assistant_TRIAL_ba3a640.zip` (top folder "SK Assistant TRIAL", 12001314 bytes) |
-| SHA-256 | `3c3b555fe44cd7ca7366faf86bc242d30335a2b8c6f7f09a23f55c05671885b0` |
-| Code | commit `172d63b` = A-D (`e9cee60`) + closed-memory counting fix + trial tooling (`f03b38a`, `8fc56b2`) + Windows test fix (`172d63b`) + Windows cancel fix (`ba3a640`) |
-| Built by | `tools/build_trial.py ba3a640` |
-| Replaces | `SK_Assistant_TRIAL_8fc56b2.zip` and `SK_Assistant_TRIAL_172d63b.zip`: their self-tests failed on the owner's PC, see below |
+| Package | `trial_dist/SK_Assistant_TRIAL_09ca4da.zip` (top folder "SK Assistant TRIAL", 12001909 bytes) |
+| SHA-256 | `ccf6fd78c20090066cffb5a8240593f2275e77e9991b3bc66229c981e355f1a3` |
+| Code | commit `172d63b` = A-D (`e9cee60`) + closed-memory counting fix + trial tooling (`f03b38a`, `8fc56b2`) + Windows test fix (`172d63b`) + Windows cancel fixes (`ba3a640`, `09ca4da`) |
+| Built by | `tools/build_trial.py 09ca4da` |
+| Replaces | `SK_Assistant_TRIAL_8fc56b2.zip`, `172d63b` and `ba3a640`: their self-tests failed on the owner's PC, see below |
 
 ## Isolation (what makes it safe)
 
@@ -82,6 +82,16 @@ Windows benchmark's "question changed" result stands, but old requests were
 not really cut short on Windows.) Fixed in ba3a640: the socket is also closed on
 Windows. Verified on Linux with a Windows-like fake socket and with real
 sockets (close forced on); real-Windows proof is the owner's next self-test.
+
+## Owner's third Windows setup (ba3a640): same cancel error
+
+Closing the socket from the cancelling thread did not end the wait on
+Windows either (http.client keeps the socket open while its reader exists,
+so close() is deferred). Fixed in 09ca4da without any cross-thread socket trick:
+transport.wait_for_reply waits for the reply in 0.1 s steps and checks the
+cancel token between steps. A test with real sockets and every wake-up
+disabled (as on Windows) stops < 0.5 s; it fails without the fix, i.e. it
+reproduces the owner's failure.
 
 ## Limitations
 
