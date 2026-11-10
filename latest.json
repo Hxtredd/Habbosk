@@ -1,7 +1,7 @@
 {
  "version": "3.4.0",
  "zip": "dist/SK_Assistant_v3.4.zip",
- "sha256": "50d8096a66c264ef52340b980fbffdc1012c1b8c76326208e1dad636217f8444",
- "size": 11966525,
+ "sha256": "a853e4ed0bc7dcf889b1ffcbfc3aa12d618ab0dbab03d6c4a28080009adcaad5",
+ "size": 11966795,
  "notes": "Faster, steadier AI answers: a question that changes no longer waits for an old AI request (it is stopped), the connection to Gemini is kept open, an answer given as the option's text is used when it can only mean one option, and the time shown is the real wait. New local timing log (numbers only) in the diagnostics folder."
 }
