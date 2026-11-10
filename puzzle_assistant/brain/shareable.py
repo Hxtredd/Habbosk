@@ -10,6 +10,7 @@ read, and every kept value is copied)."""
 from __future__ import annotations
 
 import copy
+import functools
 import re
 import unicodedata
 from typing import Any, List
@@ -205,6 +206,7 @@ def _one_of(v: Any, allowed, what: str):
 
 def _guarded(fn):
     """Anything unexpected while reading a response closes the door with NotShareable."""
+    @functools.wraps(fn)
     def run(x):
         try:
             return fn(x)
@@ -212,8 +214,6 @@ def _guarded(fn):
             raise
         except (TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
             raise NotShareable(f"cannot be established as safe ({type(e).__name__})") from None
-    run.__name__ = fn.__name__
-    run.__doc__ = fn.__doc__
     return run
 
 
