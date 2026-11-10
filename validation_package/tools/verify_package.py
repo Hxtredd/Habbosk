@@ -26,14 +26,26 @@ def verify(quiet=False):
     head, files = read_manifest()
     actual = common.file_list(common.SOURCE)
     problems = []
-    for d, dirs, fs in os.walk(common.SOURCE):          # compiled leftovers would run unchecked
+    # Compiled caches (__pycache__, .pyc) are not source and Python would run them unchecked, so
+    # they are DELETED before anything runs (they are rebuilt from the verified source). Anything
+    # else found inside a __pycache__ folder, or a link, is a real problem.
+    removed = 0
+    for d, dirs, fs in os.walk(common.SOURCE):
         for x in dirs + fs:
-            if os.path.islink(os.path.join(d, x)):
-                problems.append("link in source (not allowed): "
-                                + os.path.relpath(os.path.join(d, x), common.SOURCE))
-            if x == "__pycache__" or x.endswith((".pyc", ".pyo")):
-                problems.append("compiled file/folder in source (not allowed): "
-                                + os.path.relpath(os.path.join(d, x), common.SOURCE))
+            path = os.path.join(d, x)
+            if os.path.islink(path):
+                problems.append("link in source (not allowed): " + os.path.relpath(path, common.SOURCE))
+    for d, dirs, fs in os.walk(common.SOURCE):
+        if os.path.basename(d) == "__pycache__":
+            removed += len(fs)
+    odd = common.remove_compiled(common.SOURCE)
+    for d, dirs, fs in os.walk(common.SOURCE):
+        for f in fs:
+            if f.endswith((".pyc", ".pyo")):
+                os.remove(os.path.join(d, f))
+                removed += 1
+    problems += ["unexpected file in a compiled-cache folder: " + os.path.relpath(x, common.SOURCE) for x in odd]
+    actual = common.file_list(common.SOURCE)
     for rel in sorted(set(files) | set(actual)):
         if rel not in files:
             problems.append(f"EXTRA file not in the manifest: {rel}")
@@ -50,6 +62,8 @@ def verify(quiet=False):
         print("Commit named in the manifest :", head["source commit"])
         print("Branch                       :", head["source branch"])
         print("Source files checked         :", len(actual))
+        if removed:
+            print("Stray compiled files removed :", removed)
         print("Git tree id (recomputed)     :", tree)
         print("Git tree id (manifest)       :", head["source tree"])
     if problems:
