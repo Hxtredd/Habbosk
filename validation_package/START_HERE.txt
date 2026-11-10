@@ -42,7 +42,13 @@ DO IT ONE STEP AT A TIME
 
 5. (Optional, about 15 minutes) STEP4_OPTIONAL_FULL_SUITE.bat runs every test in the repo.
 
-6. Send me the two report files (privacy_check_report.txt and privacy_breaks_report.txt),
+5b. TARGETED RUN (small, about 1-2 minutes, instead of the whole suite):
+   Double-click  STEP5_TARGETED_WINDOWS_TESTS.bat . It runs the two key-store tests that
+   only run on Windows (real DPAPI, real Windows rename) plus the focused Brain tests for
+   the code changed since commit 68b500f. You should see two lines starting with [PASS] for
+   the Windows-only tests and  RESULT: PASS . It writes  targeted_check_report.txt .
+
+6. Send me the report files (privacy_check_report.txt and privacy_breaks_report.txt),
    or just tell me the last "RESULT:" line of each step. If anything says FAIL, send the
    report file and do not worry - nothing was changed on your computer.
 
