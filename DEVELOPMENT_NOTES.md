@@ -1286,6 +1286,20 @@ Auditor reviews were Claude reviews, not independent. Windows: NOT run.
 Known limits: personal_details is set by respond() and trusted by the copy helper; text the
 asker typed is not residue-scanned; challenge publishers / source titles are dropped by design.
 
+### B6.2 Windows validation package (branch claude/brain-privacy-validation-tools)
+
+Package for the exact commit 68b500f (git tree 34b167cea159bd5794b9524b3615044fbd9431e1;
+Brain fingerprint 2315b604c9b3d87c), built around the unchanged source: verify (tree id
+recomputed in pure Python), privacy suite (195 tests, 8 protection lines), 81 deliberate
+breaks (baseline first; caught only on a test's own failure). Tooling tip 86c5b84. Linux
+self-tests: whole suite via the package 872 tests, 870 passed, 2 skipped (Windows-only);
+privacy suite 195/195; breaks 73 caught + 8 documented equivalents, 0 unexpected; tamper,
+extra-file, pycache and network-block checks work. Two Claude Security Auditor rounds on the
+tooling (not independent). Zip SHA-256 4cb411195973f14a116fb44bdf846873246a1e0460ddf457d20e7b5c11e8305b.
+Windows: NOT run yet - waiting for the owner's reports.
+Documents (docs/): B7_ARCHITECTURE_PROPOSAL.md, OWNER_APPROVALS_OUTSTANDING.md,
+DELIBERATE_BREAK_HARNESS_SCOPE.md (proposal only; nothing built).
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the
