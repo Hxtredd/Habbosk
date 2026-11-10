@@ -609,8 +609,8 @@
  {
   "name": "[shareable] answer residue scan disabled",
   "file": "puzzle_assistant/brain/shareable.py",
-  "old": "    _check_residue(residue.names, residue.texts, kept)\n    _check_provenance(out.answer",
-  "new": "    _check_provenance(out.answer",
+  "old": "    _check_residue(residue.names, residue.texts, kept)\n    for h in hits:",
+  "new": "    for h in hits:",
   "tests": [
    "tests.test_brain_shareable",
    "tests.test_brain_shareable_labels"
