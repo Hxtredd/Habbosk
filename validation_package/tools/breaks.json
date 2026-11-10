@@ -1,0 +1,742 @@
+[
+ {
+  "name": "[privacy] F1 the unverified claims are not counted (the original bug)",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "(st.supports + st.also_unverified)",
+  "new": "st.supports",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F1 only the unverified claims are counted",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "(st.supports + st.also_unverified)",
+  "new": "st.also_unverified",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F1 any() instead of all(): one shared claim is enough",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "    audience = \"shared\" if used and all(s.scope == \"shared\" for s in used) else \"personal\"",
+  "new": "    audience = \"shared\" if used and any(s.scope == \"shared\" for s in used) else \"personal\"",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F1 a shared unverified claim makes it personal (over-restrictive)",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "    audience = \"shared\" if used and all(s.scope == \"shared\" for s in used) else \"personal\"",
+  "new": "    audience = \"shared\" if used and all(s.scope == \"shared\" for s in used) and not any(st.also_unverified for st in steps) else \"personal\"",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F1 audience computed for respond() only is not enough: ask() ignores it",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "audience = \"shared\" if used and all(s.scope == \"shared\" for s in used) else \"personal\"",
+  "new": "audience = \"shared\" if used and all(s.scope == \"shared\" for s in used) else \"personal\"\n    if audience == \"personal\" and any(st.also_unverified for st in steps) and not any(s.scope == \"personal\" for st in steps for s in st.supports):\n        audience = \"shared\"",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F2 respond() ignores the flag for established answers",
+  "file": "puzzle_assistant/brain/respond.py",
+  "old": "        if _personal_details(store, _all_claims(a.steps), viewer):\n            r.audience = \"personal\"\n",
+  "new": "",
+  "tests": [
+   "tests.test_brain_audience_details"
+  ]
+ },
+ {
+  "name": "[privacy] F2 respond() ignores the flag for documented answers",
+  "file": "puzzle_assistant/brain/respond.py",
+  "old": "            if _personal_details(store, _all_claims(a.steps), viewer):\n                r.audience = \"personal\"\n",
+  "new": "",
+  "tests": [
+   "tests.test_brain_audience_details"
+  ]
+ },
+ {
+  "name": "[privacy] F2 the owner's details are hidden instead (information removed)",
+  "file": "puzzle_assistant/brain/store.py",
+  "old": "                r[\"personal_source\"] = self._personal_details(c, r)",
+  "new": "                r[\"personal_source\"] = self._personal_details(c, r)\n                if r[\"personal_source\"]:\n                    r[\"title\"] = None\n                    r[\"captured_at\"] = None",
+  "tests": [
+   "tests.test_brain_audience_details"
+  ]
+ },
+ {
+  "name": "[privacy] F2 the flag is never set",
+  "file": "puzzle_assistant/brain/store.py",
+  "old": "        if claim[\"scope\"] != \"shared\" or self.role != \"personal\":\n            return False\n",
+  "new": "        return False\n",
+  "tests": [
+   "tests.test_brain_audience_details"
+  ]
+ },
+ {
+  "name": "[privacy] F2 the flag is always set (over-restrictive)",
+  "file": "puzzle_assistant/brain/store.py",
+  "old": "        if claim[\"scope\"] != \"shared\" or self.role != \"personal\":\n            return False\n",
+  "new": "        return True\n",
+  "tests": [
+   "tests.test_brain_audience_details",
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F2 the old rule is back: details need a title or a date",
+  "file": "puzzle_assistant/brain/store.py",
+  "old": "        if claim[\"scope\"] != \"shared\" or self.role != \"personal\":\n            return False\n",
+  "new": "        if claim[\"scope\"] != \"shared\" or self.role != \"personal\":\n            return False\n        if not (row[\"title\"] or row[\"captured_at\"]):\n            return False\n",
+  "tests": [
+   "tests.test_brain_audience_details"
+  ]
+ },
+ {
+  "name": "[privacy] F2 the evidence row is not checked (source row only)",
+  "file": "puzzle_assistant/brain/store.py",
+  "old": "        if self._db.execute(\"SELECT 1 FROM main.evidence WHERE id=?\",\n                            (row[\"evidence_id\"],)).fetchone() is not None:\n            return True\n",
+  "new": "",
+  "tests": [
+   "tests.test_brain_audience_details"
+  ],
+  "equivalent": "in every library the tests can build, the owner's evidence row and source row always come together, so either check alone gives the same answer"
+ },
+ {
+  "name": "[privacy] F2 the source row is not checked (evidence row only)",
+  "file": "puzzle_assistant/brain/store.py",
+  "old": "        return row[\"source_id\"] is not None and self._db.execute(\n            \"SELECT 1 FROM main.sources WHERE id=?\", (row[\"source_id\"],)).fetchone() is not None\n",
+  "new": "        return False\n",
+  "tests": [
+   "tests.test_brain_audience_details"
+  ],
+  "equivalent": "same reason: the two rows always come together"
+ },
+ {
+  "name": "[privacy] F2 the shared-claim scope check is removed",
+  "file": "puzzle_assistant/brain/store.py",
+  "old": "if claim[\"scope\"] != \"shared\" or self.role != \"personal\":",
+  "new": "if self.role != \"personal\":",
+  "tests": [
+   "tests.test_brain_audience_details",
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F1 also_unverified counted on the LAST step only",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "(st.supports + st.also_unverified)",
+  "new": "(st.supports + (st.also_unverified if st is steps[-1] else []))",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F1 also_unverified counted on the FIRST step only",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "(st.supports + st.also_unverified)",
+  "new": "(st.supports + (st.also_unverified if st is steps[0] else []))",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F5-b the first name wins again (the original)",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "        if known is None or (scope == \"shared\" and not known):",
+  "new": "        if known is None:",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F5-b a personal name replaces a shared one",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "        if known is None or (scope == \"shared\" and not known):",
+  "new": "        if known is None or (scope != \"shared\" and known):",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F5-b the scope of a claim is not passed on",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "            self._name(f.place, shown, s.scope)",
+  "new": "            self._name(f.place, shown, \"\")",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F5-c a reverse answer names the place from the canonical key (the original)",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "display(evidence[0].text, evidence[0].written or place)",
+  "new": "display(evidence[0].text, place)",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F5-c the written place is not recorded on the support",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "(d.detail or {}).get(\"scope\", \"\"), f,\n                        written)",
+  "new": "(d.detail or {}).get(\"scope\", \"\"), f)",
+  "tests": [
+   "tests.test_brain_audience_privacy"
+  ]
+ },
+ {
+  "name": "[privacy] F5-c the generic guard alone sees the original reverse-answer leak",
+  "file": "puzzle_assistant/brain/reason.py",
+  "old": "display(evidence[0].text, evidence[0].written or place)",
+  "new": "display(evidence[0].text, place)",
+  "tests": [
+   "tests.test_brain_audience_privacy.NothingOfTheAskersOwnRowsInASharedResponse"
+  ]
+ },
+ {
+  "name": "[challenge-audience] audience rule removed (the original bug)",
+  "file": "puzzle_assistant/brain/respond.py",
+  "old": "    if any(g[\"scope\"] == \"personal\" for g in ch):\n        r.audience = \"personal\"\n    return r\n",
+  "new": "    return r\n",
+  "tests": [
+   "tests.test_brain_b6.ChallengeAudience",
+   "tests.test_brain_b6.Challenges"
+  ]
+ },
+ {
+  "name": "[challenge-audience] audience rule only for documented answers (the old behaviour)",
+  "file": "puzzle_assistant/brain/respond.py",
+  "old": "    if any(g[\"scope\"] == \"personal\" for g in ch):\n        r.audience = \"personal\"\n    return r\n",
+  "new": "    if r.reason == \"sources_disagree\" and any(g[\"scope\"] == \"personal\" for g in ch):\n        r.audience = \"personal\"\n    return r\n",
+  "tests": [
+   "tests.test_brain_b6.ChallengeAudience"
+  ]
+ },
+ {
+  "name": "[challenge-audience] audience rule only for established answers",
+  "file": "puzzle_assistant/brain/respond.py",
+  "old": "    if any(g[\"scope\"] == \"personal\" for g in ch):\n        r.audience = \"personal\"\n    return r\n",
+  "new": "    if r.category == \"established\" and any(g[\"scope\"] == \"personal\" for g in ch):\n        r.audience = \"personal\"\n    return r\n",
+  "tests": [
+   "tests.test_brain_b6.ChallengeAudience"
+  ]
+ },
+ {
+  "name": "[challenge-audience] every challenge makes the response personal (over-restrictive)",
+  "file": "puzzle_assistant/brain/respond.py",
+  "old": "    if any(g[\"scope\"] == \"personal\" for g in ch):\n        r.audience = \"personal\"\n    return r\n",
+  "new": "    if ch:\n        r.audience = \"personal\"\n    return r\n",
+  "tests": [
+   "tests.test_brain_b6.ChallengeAudience"
+  ]
+ },
+ {
+  "name": "[challenge-audience] audience personal only when ALL groups are personal",
+  "file": "puzzle_assistant/brain/respond.py",
+  "old": "    if any(g[\"scope\"] == \"personal\" for g in ch):\n        r.audience = \"personal\"\n    return r\n",
+  "new": "    if all(g[\"scope\"] == \"personal\" for g in ch):\n        r.audience = \"personal\"\n    return r\n",
+  "tests": [
+   "tests.test_brain_b6.ChallengeAudience"
+  ]
+ },
+ {
+  "name": "[challenge-audience] personal challenges hidden from the asker",
+  "file": "puzzle_assistant/brain/respond.py",
+  "old": "    r.challenges = ch\n",
+  "new": "    r.challenges = [g for g in ch if g[\"scope\"] != \"personal\"]\n",
+  "tests": [
+   "tests.test_brain_b6.ChallengeAudience"
+  ]
+ },
+ {
+  "name": "[challenge-audience] a group with a personal passage is labelled shared",
+  "file": "puzzle_assistant/brain/sources.py",
+  "old": "        if scope == \"personal\":\n            d[\"scope\"] = \"personal\"",
+  "new": "        if scope == \"personal\":\n            d[\"scope\"] = \"shared\"",
+  "tests": [
+   "tests.test_brain_b6.ChallengeAudience"
+  ]
+ },
+ {
+  "name": "[challenge-audience] passage scope detection inverted",
+  "file": "puzzle_assistant/brain/sources.py",
+  "old": "        scope = \"personal\" if store._db.execute(\"SELECT 1 FROM main.passages WHERE id=?\",",
+  "new": "        scope = \"shared\" if store._db.execute(\"SELECT 1 FROM main.passages WHERE id=?\",",
+  "tests": [
+   "tests.test_brain_b6.ChallengeAudience"
+  ]
+ },
+ {
+  "name": "[challenge-audience] a group's scope is taken from its FIRST passage only",
+  "file": "puzzle_assistant/brain/sources.py",
+  "old": "        if scope == \"personal\":\n            d[\"scope\"] = \"personal\"",
+  "new": "        if scope == \"personal\" and d[\"passages\"] == 1:\n            d[\"scope\"] = \"personal\"",
+  "tests": [
+   "tests.test_brain_b6.ChallengeAudience"
+  ],
+  "equivalent": "personal passages are always read before shared ones, so the first passage already decides the same way"
+ },
+ {
+  "name": "[challenge-audience] a group's scope is taken from its LAST passage only",
+  "file": "puzzle_assistant/brain/sources.py",
+  "old": "        if scope == \"personal\":\n            d[\"scope\"] = \"personal\"",
+  "new": "        d[\"scope\"] = scope",
+  "tests": [
+   "tests.test_brain_b6.ChallengeAudience"
+  ]
+ },
+ {
+  "name": "[shareable] audience check removed (response)",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    if r.audience != \"shared\":\n        _bad(\"only a response marked audience='shared' can be passed on\")",
+  "new": "    pass",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] related kept",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "question=\"\", related=[], understood_as=\"\"",
+  "new": "question=\"\", related=src.related, understood_as=\"\"",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] question kept",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "src, question=\"\", related=[], understood_as=\"\"",
+  "new": "src, question=src.question, related=[], understood_as=\"\"",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] understood_as kept",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "understood_as=\"\", interpretation=None, clarification=None,",
+  "new": "understood_as=src.understood_as, interpretation=None, clarification=None,",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] interpretation kept",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "understood_as=\"\", interpretation=None, clarification=None,",
+  "new": "understood_as=\"\", interpretation=src.interpretation, clarification=None,",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] clarification kept",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "understood_as=\"\", interpretation=None, clarification=None,",
+  "new": "understood_as=\"\", interpretation=None, clarification=src.clarification,",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] non-shared challenge kept",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    if g.get(\"scope\") != \"shared\":\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] challenge publisher carried",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "\"scope\": \"shared\", \"internal\": bool(g.get(\"internal\")),",
+  "new": "\"scope\": \"shared\", \"internal\": bool(g.get(\"internal\")), \"publisher\": g.get(\"publisher\"),",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] challenge labels carried",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "\"scope\": \"shared\", \"internal\": bool(g.get(\"internal\")),",
+  "new": "\"scope\": \"shared\", \"internal\": bool(g.get(\"internal\")), \"labels\": g.get(\"labels\"),",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] challenge example source title carried",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "\"page\": _page(e.get(\"page\"))}\n                         for e in ex",
+  "new": "\"source\": e.get(\"source\"), \"page\": _page(e.get(\"page\"))}\n                         for e in ex",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] step claim scope check removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "if not isinstance(c, dict) or c.get(\"scope\") != \"shared\":",
+  "new": "if not isinstance(c, dict):",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] citation scope check removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    if c.scope != \"shared\":\n        _bad(\"citation: not a shared claim\")",
+  "new": "    pass",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] evidence kept unless marked personal",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "if e.get(\"personal_details\") is False:",
+  "new": "if e.get(\"personal_details\") is not True:",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] all evidence kept",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "if e.get(\"personal_details\") is False:",
+  "new": "if True:",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] step candidates carried",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "\"candidates\": [],",
+  "new": "\"candidates\": list(st.get(\"candidates\") or []),",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] unknown step keys carried",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "        if k not in out:\n            residue.texts += _strings(v)",
+  "new": "        if k not in out:\n            out[k] = v",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] response deep copy removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    src = copy.deepcopy(r)",
+  "new": "    src = r",
+  "tests": [
+   "tests.test_brain_shareable"
+  ],
+  "equivalent": "shareable() rebuilds every list and dict it returns, so the extra deep copy is a second layer of the same protection"
+ },
+ {
+  "name": "[shareable] answer deep copy removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    src = copy.deepcopy(a)\n    residue",
+  "new": "    src = a\n    residue",
+  "tests": [
+   "tests.test_brain_shareable"
+  ],
+  "equivalent": "same: the answer copy is rebuilt field by field"
+ },
+ {
+  "name": "[shareable] non-shared passage side kept",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "if s.get(\"from\") == \"passage\" and s.get(\"scope\") == \"shared\":",
+  "new": "if s.get(\"from\") == \"passage\":",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] residue scan disabled (response)",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    _check_residue(residue.names, residue.texts, kept)\n    return out\n\n\n@_guarded\ndef sanitize_answer",
+  "new": "    return out\n\n\n@_guarded\ndef sanitize_answer",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] unknown-field guard removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "_bad(f\"unknown field {f.name!r}\")",
+  "new": "pass",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] save_offer guard removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    if r.save_offer is not None:\n        _bad(\"save_offer is not part of a shareable response\")",
+  "new": "    pass",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] hits: non-shared library hits kept",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "h.detail.get(\"scope\") == \"shared\":",
+  "new": "True:",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] hits: sources and detail carried",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": " _str(h.category, \"hit category\"), [], {\"scope\": \"shared\"}))",
+  "new": " _str(h.category, \"hit category\"), h.sources, h.detail))",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] answer trace kept",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "out = dataclasses.replace(src, question=\"\", trace=[], hits=hits, steps=steps)",
+  "new": "out = dataclasses.replace(src, question=\"\", trace=src.trace, hits=hits, steps=steps)",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] answer question kept",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "out = dataclasses.replace(src, question=\"\", trace=[], hits=hits, steps=steps)",
+  "new": "out = dataclasses.replace(src, question=src.question, trace=[], hits=hits, steps=steps)",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] answer steps not sanitized",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "out = dataclasses.replace(src, question=\"\", trace=[], hits=hits, steps=steps)",
+  "new": "out = dataclasses.replace(src, question=\"\", trace=[], hits=hits, steps=src.steps)",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] answer audience check removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    if a.audience != \"shared\":\n        _bad(\"only an answer marked audience='shared' can be passed on\")",
+  "new": "    pass",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] Response.shareable returns the original",
+  "file": "puzzle_assistant/brain/model.py",
+  "old": "        return sanitize_response(self)",
+  "new": "        return self",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] BrainAnswer.shareable returns the original",
+  "file": "puzzle_assistant/brain/model.py",
+  "old": "        return sanitize_answer(self)",
+  "new": "        return self",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] step claim extra key (note) carried",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "\"status\": _str(c.get(\"status\"), what + \" status\"), \"scope\": \"shared\"}",
+  "new": "\"status\": _str(c.get(\"status\"), what + \" status\"), \"scope\": \"shared\", \"note\": c.get(\"note\")}",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] citation marker always False (equivalent: audience already personal)",
+  "file": "puzzle_assistant/brain/respond.py",
+  "old": "\"personal_details\": bool(e.get(\"personal_source\"))",
+  "new": "\"personal_details\": False",
+  "tests": [
+   "tests.test_brain_shareable"
+  ],
+  "equivalent": "the same condition already lowers the response's audience to personal, and shareable() refuses a personal response"
+ },
+ {
+  "name": "[shareable] answer residue scan disabled",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    kept = [out.answer or \"\", out.possible or \"\"] + _strings([steps, [h.text for h in hits]])\n    _check_residue(residue.names, residue.texts, kept)\n",
+  "new": "    kept = []\n",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] name windows (truncated titles) disabled",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "        if any(x in k for x in windows for k in low):",
+  "new": "        if any(n in k for k in low):",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] normalisation removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    t = unicodedata.normalize(\"NFKD\", t)\n    t = \"\".join(c for c in t if not unicodedata.combining(c)).casefold()",
+  "new": "    t = t.lower()",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] smart quotes not normalised",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    t = re.sub(r\"[\\u2018\\u2019\\u201a\\u201b\\u2032`]\", \"'\", t)\n",
+  "new": "",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] whitespace not collapsed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    return re.sub(r\"\\s+\", \" \", t).strip()",
+  "new": "    return t.strip()",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] b3_status carried",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "        b3_status=\"\", steps=steps",
+  "new": "        steps=steps",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] hit score carried",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "_str(h.status, \"hit status\"), _str(h.origin, \"hit origin\"), 0.0,",
+  "new": "_str(h.status, \"hit status\"), _str(h.origin, \"hit origin\"), h.score,",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] ai enum check removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    _one_of(r.ai, {\"none\"}, \"ai\")",
+  "new": "    pass",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] category enum check removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    _one_of(r.category, CATEGORIES, \"category\")",
+  "new": "    pass",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] answer unknown-field guard removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    _unknown_fields(a, _KNOWN_ANSWER_FIELDS)",
+  "new": "    pass",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] answer status enum removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    _one_of(a.status, _STATUSES, \"status\")",
+  "new": "    pass",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] hit type check removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "        if not isinstance(h, Hit):\n            _bad(\"hit: not a Hit\")\n",
+  "new": "        if not isinstance(h, Hit):\n            continue\n",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] claim id not type-checked",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "\"id\": _int(c.get(\"id\"), what + \" id\")",
+  "new": "\"id\": c.get(\"id\")",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] page bool accepted",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "return v if type(v) is int else None",
+  "new": "return v if isinstance(v, int) else None",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] guard wrapper lets other errors through",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "        except (TypeError, ValueError, AttributeError, KeyError, IndexError) as e:\n            raise NotShareable(f\"cannot be established as safe ({type(e).__name__})\") from None",
+  "new": "        except ZeroDivisionError:\n            raise NotShareable(\"x\")",
+  "tests": [
+   "tests.test_brain_shareable"
+  ]
+ },
+ {
+  "name": "[shareable] citation type check removed",
+  "file": "puzzle_assistant/brain/shareable.py",
+  "old": "    if not isinstance(c, Citation):\n        _bad(\"citation: not a Citation\")\n",
+  "new": "",
+  "tests": [
+   "tests.test_brain_shareable"
+  ],
+  "equivalent": "a non-Citation object is also refused by the general error guard around shareable()"
+ },
+ {
+  "name": "[shareable] migrated library: personal flag ignored (marker always False)",
+  "file": "puzzle_assistant/brain/respond.py",
+  "old": "\"personal_details\": bool(e.get(\"personal_source\"))",
+  "new": "\"personal_details\": True if False else False",
+  "tests": [
+   "tests.test_brain_shareable"
+  ],
+  "equivalent": "same condition as the previous line: the audience check already refuses the response"
+ }
+]
