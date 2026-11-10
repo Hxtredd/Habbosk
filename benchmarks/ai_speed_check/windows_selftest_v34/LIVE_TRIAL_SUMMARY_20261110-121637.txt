@@ -1,0 +1,11 @@
+SK Assistant TRIAL - AI timing summary
+log: 28 entries, 2026-11-10T12:10:25 to 2026-11-10T12:15:52; trial started 1 time(s)
+outcomes: {'shown': 24, 'no_answer': 4}
+no answer, why: {'overload': 3, 'timeout': 1}
+all AI answers: 24 answers: typical 1.01 s, slowest 10% 1.95 s, slowest 7.88 s
+  Preguntas express: no answers
+  library: 24 answers: typical 1.01 s, slowest 10% 1.95 s, slowest 7.88 s
+longest wait for a free lane: 0.3 ms
+requests sent: 28; kept connection reused 27x; reopened 0x
+slow (> 2.5 s): 2; overload/timeout: 4; share of AI questions affected: 0.214
+blocked accesses to the normal SK data: 0 (should be 0)
