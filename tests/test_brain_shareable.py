@@ -70,6 +70,17 @@ def contaminated(**over) -> Response:
     return dataclasses.replace(r, **over) if over else r
 
 
+def tidy(**over) -> Response:
+    """The contaminated response with everything stripped except what is shared and legitimate,
+    so a single field can be changed and only that field can make shareable() refuse."""
+    r = contaminated(related=[], understood_as="", interpretation=None, clarification=None,
+                     challenges=[], sides=[])
+    r.steps[0].pop("extra"); r.steps[0].pop("alias_note"); r.steps[0]["candidates"] = []
+    r.steps[0]["claims"][0].pop("note")
+    r.citations[0].evidence[:] = [r.citations[0].evidence[0]]
+    return dataclasses.replace(r, **over) if over else r
+
+
 class Contaminated(unittest.TestCase):
     def test_nothing_personal_survives(self):
         r = contaminated()
@@ -376,18 +387,14 @@ class MoreFailClosed(unittest.TestCase):
         self.refused("\u2018Lantern\u2019 Garden", "According to 'Lantern' Garden, Mira maintains it.")
 
     def test_free_text_slots_have_fixed_vocabularies(self):
-        r = contaminated()
-        r.steps[0]["outcome"] = "LUIS-SECRET-ROOM"
-        with self.assertRaises(NotShareable):
-            r.shareable()
-        r = contaminated()
-        r.steps[0]["claims"][0]["status"] = "LUIS-SECRET-ROOM"
-        with self.assertRaises(NotShareable):
-            r.shareable()
-        r = contaminated()
-        r.citations[0].status = "LUIS-SECRET-ROOM"
-        with self.assertRaises(NotShareable):
-            r.shareable()
+        self.assertEqual(tidy().shareable().steps[0]["outcome"], "value")        # the base is fine
+        for edit in (lambda r: r.steps[0].update(outcome="made_up"),
+                     lambda r: r.steps[0]["claims"][0].update(status="made_up"),
+                     lambda r: setattr(r.citations[0], "status", "made_up")):
+            r = tidy()
+            edit(r)
+            with self.assertRaises(NotShareable):
+                r.shareable()
 
     def test_a_malformed_container_is_notshareable(self):
         for over in ({"steps": 5}, {"citations": 5}, {"challenges": 5}, {"sides": 5}):
@@ -424,6 +431,21 @@ class MoreAnswers(Answers):
                      {"answer": 5}, {"possible": 5}):
             with self.assertRaises(NotShareable, msg=str(over)):
                 self.make(**over).shareable()
+
+    def test_claim_texts_alone_vouch_for_the_words(self):
+        a = self.make(hits=[])                       # no hits: only the step claims can vouch
+        self.assertEqual(a.shareable().answer, "Mira")
+        a.steps[0]["claims"][0]["text"] = "Odo maintains it."
+        with self.assertRaises(NotShareable):
+            a.shareable()                            # "Mira" is now in no shared text
+
+    def test_hit_text_alone_vouches_for_the_words(self):
+        a = self.make()
+        a.steps[0]["claims"][0]["text"] = "Mira maintains it."      # no "lantern", "garden"
+        self.assertEqual(a.shareable().steps[0]["ask"], "who looks after it (Lantern Garden)")
+        a = dataclasses.replace(a, hits=[])
+        with self.assertRaises(NotShareable):
+            a.shareable()
 
     def test_hit_status_and_origin_have_fixed_vocabularies(self):
         a = self.make()

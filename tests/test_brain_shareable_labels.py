@@ -20,7 +20,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, HERE)
 
 from tests.test_brain_b6 import World  # noqa: E402
-from tests.test_brain_shareable import contaminated, dump  # noqa: E402
+from tests.test_brain_shareable import contaminated, dump, tidy  # noqa: E402
 from puzzle_assistant.brain.shareable import NotShareable  # noqa: E402
 
 PERSONAL = ("luis-secret", "luis secret", "luis-nick", "luis nick", "secret-visit")
@@ -31,14 +31,7 @@ def has_personal(text: str) -> bool:
     return any(m in t for m in PERSONAL)
 
 
-def clean(**over):
-    """A shared-marked response with no other contamination (so only the checked field can fail)."""
-    r = contaminated(related=[], understood_as="", interpretation=None, clarification=None,
-                     challenges=[], sides=[])
-    r.steps[0].pop("extra"); r.steps[0].pop("alias_note"); r.steps[0]["candidates"] = []
-    r.steps[0]["claims"][0].pop("note")
-    r.citations[0].evidence[:] = [r.citations[0].evidence[0]]
-    return dataclasses.replace(r, **over) if over else r
+clean = tidy
 
 
 class HandBuiltLabels(unittest.TestCase):
