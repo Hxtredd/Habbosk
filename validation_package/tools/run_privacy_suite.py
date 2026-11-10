@@ -161,6 +161,7 @@ def main():
     say("")
     say("What the protections cover")
     all_ok = True
+    assert len(REQUIREMENTS) == len(MINIMUM)
     for (title, prefixes), least in zip(REQUIREMENTS, MINIMUM):
         matched = {t: w for t, w in res.outcome.items() if any(t.startswith(p) for p in prefixes)}
         missing = [p for p in prefixes if not any(t.startswith(p) for t in res.outcome)]

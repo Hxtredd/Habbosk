@@ -67,7 +67,11 @@ def isolated_environment(tag):
     import shutil
     root = os.path.join(AREA, tag)
     pkg_real = os.path.realpath(PKG)
-    if os.path.commonpath([os.path.realpath(root), pkg_real]) != pkg_real:
+    try:
+        inside = os.path.commonpath([os.path.realpath(root), pkg_real]) == pkg_real
+    except ValueError:
+        inside = False
+    if not inside:
         raise SystemExit("Refusing to clear a folder outside the package: " + root)
     shutil.rmtree(root, ignore_errors=True)
     if os.path.exists(root):

@@ -26,6 +26,10 @@ def main():
     breaks = json.load(open(os.path.join(common.HERE, "breaks.json"), encoding="utf-8"))
     if only:
         breaks = [b for b in breaks if any(o.lower() in b["name"].lower() for o in only)]
+    if not breaks:
+        print("No break matches that filter; nothing was run.")
+        return 1
+    partial = bool(only)
     env = common.isolated_environment("breaks")
     say_log = []
     w = common.python_warning()
@@ -130,7 +134,9 @@ def main():
         f"setup errors {setup}; {time.time() - t0:.0f}s")
     say("Source unchanged after the run: " + ("yes" if again else "NO"))
     passed = unexpected == 0 and setup == 0 and again and not odd
-    say("RESULT: " + ("PASS" if passed else "FAIL") + "   deliberate breaks, commit " + head["source commit"])
+    if partial:
+        say("PARTIAL RUN (a filter was given): this is not the full result.")
+    say("RESULT: " + ("PASS" if passed else "FAIL") + ("-PARTIAL" if partial and passed else "") + "   deliberate breaks, commit " + head["source commit"])
     say("Platform: " + common.python_banner())
     try:
         with open(os.path.join(common.PKG, "privacy_breaks_report.txt"), "w", encoding="utf-8") as f:
