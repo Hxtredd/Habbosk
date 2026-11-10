@@ -333,7 +333,7 @@ class MoreFailClosed(unittest.TestCase):
 
     def test_ids_and_wrong_object_types_raise_notshareable_not_other_errors(self):
         r = contaminated()
-        r.steps[0]["claims"][0]["id"] = {"x": "LUIS-SECRET-ROOM"}
+        r.steps[0]["claims"][0]["id"] = {"x": "ZZZ-OTHER-ID"}
         with self.assertRaises(NotShareable):
             r.shareable()
         r = contaminated()
@@ -359,6 +359,20 @@ class MoreFailClosed(unittest.TestCase):
                 r.citations[0].evidence[1]["source"] = "Luis Field Diary Notes 2020.txt"
             with self.assertRaises(NotShareable, msg=said):
                 r.shareable()
+
+    def test_normalisation_alone_finds_a_removed_name(self):
+        for title, said in (("Caf\u00e9 Notes", "According to CAFE   NOTES, Mira maintains it."),
+                            ("Luis's Notes", "According to Luis\u2019s Notes, Mira maintains it."),
+                            ("Luis Notes", "According to Luis    Notes, Mira maintains it.")):
+            r = contaminated(sentence=said)
+            r.citations[0].evidence[1]["source"] = title
+            with self.assertRaises(NotShareable, msg=said):
+                r.shareable()
+
+    def test_a_malformed_container_is_notshareable(self):
+        for over in ({"steps": 5}, {"citations": 5}, {"challenges": 5}, {"sides": 5}):
+            with self.assertRaises(NotShareable, msg=str(over)):
+                contaminated(**over).shareable()
 
     def test_an_ordinary_sentence_is_not_refused(self):
         self.assertEqual(contaminated().shareable().sentence, "Mira maintains the Lantern Garden.")
