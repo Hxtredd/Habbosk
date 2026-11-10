@@ -15,6 +15,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, HERE)
 
 from tests.test_brain_b6 import World, Q_MG  # noqa: E402
+from tests.test_brain_audience_details import MigratedOwnerSourceDetails as _Migrated  # noqa: E402
 from puzzle_assistant.brain.model import BrainAnswer, Citation, Hit, Response
 from puzzle_assistant.brain.shareable import NotShareable
 
@@ -316,6 +317,101 @@ class RealResponses(World):
         a = dataclasses.replace(a, audience="personal")
         with self.assertRaises(NotShareable):
             a.shareable()
+
+
+class MoreFailClosed(unittest.TestCase):
+    """The auditor's findings: the answer path, normalisation, types, enums, hits."""
+    def test_a_response_hides_the_typo_metadata(self):
+        r = contaminated(b3_status="not_reasoned")
+        self.assertEqual(r.shareable().b3_status, "")
+
+    def test_enums_and_types(self):
+        for over in ({"category": "made_up"}, {"reason": "made_up"}, {"language": "fr"},
+                     {"ai": "gemini"}, {"value": 5}, {"possible": ["x"]}, {"sentence": None}):
+            with self.assertRaises(NotShareable, msg=str(over)):
+                contaminated(**over).shareable()
+
+    def test_ids_and_wrong_object_types_raise_notshareable_not_other_errors(self):
+        r = contaminated()
+        r.steps[0]["claims"][0]["id"] = {"x": "LUIS-SECRET-ROOM"}
+        with self.assertRaises(NotShareable):
+            r.shareable()
+        r = contaminated()
+        r.citations[0] = dataclasses.asdict(r.citations[0])        # a dict, not a Citation
+        with self.assertRaises(NotShareable):
+            r.shareable()
+        r = contaminated()
+        r.challenges[1]["passages"] = "two"
+        with self.assertRaises(NotShareable):
+            r.shareable()
+        r = contaminated()
+        r.steps[0]["claims"] = [None]
+        with self.assertRaises(NotShareable):
+            r.shareable()
+
+    def test_removed_names_are_found_after_accents_quotes_spacing_and_truncation(self):
+        for said in ("According to  LUIS-source-TITLE, Mira.", "According to Luis\u2019s Field Diary Notes, ok",
+                     "see the h\u00e1ndbook of Luis Field Diary Notes"):
+            r = contaminated(sentence=said)
+            r.citations[0].evidence[1]["source"] = ("LUIS-SOURCE-TITLE" if "LUIS-source" in said
+                                                    else "Luis\u2019s Field Diary Notes 2020.txt")
+            if "h\u00e1ndbook" in said:
+                r.citations[0].evidence[1]["source"] = "Luis Field Diary Notes 2020.txt"
+            with self.assertRaises(NotShareable, msg=said):
+                r.shareable()
+
+    def test_an_ordinary_sentence_is_not_refused(self):
+        self.assertEqual(contaminated().shareable().sentence, "Mira maintains the Lantern Garden.")
+
+    def test_dates_and_page_flags_are_plain_numbers(self):
+        r = contaminated()
+        r.citations[0].evidence[0]["page"] = True
+        self.assertIsNone(r.shareable().citations[0].evidence[0]["page"])
+
+
+class MoreAnswers(Answers):
+    def test_the_answer_path_checks_what_it_removed(self):
+        a = self.make(possible="LUIS-SOURCE-TITLE")      # also named in a dropped step key
+        a.steps[0]["x"] = "Luis visits SECRET-VISIT"
+        a = dataclasses.replace(a, possible="Luis visits SECRET-VISIT")
+        with self.assertRaises(NotShareable):
+            a.shareable()
+
+    def test_unknown_field_and_enums(self):
+        @dataclasses.dataclass
+        class Later(BrainAnswer):
+            extra_text: str = "LUIS-SECRET-ROOM"
+        base = dataclasses.asdict(self.make())
+        base["hits"] = self.make().hits
+        with self.assertRaises(NotShareable):
+            Later(**base).shareable()
+        for over in ({"status": "made_up"}, {"basis": "made_up"}, {"confidence": "sure"},
+                     {"answer": 5}, {"possible": 5}):
+            with self.assertRaises(NotShareable, msg=str(over)):
+                self.make(**over).shareable()
+
+    def test_hits_must_be_hits_and_their_score_is_not_carried(self):
+        with self.assertRaises(NotShareable):
+            self.make(hits=["LUIS-SECRET-ROOM"]).shareable()
+        self.assertEqual({h.score for h in self.make().shareable().hits}, {0.0})
+        self.assertNotIn(1.0, {h.score for h in self.make().shareable().hits})
+
+
+class MigratedLibraryEndToEnd(_Migrated):
+    """The owner's own full source rows under shared ids (a migrated library)."""
+    def test_the_owners_response_cannot_be_prepared_and_another_persons_is_clean(self):
+        from puzzle_assistant.brain.shareable import NotShareable as NS
+        r = self.session("local_user").respond("Who maintains the Lantern Garden?")
+        self.assertEqual(r.audience, "personal")
+        with self.assertRaises(NS):
+            r.shareable()
+        o = self.session("external_user").respond("Who maintains the Lantern Garden?")
+        self.assertEqual(o.audience, "shared")
+        s = o.shareable()
+        text = dump(s)
+        for mark in (self.TITLE, self.DATE, "ANA-DIARY-REF"):
+            self.assertNotIn(mark, text)
+        self.assertEqual([e["withheld"] for c in s.citations for e in c.evidence], [True])
 
 
 if __name__ == "__main__":

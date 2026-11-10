@@ -10,6 +10,8 @@ read, and every kept value is copied)."""
 from __future__ import annotations
 
 import copy
+import re
+import unicodedata
 from typing import Any, List
 
 
@@ -19,6 +21,33 @@ class NotShareable(ValueError):
 
 def _bad(why: str):
     raise NotShareable(why)
+
+
+class Residue:
+    """What was removed: `names` (source titles, publishers) and `texts` (passage text...)."""
+    def __init__(self):
+        self.names: List[str] = []
+        self.texts: List[str] = []
+
+
+def _int(v: Any, what: str) -> int:
+    if type(v) is not int:
+        _bad(f"{what}: expected a number")
+    return v
+
+
+def _page(v: Any):
+    return v if type(v) is int else None
+
+
+def _norm(t: str) -> str:
+    """Comparison form: accents, case, quote styles, dashes and spacing do not hide a match."""
+    t = unicodedata.normalize("NFKD", t)
+    t = "".join(c for c in t if not unicodedata.combining(c)).casefold()
+    t = re.sub(r"[\u2018\u2019\u201a\u201b\u2032`]", "'", t)
+    t = re.sub(r"[\u201c\u201d\u201e\u201f\u2033]", '"', t)
+    t = re.sub(r"[\u2010-\u2015\u2212]", "-", t)
+    return re.sub(r"\s+", " ", t).strip()
 
 
 def _str(v: Any, what: str) -> str:
@@ -35,11 +64,11 @@ def _shared_claim(c: Any, what: str) -> dict:
     """A claim entry of a step: its scope must be 'shared' (it would contradict the audience)."""
     if not isinstance(c, dict) or c.get("scope") != "shared":
         _bad(f"{what}: not a shared claim")
-    return {"id": c.get("id"), "text": _str(c.get("text"), what + " text"),
+    return {"id": _int(c.get("id"), what + " id"), "text": _str(c.get("text"), what + " text"),
             "status": _str(c.get("status"), what + " status"), "scope": "shared"}
 
 
-def _step(st: Any, residue: List[str]) -> dict:
+def _step(st: Any, residue: "Residue") -> dict:
     if not isinstance(st, dict):
         _bad("step: not a mapping")
     out = {"ask": _str(st.get("ask", ""), "step ask"),
@@ -54,7 +83,7 @@ def _step(st: Any, residue: List[str]) -> dict:
                                for c in (st.get("also_unverified") or [])]}
     for k, v in st.items():                       # whatever else a step carries is not copied
         if k not in out:
-            residue += _strings(v)
+            residue.texts += _strings(v)
     return out
 
 
@@ -68,8 +97,10 @@ def _strings(v: Any) -> List[str]:
     return []
 
 
-def _citation(c, residue: List[str]):
+def _citation(c, residue: "Residue"):
     from .model import Citation
+    if not isinstance(c, Citation):
+        _bad("citation: not a Citation")
     if c.scope != "shared":
         _bad("citation: not a shared claim")
     ev = []
@@ -82,100 +113,148 @@ def _citation(c, residue: List[str]):
                        "source": _str(e.get("source", ""), "evidence source"),
                        "source_kind": _str(e.get("source_kind", ""), "evidence source kind"),
                        "date": _str(e.get("date", ""), "evidence date"),
-                       "page": e.get("page") if isinstance(e.get("page"), int) else None,
+                       "page": _page(e.get("page")),
                        "withheld": bool(e.get("withheld")),
                        "personal_details": False})
         else:                                      # personal, or not established: left out
-            residue += _strings(e.get("source"))      # a title a ready-made sentence may name
-    return Citation(int(c.claim_id), _str(c.text, "citation text"), _str(c.status, "status"),
+            residue.names += _strings(e.get("source"))   # a title a sentence may name
+    return Citation(_int(c.claim_id, "citation id"), _str(c.text, "citation text"), _str(c.status, "status"),
                     "shared", ev, bool(c.supports))
 
 
-def _challenge(g: Any, residue: List[str]):
+def _challenge(g: Any, residue: "Residue"):
     if not isinstance(g, dict):
         _bad("challenge: not a mapping")
     if g.get("scope") != "shared":
-        residue += _strings([g.get("publisher"), [e.get("text") for e in g.get("examples") or []
-                                                  if isinstance(e, dict)],
-                             [e.get("source") for e in g.get("examples") or []
-                              if isinstance(e, dict)]])
+        exs = [e for e in g.get("examples") or [] if isinstance(e, dict)]
+        residue.names += _strings([g.get("publisher"), [e.get("source") for e in exs]])
+        residue.texts += _strings([e.get("text") for e in exs])
         return None
     vals = g.get("values") or []
     ex = g.get("examples") or []
     # publisher, labels (author / publisher names) and example source titles are not carried:
     # nothing here establishes that they are the shared copy's own granted details
-    residue += _strings([g.get("publisher"), g.get("labels")] + [e.get("source") for e in ex
-                                                                if isinstance(e, dict)])
+    residue.names += _strings([g.get("publisher"), g.get("labels")] +
+                              [e.get("source") for e in ex if isinstance(e, dict)])
     return {"values": [_opt_str(v, "challenge value") for v in vals],
-            "passages": int(g.get("passages") or 0), "sources": int(g.get("sources") or 0),
+            "passages": _int(g.get("passages", 0), "challenge passages"),
+            "sources": _int(g.get("sources", 0), "challenge sources"),
             "scope": "shared", "internal": bool(g.get("internal")),
             "examples": [{"text": _str(e.get("text"), "challenge example"),
-                          "page": e.get("page") if isinstance(e.get("page"), int) else None}
+                          "page": _page(e.get("page"))}
                          for e in ex if isinstance(e, dict)],
             "counts_as": _str(g.get("counts_as", ""), "challenge counts_as")}
 
 
-def _side(s: Any, residue: List[str]):
+def _side(s: Any, residue: "Residue"):
     if not isinstance(s, dict):
         _bad("side: not a mapping")
     if s.get("from") == "claims":
         return {"value": _opt_str(s.get("value"), "side value"), "from": "claims"}
     if s.get("from") == "passage" and s.get("scope") == "shared":
-        residue += _strings(s.get("group"))
+        residue.names += _strings(s.get("group"))
         return {"value": _opt_str(s.get("value"), "side value"), "from": "passage",
                 "scope": "shared"}
-    residue += _strings(s.get("group"))
+    residue.names += _strings(s.get("group"))
     return None
 
 
-def _check_residue(residue: List[str], kept: List[str]):
+def _check_residue(names: List[str], texts: List[str], kept: List[str]):
     """A string removed above (a source title, a personal passage, a publisher...) must not
-    survive inside text that was kept (e.g. a ready-made sentence naming the source)."""
-    low = [k.lower() for k in kept]
-    for r in residue:
-        r = r.strip().lower()
-        if r and any(r in k for k in low):
+    survive inside text that was kept (e.g. a ready-made sentence naming the source). Names
+    (titles, publishers) also count when three or more of their words appear in a row."""
+    low = [_norm(k) for k in kept]
+    for t in texts:
+        t = _norm(t)
+        if t and any(t in k for k in low):
             _bad("a removed detail still appears in kept text")
-
-
-def sanitize_response(r):
-    import dataclasses
-    from .model import Response
-    if not isinstance(r, Response):
-        _bad("not a Response")
-    if r.audience != "shared":
-        _bad("only a response marked audience='shared' can be passed on")
-    if r.save_offer is not None:
-        _bad("save_offer is not part of a shareable response")
-    for f in dataclasses.fields(r):                # a field this version does not know: closed
-        if f.name not in _KNOWN_RESPONSE_FIELDS:
-            _bad(f"unknown response field {f.name!r}")
-    src = copy.deepcopy(r)                         # everything below reads the private copy
-    residue: List[str] = []
-    steps = [_step(s, residue) for s in src.steps]
-    cits = [_citation(c, residue) for c in src.citations]
-    ch = [x for x in (_challenge(g, residue) for g in src.challenges) if x is not None]
-    sides = [x for x in (_side(s, residue) for s in src.sides) if x is not None]
-    residue += _strings([src.understood_as, src.interpretation, src.clarification])
-    out = dataclasses.replace(
-        src, question="", related=[], understood_as="", interpretation=None, clarification=None,
-        steps=steps, citations=cits, challenges=ch, sides=sides)
-    kept = [out.sentence, out.value or "", out.possible or ""] + \
-        _strings([steps, cits and [dataclasses.asdict(c) for c in cits], ch, sides])
-    # only removed details that name a PERSON'S material count here; wording the asker typed
-    # (question, understood_as, related) overlaps with shared words by nature and is not scanned
-    scan = [x for x in residue if x not in _strings([src.understood_as, src.interpretation,
-                                                      src.clarification])]
-    _check_residue(scan, kept)
-    return out
+    for n in names:
+        n = _norm(n)
+        if not n:
+            continue
+        w = n.split(" ")
+        windows = [n] + [" ".join(w[i:i + 3]) for i in range(len(w) - 2)] if len(w) >= 3 else [n]
+        if any(x in k for x in windows for k in low):
+            _bad("a removed name still appears in kept text")
 
 
 _KNOWN_RESPONSE_FIELDS = {"question", "language", "category", "reason", "value", "sentence",
                           "citations", "steps", "clarification", "sides", "possible", "related",
                           "audience", "ai", "save_offer", "b3_status", "understood_as",
                           "challenges", "interpretation"}
+_KNOWN_ANSWER_FIELDS = {"question", "answered", "answer", "basis", "confidence", "hits", "trace",
+                        "status", "possible", "steps", "audience"}
+_STATUSES = {"established", "absent", "unverified", "missing", "conflicting", "ambiguous",
+             "not_reasoned"}
+_BASES = {"documented", "derived", "insufficient", ""}
+_CONFIDENCES = {"verified", "unverified", "none"}
 
 
+def _unknown_fields(obj, known):
+    import dataclasses
+    for f in dataclasses.fields(obj):              # a field this version does not know: closed
+        if f.name not in known:
+            _bad(f"unknown field {f.name!r}")
+
+
+def _one_of(v: Any, allowed, what: str):
+    if not isinstance(v, str) or v not in allowed:
+        _bad(f"{what}: not an allowed value")
+    return v
+
+
+def _guarded(fn):
+    """Anything unexpected while reading a response closes the door with NotShareable."""
+    def run(x):
+        try:
+            return fn(x)
+        except NotShareable:
+            raise
+        except (TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
+            raise NotShareable(f"cannot be established as safe ({type(e).__name__})") from None
+    run.__name__ = fn.__name__
+    run.__doc__ = fn.__doc__
+    return run
+
+
+@_guarded
+def sanitize_response(r):
+    import dataclasses
+    from .model import CATEGORIES, UNKNOWN_REASONS, Response
+    if not isinstance(r, Response):
+        _bad("not a Response")
+    if r.audience != "shared":
+        _bad("only a response marked audience='shared' can be passed on")
+    if r.save_offer is not None:
+        _bad("save_offer is not part of a shareable response")
+    _unknown_fields(r, _KNOWN_RESPONSE_FIELDS)
+    _one_of(r.category, CATEGORIES, "category")
+    _one_of(r.reason, set(UNKNOWN_REASONS) | {""}, "reason")
+    _one_of(r.language, {"en", "es"}, "language")
+    _one_of(r.ai, {"none"}, "ai")
+    _opt_str(r.value, "value")
+    _opt_str(r.possible, "possible")
+    _str(r.sentence, "sentence")
+    src = copy.deepcopy(r)                         # everything below reads the private copy
+    residue = Residue()
+    steps = [_step(s, residue) for s in src.steps]
+    cits = [_citation(c, residue) for c in src.citations]
+    ch = [x for x in (_challenge(g, residue) for g in src.challenges) if x is not None]
+    sides = [x for x in (_side(s, residue) for s in src.sides) if x is not None]
+    # b3_status says how the reasoning went ("not_reasoned" / "missing" reveal that a typo
+    # had to be corrected), so it is not carried
+    out = dataclasses.replace(
+        src, question="", related=[], understood_as="", interpretation=None, clarification=None,
+        b3_status="", steps=steps, citations=cits, challenges=ch, sides=sides)
+    kept = [out.sentence, out.value or "", out.possible or ""] + \
+        _strings([steps, [dataclasses.asdict(c) for c in cits], ch, sides])
+    # wording the asker typed (question, understood_as, related) overlaps with shared words by
+    # nature and is not scanned; titles, publishers and passages of removed material are
+    _check_residue(residue.names, residue.texts, kept)
+    return out
+
+
+@_guarded
 def sanitize_answer(a):
     import dataclasses
     from .model import BrainAnswer, Hit
@@ -183,13 +262,26 @@ def sanitize_answer(a):
         _bad("not a BrainAnswer")
     if a.audience != "shared":
         _bad("only an answer marked audience='shared' can be passed on")
+    _unknown_fields(a, _KNOWN_ANSWER_FIELDS)
+    _one_of(a.status, _STATUSES, "status")
+    _one_of(a.basis, _BASES, "basis")
+    _one_of(a.confidence, _CONFIDENCES, "confidence")
+    _opt_str(a.answer, "answer")
+    _opt_str(a.possible, "possible")
     src = copy.deepcopy(a)
-    residue: List[str] = []
+    residue = Residue()
     steps = [_step(s, residue) for s in src.steps]
     hits = []
     for h in src.hits:                             # only a SHARED library claim is kept
-        if isinstance(h, Hit) and h.module == "library" and \
-                isinstance(h.detail, dict) and h.detail.get("scope") == "shared":
-            hits.append(Hit(h.module, h.record_id, _str(h.text, "hit text"), h.status, h.origin,
-                            h.score, h.category, [], {"scope": "shared"}))
-    return dataclasses.replace(src, question="", trace=[], hits=hits, steps=steps)
+        if not isinstance(h, Hit):
+            _bad("hit: not a Hit")
+        if h.module == "library" and isinstance(h.detail, dict) and \
+                h.detail.get("scope") == "shared":
+            # the score is computed from the asker's question and corpus: not carried
+            hits.append(Hit(h.module, _str(h.record_id, "hit id"), _str(h.text, "hit text"),
+                            _str(h.status, "hit status"), _str(h.origin, "hit origin"), 0.0,
+                            _str(h.category, "hit category"), [], {"scope": "shared"}))
+    out = dataclasses.replace(src, question="", trace=[], hits=hits, steps=steps)
+    kept = [out.answer or "", out.possible or ""] + _strings([steps, [h.text for h in hits]])
+    _check_residue(residue.names, residue.texts, kept)
+    return out
