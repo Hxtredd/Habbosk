@@ -20,8 +20,9 @@ deleting personal data for real, backing up and restoring a person's personal me
 | Step | What it adds | Depends on |
 |---|---|---|
 | B6.1 prerequisites | audience fix (done), key-store hardening (done), one file-access layer, refuse libraries written by a newer format, secure deletion for the claim search index | your approval of decision 7 |
-| B7a | conversation context, bookmarks, confirmed saving, real deletion | decisions 1, 2, 6, 8, 9 |
+| B7a | conversation context, bookmarks, confirmed saving, real deletion | decisions 1, 2, 6 (the limit wording), 8, 9 |
 | B7b | backups, deletion records that survive a restore, restore | decisions 3, 4, 5 |
+| B7d | withdrawal of approved shared text (optional) | decision 6's design approved |
 | B7c | history and export (optional, last, most leak surface) | decisions 10, 11 |
 
 Each step is its own branch from `claude/brain-integration`, with the normal team workflow,
@@ -39,28 +40,46 @@ today's rule answers "Unknown, possibly level 3", because a statement with no so
 treated as established. Options: (a) keep that; (b) add a new answer type, "You told me: level 3";
 (c) let people be the authority on facts about themselves (preferences, their own things) but
 never on world facts.
-**Recommendation: (b), with (c) as a later refinement.** A "You told me" category keeps the
-truth rule intact (it is not "Established", not verified) but is honest and useful.
-**Why.** (a) makes personal memory feel broken. (c) needs a reliable way to tell "about me"
-from "about the world", which is hard and could wrongly promote a mistaken world fact.
-**Privacy.** "You told me" answers are always audience personal; they can never become shared
-or verify a shared fact. A personal statement that contradicts a shared Established fact does
-NOT change the Established answer; it appears alongside it, labelled as the person's own.
-**Consequence.** New response category and wording; the truth rules (what "Established" means)
-do not change. Needs your explicit approval because it touches the truth rule.
+**Recommendation: (b) now; (c) only later, and only as its own approved change.**
+**What (b) means exactly.**
+- A fifth category, "You told me", used only when the answer rests solely on the asker's OWN
+  personal claims. It is never "Established" and never "Documented"; the wording always says
+  whose statement it is ("You told me on 3 March: level 3").
+- It is always audience personal. `Response.shareable()` refuses it, so it can never be passed on.
+- It cannot verify anything, cannot feed a shared answer, and a person's personal "verified"
+  stays personal (existing rule).
+- If your statement contradicts a shared Established fact, the shared answer is unchanged and
+  yours is shown beside it, labelled ("Shared knowledge says X; you told me Y").
+- If the asker has several conflicting personal statements, SK shows them and does not choose.
+**Why not (a).** Personal memory would feel broken: SK would "know" and yet say "Unknown".
+**Why not (c) now.** It needs a reliable test for "this is about me, not the world". A wrong
+test could let a mistaken world fact become authoritative for one person and look like truth.
+**Privacy.** No new exposure: the category is personal-only and blocked at the shareable()
+boundary (tests already pin that a personal response cannot be prepared for sharing).
+**Consequences.** One new category and its wording (English and Spanish), a rule in
+`respond.py`, and tests for every category-boundary case. Existing categories and the meaning
+of "Established" do not change - but because it touches the truth rules, it is yours to approve.
+**What I need from you:** yes / no on (b); keep (c) out of scope.
 
 ### 2. Allow real deletion of personal data? (ESSENTIAL before B7a)
 **Plain question.** Today "nothing is deleted; every change is an event". People must be able to
-make SK forget something truly (including old versions and events). Allow it?
-**Recommendation: yes, for personal data only, never for shared data.**
-**Why.** Privacy law and ordinary trust: "delete" has to mean delete. Without it the product
-cannot responsibly become multi-user.
-**Privacy.** Deletion covers every place the text lives (claims, versions, events, links, evidence,
-search index and its tokens, suggestions, aliases, history, pending proposals). Pending
-proposals to share it are withdrawn automatically. Already-approved shared copies are a
-separate matter (decision 6).
-**Consequence.** The "every change is an event" rule gets one explicit, recorded exception.
-Deleted items leave only an id-only tombstone (no text).
+make SK truly forget something. Allow it?
+**Recommendation: yes - for a person's PERSONAL data only, never for shared data, with a
+verifiable checklist.**
+**What "complete" means (the checklist the code and its tests must prove).** After deleting a
+personal claim, none of its text, in any form, remains in the person's personal file: the claim,
+its versions and events, links to other claims, evidence rows and quoted passages that only that
+claim used, the search index and its word lists (claim index secure-delete), suggestions and
+aliases made from it, history rows, and pending share proposals (withdrawn automatically).
+Verification is by scanning the raw database bytes (including free pages and the write-ahead
+log) for the deleted text and its normalised and word-split forms - a test that must find nothing.
+**What stays:** an id-only tombstone (id, kind, time - no text) so a restored backup cannot
+quietly bring the item back (see decision 3), and the event "something was deleted".
+**Privacy.** Real "forget". The honest limits are stated to the person: older backups until
+replaced (decision 3), copies on disk the operating system keeps (SSD remnants, shadow copies),
+and anything already approved as shared (decision 6).
+**Consequences.** The rule "every change is an event" gets ONE explicit exception - the content,
+not the fact of deletion. This changes a Brain rule, so it needs your approval.
 
 ### 3. How to keep backups clean after a deletion? (ESSENTIAL before B7b)
 **Plain question.** A backup made yesterday still holds what you deleted today. Either scrub
@@ -90,27 +109,63 @@ person plainly while they exist.** Never delete them automatically.
 being honest.
 **Consequence.** One backup module with kinds (upgrade, daily), each with its own retention.
 
-### 6. Can a person withdraw text that a moderator already approved as shared? (ESSENTIAL before B7a)
-**Plain question.** Today an approved shared copy cannot be withdrawn. Add withdrawal, or state
-the limit when someone confirms a share?
-**Recommendation: state the limit clearly at confirm time in B7a; design withdrawal as its own
-reviewed change later.** Withdrawal touches shared.db, which users never write.
-**Privacy.** Nobody is surprised: the person is told "once approved, this becomes shared".
-**Consequence.** B7a stays out of shared.db.
+### 6. Can a person withdraw text a moderator already approved as shared? (ESSENTIAL before B7a)
+**Plain question.** An approved shared copy lives in `shared.db`, which users never write.
+Today it cannot be withdrawn. Is permanent non-withdrawal the only safe design? **No - a safe
+withdrawal can be designed, and the Brain already has the building blocks (B5.2 withdrawal of
+a source, B6 purge-pending).**
+**Proposed design (for later approval, not built).**
+1. **Who:** only the contributor who proposed it, or a moderator (for content problems). Nobody
+   else, and never silently.
+2. **How:** withdrawal is a *request* through the same moderated channel as sharing (outbox ->
+   moderator action). Users still never write `shared.db`.
+3. **What happens:** the shared claim becomes "withdrawn" (an event with id, time, reason code -
+   no text). Its text, versions and quoted passages in `shared.db` are purged: immediately if no
+   reader holds an open snapshot, otherwise marked purge-pending and purged when the last reader
+   closes (the existing B5.2 mechanism). The search index uses secure-delete.
+4. **Effect on answers:** anything that depended on it stops being Established; answers fall back
+   to "evidence withdrawn / unknown" wording the Brain already has. Other people's personal claims
+   are not touched.
+5. **Limits stated plainly:** nothing can recall what someone already read, copied, screenshotted
+   or exported; installation backups made before the purge keep the old text until replaced
+   (decision 3 applies to shared.db backups too); a restored old backup must replay the
+   withdrawal record (tombstones, decision 3).
+**Recommendation.** B7a states the limit at confirm time ("once approved, this becomes shared; it
+can be withdrawn later but copies already seen cannot be recalled" - truthful only once the
+design exists; until then: "it cannot be withdrawn yet"). Build withdrawal as its own step
+(B7d) after B7a/B7b, with its own audit and Windows run.
+**Why.** It changes who may alter shared knowledge and what moderators can destroy - a
+privacy-policy decision that needs your approval, and it touches `shared.db`, the most protected
+file. Rushing it into B7a would mix it with the personal-memory work.
+**What I changed my mind about.** My earlier text said "state the limit, design later". With the
+B5.2 precedent in view I now think a safe withdrawal is realistic, so I recommend committing to it
+as a planned step rather than leaving "permanent" as the default.
 
 ### 7. Minimum SQLite / Python versions (ESSENTIAL before the B6.1 search-index step)
-**Plain question.** Secure deletion in the search index needs SQLite 3.42 or newer. Windows has
-only ever run Python 3.14 here.
-**Recommendation: require what 3.14 ships, test that, and refuse to run deletion on anything
-older.** Do not promise support for older Pythons that were never tested.
-**Privacy.** Deletion that cannot be made secure is refused, not faked.
-**Consequence.** A documented minimum.
+**Plain question.** Real deletion from the claim search index needs SQLite's FTS5 secure-delete
+option (SQLite 3.42 or newer). The README still says "Python 3.9 - 3.13", but all Windows Brain
+checks have run on Python 3.14 (the Windows check already prints the SQLite version).
+**Recommendation.** (1) Decide by what is actually present, not by the Python label: at start,
+test `sqlite3.sqlite_version` (and FTS5) and refuse the deletion features - with a plain message
+- if the SQLite is too old; the rest of the Brain keeps working. (2) State the TESTED floor as
+Python 3.14 on Windows until older versions have been run on Windows; update the README to say
+so. (3) If you want older Pythons supported, a Windows run on the oldest one is needed first. I
+have not verified which SQLite versions older Windows Pythons ship; I will check before
+claiming any.
+**Privacy.** Deletion that cannot be made secure is refused, never faked.
+**Consequences.** A documented floor; a small start-up check; no new dependency.
 
 ### 8. One SK process per library, or several at once? (ESSENTIAL before B7a)
-**Recommendation: one process per library, enforced by a lock.** Restore and deletion must not
-race with another open session; on Windows a file in use cannot be replaced.
-**Privacy.** Prevents a half-deleted or half-restored library.
-**Consequence.** A second SK on the same library is refused with a clear message.
+**Plain question.** Restore, deletion and backup rewrite the person's file. Two SK programs open
+on the same library could write at once.
+**Recommendation: one process per library, enforced by a lock; a second one is refused with a
+clear message.** (A per-person exclusive lock inside it for restore/deletion/backup.)
+**Why.** On Windows a file in use cannot be replaced; on Linux the other process would silently
+keep writing to the removed file and lose data. Multi-process support is a large separate project.
+**Privacy.** Prevents a half-deleted or half-restored library - the worst case for "forget".
+**Consequences.** If SK crashes it must release the lock safely (stale-lock detection by process
+id and start time), which the tests will cover. Multi-user on one machine later means one SK
+process serving several people, not several processes.
 
 ### 9. The typed phrase for export, delete-everything and restore (before B7a/B7b)
 **Plain question.** These acts ask the person to type a phrase. It is a deliberate-act check
@@ -129,8 +184,14 @@ never writes a path itself, so it cannot overwrite shared.db or another person's
 never answer text - so a withdrawn shared answer does not live on in someone's history.
 
 ### 12. Approve the split and the order (ESSENTIAL first)
-**Recommendation: yes - B6.1 first (its privacy part is already done and waiting for you),
-then B7a, B7b, B7c.** Smaller steps each get an audit and a Windows run.
+**Recommendation: yes. Order: finish and approve the privacy work (B6.2, waiting for your Windows
+run), then B6.1-remaining (file layer, forward-format refusal, search-index secure delete), then
+B7a (context, bookmarks, confirmed saving, deletion), B7b (backups, restore), B7d (withdrawal of
+approved shared text, if you approve decision 6's design), B7c (history/export, last).**
+**Why this order.** Each step is small enough to audit and run on Windows; deletion (B7a) must
+exist before backups can be made deletion-aware (B7b); withdrawal touches the protected file so it
+comes after personal memory is solid; history/export has the most leak surface so it is last.
+**What you decide:** the order and that nothing starts without your approval of its decisions.
 
 ---
 
