@@ -19,12 +19,26 @@ sys.path.insert(0, ROOT)
 from puzzle_assistant import __version__  # noqa: E402
 
 
+# Development-only files that must never ship (v3.4): benchmarks and their
+# owner results, the isolated trial (launcher, guard, packages), the tests
+# that need them, and the test-only TLS key (its tests skip without it). tests/test_release_package.py checks this list.
+EXCLUDE_PREFIX = ("dist/", ".git", "benchmarks/", "trial/", "trial_dist/", "tests/fixtures/tls/")
+EXCLUDE_EXACT = {"latest.json", "tools/build_trial.py", "tools/deliberate_breaks_v34.py",
+                 "tests/test_trial.py", "tests/trial_e2e_harness.py",
+                 "tests/test_ai_speed_check.py"}
+
+
+def release_files(files):
+    """The tracked files that go into the release ZIP."""
+    return [f for f in files if f and not f.startswith(EXCLUDE_PREFIX) and f not in EXCLUDE_EXACT]
+
+
 def main() -> None:
     notes = sys.argv[1] if len(sys.argv) > 1 else ""
     short = ".".join(__version__.split(".")[:2])
     files = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True,
                            check=True).stdout.split("\n")
-    files = [f for f in files if f and not f.startswith(("dist/", ".git")) and f != "latest.json"]
+    files = release_files(files)
     dist = os.path.join(ROOT, "dist")
     os.makedirs(dist, exist_ok=True)
     for old in os.listdir(dist):

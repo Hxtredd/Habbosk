@@ -1,7 +1,7 @@
 {
- "version": "3.3.0",
- "zip": "dist/SK_Assistant_v3.3.zip",
- "sha256": "f10e7711f293f83953f43747c6c536b316f7c6ed5a45229470e7eb91938c93f2",
- "size": 11937893,
- "notes": "World Atlas: rooms are no longer renamed from a share-panel address left over from the previous room (Hospital showed as 'Tienda de Armas'); names already changed that way are restored once at start. Go to Room clicks into the chat again right before typing, and retries the click once if the chat box doesn't take the keyboard."
+ "version": "3.4.0",
+ "zip": "dist/SK_Assistant_v3.4.zip",
+ "sha256": "a853e4ed0bc7dcf889b1ffcbfc3aa12d618ab0dbab03d6c4a28080009adcaad5",
+ "size": 11966795,
+ "notes": "Faster, steadier AI answers: a question that changes no longer waits for an old AI request (it is stopped), the connection to Gemini is kept open, an answer given as the option's text is used when it can only mean one option, and the time shown is the real wait. New local timing log (numbers only) in the diagnostics folder."
 }

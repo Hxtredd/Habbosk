@@ -84,6 +84,7 @@ class Config:
     ai_daily_limit: int = 200           # max AI requests per day while paid use is off
     ai_price_in: float = 0.0            # USD / million tokens for the estimate (0 = built-in)
     ai_price_out: float = 0.0
+    ai_timing_log: bool = True          # v3.4: local AI timing log (numbers only), diagnostics folder
 
     # --- UI --------------------------------------------------------------
     check_updates: bool = True          # look for a new version when SK starts (never installs by itself)

@@ -91,8 +91,14 @@ class ParseTests(unittest.TestCase):
     def test_choice_order_pairs(self):
         a = ai.parse_reply('{"answer": "b", "explanation": "x", "confidence": 0.9}', Q)
         self.assertEqual((a.choice, a.source, a.confidence), ("París", "ai", 0.9))
+        o = Question("ORDENAR", "Ordena", ["Pulpo", "Atún", "Sardina"], ORDER)
+        self.assertEqual(ai.parse_reply('{"order": ["B","C","A"]}', o).order,
+                         ["Atún", "Sardina", "Pulpo"])
+        # v3.4 (D): options that are themselves letters - "B" could be the letter
+        # B ("a") or the option "b": ambiguous, not used (v3.3 read it as the letter)
         o = Question("ORDENAR", "Ordena", ["c", "a", "b"], ORDER)
-        self.assertEqual(ai.parse_reply('{"order": ["B","C","A"]}', o).order, ["a", "b", "c"])
+        with self.assertRaises(ai.AmbiguousReply):
+            ai.parse_reply('{"order": ["B","C","A"]}', o)
         p = Question("PAREJAS", "Une", ["perro", "gato"], PAIRS, right=["miau", "guau"])
         self.assertEqual(ai.parse_reply('```json\n{"pairs": {"A": "2", "B": 1}}\n```', p).pairs,
                          {"perro": "guau", "gato": "miau"})

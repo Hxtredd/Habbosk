@@ -20,17 +20,24 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import re
+import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
 from .. import secrets
+from . import transport
+from .ai_jobs import current_token
 from .model import CHOICE, ORDER, PAIRS, Answer, Question
 
 LETTERS = "ABCDEFGHIJ"
 PAID_ONLY = {"anthropic", "openai"}
+# v3.4: one lock for every AIAnswerer (two lanes + the Settings "Test AI"
+# button count into the same memory): the daily counter is read-then-write
+_COUNT_LOCK = threading.Lock()
 DEFAULT_MODELS = {"anthropic": "claude-haiku-5-5"}
 # rough USD per million tokens, used only for the spending estimate (editable in config)
 DEFAULT_PRICES = {"gemini": (0.0, 0.0), "anthropic": (1.0, 5.0), "openai": (0.4, 1.6)}
@@ -63,10 +70,55 @@ class AIResult:
     ms: float = 0.0
     used_search: bool = False
     facts: int = 0                 # learned facts sent along with the question
+    # v3.4 timing diagnostics (no text, only numbers and fixed words)
+    error_kind: str = ""           # rate | overload | timeout | connection | key | ...
+    calls: int = 0                 # requests actually sent to the provider
+    connect_ms: float = 0.0        # new-connection set-up (0 = reused)
+    reused: bool = False           # a kept-open connection was used
+    reconnected: bool = False      # a closed kept-open connection was reopened
+    tokens_in: int = 0
+    tokens_out: int = 0
+    stale: bool = False            # stopped because the question changed
 
 
 class AIUnavailable(Exception):
-    pass
+    def __init__(self, msg: str = "", kind: str = "", status: int = 0):
+        super().__init__(msg)
+        self.kind = kind
+        self.status = status
+
+
+class AmbiguousReply(ValueError):
+    """The reply could mean two different options: it is not used."""
+
+
+def _status_kind(status: int, msg: str = "") -> str:
+    if status == 429:
+        return "rate"
+    if status in (500, 502, 503, 504):
+        return "overload"
+    if status == 404:
+        return "model_unavailable"
+    if status in (401, 403) or (status == 400 and ("API key" in msg or "API_KEY" in msg)):
+        return "key"
+    return "http"
+
+
+def error_kind(exc: BaseException) -> str:
+    """A fixed word for the timing log (never the provider's message)."""
+    if isinstance(exc, transport.Aborted):
+        return "stale"
+    if isinstance(exc, AIUnavailable):
+        return "rate" if str(exc) == "rate" else (exc.kind or "http")
+    if isinstance(exc, AmbiguousReply):
+        return "ambiguous"
+    if isinstance(exc, (ValueError, KeyError, TypeError)):
+        return "bad_reply"
+    if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError):
+        return "timeout"
+    if isinstance(exc, OSError):
+        return "connection"
+    return "internal"
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +168,86 @@ def build_prompt(q: Question, snippets: Optional[List[str]] = None,
     return "\n".join(lines)
 
 
+def _nfc(s) -> str:
+    return unicodedata.normalize("NFC", str(s)).strip()
+
+
+_ONE_LETTER = re.compile(r"\(?([A-Ja-j])\)?[.):]?")
+_LETTER_THEN_TEXT = re.compile(r"\(?([A-Ja-j])\)?(?:[.):\-]|\s)\s*(.+)", re.S)
+
+
+_EDGE = " \t\r\n.,;:!?¡¿\"'()[]{}«»“”‘’-"
+
+
+def _loose(s) -> str:
+    """For spotting ambiguity only: case, accents form and edge punctuation ignored."""
+    return _nfc(s).casefold().strip(_EDGE)
+
+
+def option_index(raw, options: List[str]) -> int:
+    """Which option the model means (v3.4, owner-approved change D).
+
+    The model is asked for a letter ("B"). It sometimes replies with the
+    option's text instead ("V" for the options U, X, W, V). Rules:
+      * a letter of an option ("B", "b", "B.", "(B)", "B) París") -> that
+        option. Text after the letter must be that same option's text
+        (ignoring case and edge punctuation), otherwise the reply is not used;
+      * a reply that is a letter and, read loosely, also another option's
+        text ("B" with options "b", "a", "c"; "a pie" or "A pie." with
+        "En coche", "A pie") is ambiguous and is rejected - unless it is
+        EXACTLY one option's text and as "letter + text" it would not fit
+        that letter's option ("A pie" -> "A pie");
+      * otherwise the reply must be EXACTLY one option's text (surrounding
+        spaces ignored) -> that option; a reply that only matches loosely
+        (other case or punctuation) or matches several options is rejected;
+      * only text replies count (a bare number like 1 could mean a position).
+    v3.3 took the first character as the letter, so the reply "Bambú" silently
+    meant option B; such replies are now matched by their exact text or
+    rejected. Raises ValueError (AmbiguousReply when ambiguous)."""
+    if not isinstance(raw, str):
+        raise ValueError("the answer is not text")
+    s = _nfc(raw)
+    texts = [_nfc(o) for o in options]
+    loose = [_loose(o) for o in options]
+    n = len(options)
+    exact_hits = [i for i, t in enumerate(texts) if t and t == s]
+    loose_hits = [i for i, t in enumerate(loose) if t and t == _loose(s)]
+    letter_idx = None
+    m = _ONE_LETTER.fullmatch(s)
+    rest = ""
+    if m is None:
+        m2 = _LETTER_THEN_TEXT.fullmatch(s)
+        if m2 is not None:
+            m, rest = m2, _nfc(m2.group(2))
+    if m is not None:
+        i = LETTERS.index(m.group(1).upper())
+        if i < n:
+            letter_idx = i
+    if letter_idx is not None:
+        # "A veces" with option A "A veces": exactly the letter's own option
+        if exact_hits == [letter_idx] and loose_hits == [letter_idx]:
+            return letter_idx
+        # "A pie" with the options "En coche", "A pie": exactly one option's text,
+        # and as "letter A + text" it would not fit option A - so it means "A pie"
+        if (rest and len(exact_hits) == 1 and exact_hits[0] != letter_idx
+                and _loose(rest) != loose[letter_idx] and len(loose_hits) == 1):
+            return exact_hits[0]
+        if loose_hits and loose_hits != [letter_idx]:
+            raise AmbiguousReply(f"{s!r} is a letter and another option's text")
+        if rest:
+            r = _loose(rest)
+            if r != loose[letter_idx]:
+                if r in loose:
+                    raise AmbiguousReply(f"{s!r}: the letter and the text name different options")
+                raise ValueError(f"{s[:20]!r}: the text after the letter is not that option")
+        return letter_idx
+    if len(exact_hits) > 1 or len(loose_hits) > 1:
+        raise AmbiguousReply(f"{s!r} matches several options")
+    if len(exact_hits) == 1:
+        return exact_hits[0]
+    raise ValueError(f"answer {s[:20]!r} is not exactly an option")
+
+
 def parse_reply(text: str, q: Question) -> Answer:
     """Turn the model's JSON into an Answer that uses the on-screen option
     texts. Raises ValueError if it doesn't fit the options."""
@@ -128,16 +260,17 @@ def parse_reply(text: str, q: Question) -> Answer:
     expl = str(data.get("explanation", "")).strip()
     n = len(q.options)
     if q.kind == CHOICE:
-        letter = str(data.get("answer", "")).strip().upper()[:1]
-        if letter not in LETTERS[:n]:
-            raise ValueError(f"answer {letter!r} is not an option")
-        return Answer(CHOICE, choice=q.options[LETTERS.index(letter)], explanation=expl,
+        i = option_index(data.get("answer", ""), q.options)
+        return Answer(CHOICE, choice=q.options[i], explanation=expl,
                       source="ai", confidence=conf)
     if q.kind == ORDER:
-        order = [str(x).strip().upper()[:1] for x in data.get("order", [])]
-        if sorted(order) != list(LETTERS[:n]):
+        raw = data.get("order", [])
+        if not isinstance(raw, list):
+            raise ValueError("order is not a list")
+        idx = [option_index(x, q.options) for x in raw]
+        if sorted(idx) != list(range(n)):
             raise ValueError("order is not a permutation of the options")
-        return Answer(ORDER, order=[q.options[LETTERS.index(x)] for x in order],
+        return Answer(ORDER, order=[q.options[i] for i in idx],
                       explanation=expl, source="ai", confidence=conf)
     pairs_in = data.get("pairs", {})
     pairs = {}
@@ -195,7 +328,7 @@ class Gemini(Provider):
         status, data = self.http("GET", f"{self.BASE}/models?pageSize=200",
                                  {"x-goog-api-key": self.key() or ""}, None, 8.0)
         if status != 200:
-            raise AIUnavailable(_gemini_error(status, data))
+            raise AIUnavailable(_gemini_error(status, data), _status_kind(status, _msg(data)), status)
         names = []
         for m in data.get("models", []):
             name = m.get("name", "").split("/")[-1]
@@ -230,12 +363,16 @@ class Gemini(Provider):
                 continue
             break
         if status != 200:
-            raise AIUnavailable(_gemini_error(status, data))
+            raise AIUnavailable(_gemini_error(status, data), _status_kind(status, _msg(data)), status)
         parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
         text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
         u = data.get("usageMetadata", {})
         out = u.get("candidatesTokenCount", 0) + u.get("thoughtsTokenCount", 0)
         return text, u.get("promptTokenCount", 0), out
+
+
+def _msg(data) -> str:
+    return (data.get("error") or {}).get("message", "") if isinstance(data, dict) else ""
 
 
 def _gemini_error(status: int, data: dict) -> str:
@@ -257,10 +394,11 @@ class Anthropic(Provider):
                                  {"x-api-key": self.key() or "", "anthropic-version": "2023-06-01"},
                                  body, timeout)
         if status == 429:
-            raise AIUnavailable("rate")
+            raise AIUnavailable("rate", "rate", status)
         if status != 200:
             raise AIUnavailable(f"Claude error {status}: "
-                                f"{(data.get('error') or {}).get('message', '')[:120]}")
+                                f"{(data.get('error') or {}).get('message', '')[:120]}",
+                                _status_kind(status), status)
         text = "".join(c.get("text", "") for c in data.get("content", []))
         u = data.get("usage", {})
         return text, u.get("input_tokens", 0), u.get("output_tokens", 0)
@@ -296,10 +434,11 @@ class OpenAI(Provider):
         status, data = self.http("POST", "https://api.openai.com/v1/chat/completions",
                                  {"Authorization": f"Bearer {self.key() or ''}"}, body, timeout)
         if status == 429:
-            raise AIUnavailable("rate")
+            raise AIUnavailable("rate", "rate", status)
         if status != 200:
             raise AIUnavailable(f"OpenAI error {status}: "
-                                f"{(data.get('error') or {}).get('message', '')[:120]}")
+                                f"{(data.get('error') or {}).get('message', '')[:120]}",
+                                _status_kind(status), status)
         text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
         u = data.get("usage", {})
         return text, u.get("prompt_tokens", 0), u.get("completion_tokens", 0)
@@ -339,7 +478,9 @@ def web_search(cfg, query: str, http: Http) -> List[str]:
 class AIAnswerer:
     def __init__(self, cfg, memory, http: Optional[Http] = None):
         self.cfg, self.memory = cfg, memory
-        self.http = http or default_http
+        # v3.4 (change C): one kept-open connection per lane to Gemini; other
+        # hosts, and any PC with a proxy, keep the v3.3 method (default_http)
+        self.http = http or transport.KeepAliveHttp(fallback=default_http)
         self.paused_until = 0.0
         self.atlas = None                       # world_atlas.db.Atlas, set by the UI
 
@@ -375,21 +516,66 @@ class AIAnswerer:
         if not self.memory:
             return
         pin, pout = self._prices(provider)
-        cost = (tin * pin + tout * pout) / 1e6
-        self.memory.add_usage(provider, 1, cost)
-        k = "ai_day:" + _dt.date.today().isoformat()
-        self.memory.set_meta(k, str(self._today() + 1))
+        cost = (tin * pin + (tout or 0) * pout) / 1e6
+        try:
+            with _COUNT_LOCK:                   # read-then-write: one at a time
+                self.memory.add_usage(provider, 1, cost)
+                k = "ai_day:" + _dt.date.today().isoformat()
+                self.memory.set_meta(k, str(self._today() + 1))
+        except Exception:
+            # v3.4: the memory may already be closed (SK shutting down while a
+            # stopped request finishes); counting must never break an answer
+            pass
 
     def _prices(self, provider: str) -> Tuple[float, float]:
         if self.cfg.ai_price_in or self.cfg.ai_price_out:
             return float(self.cfg.ai_price_in), float(self.cfg.ai_price_out)
         return DEFAULT_PRICES.get(provider, (0.0, 0.0))
 
+    def _ask(self, p: Provider, user: str, timeout: float, res: AIResult) -> str:
+        """One provider call, counted; stops first when the question is gone (v3.4 B)."""
+        token = current_token()
+        if token is not None and token.cancelled:
+            raise transport.Aborted("question changed", sent=False)
+        transport.reset_call_info()             # details below are this call's only
+        try:
+            text, tin, tout = p.ask(SYSTEM, user, timeout)
+        except transport.Aborted as exc:
+            if exc.sent:                        # it reached the provider: count it
+                res.calls += 1
+                self._count(p.name, 0, 0)
+                if transport.last_call().get("resent"):   # and its earlier send too
+                    res.calls += 1
+                    self._count(p.name, 0, 0)
+            raise
+        except Exception:
+            res.calls += 1
+            self._note_connection(res)
+            raise
+        res.calls += 1
+        res.tokens_in += int(tin or 0)
+        res.tokens_out += int(tout or 0)
+        self._count(p.name, tin, tout)
+        if self._note_connection(res):          # sent twice (connection reopened)
+            res.calls += 1
+            self._count(p.name, 0, 0)
+        return text
+
+    def _note_connection(self, res: AIResult) -> bool:
+        """Connection details for the timing log. True if the request was sent
+        a second time (a closed kept-open connection was reopened): that send
+        counts as a request too."""
+        info = transport.last_call()
+        res.connect_ms += float(info.get("connect_ms", 0.0) or 0.0)
+        res.reused = res.reused or bool(info.get("reused"))
+        res.reconnected = res.reconnected or bool(info.get("reconnected"))
+        return bool(info.get("resent"))
+
     def answer(self, q: Question, timeout: float = 8.0, allow_search: bool = True) -> AIResult:
         t0 = time.perf_counter()
         ok, why = self.status()
         if not ok:
-            return AIResult(error=why)
+            return AIResult(error=why, error_kind="unavailable")
         p = self.provider()
         res = AIResult(provider=p.name)
         try:
@@ -400,30 +586,35 @@ class AIAnswerer:
                 except Exception:
                     pass
             res.facts = len(facts)
-            text, tin, tout = p.ask(SYSTEM, build_prompt(q, facts=facts), timeout)
-            self._count(p.name, tin, tout)
+            text = self._ask(p, build_prompt(q, facts=facts), timeout, res)
             res.model = p.model()
             ans = parse_reply(text, q)
             if (allow_search and self.cfg.web_search and self.cfg.search_provider != "none"
                     and ans.confidence < 0.7):
-                snippets = self._search(q)
+                token = current_token()
+                snippets = [] if token is not None and token.cancelled else self._search(q)
                 if snippets:
-                    text, tin, tout = p.ask(SYSTEM, build_prompt(q, snippets, facts), timeout)
-                    self._count(p.name, tin, tout)
+                    text = self._ask(p, build_prompt(q, snippets, facts), timeout, res)
                     ans2 = parse_reply(text, q)
                     if ans2.confidence >= ans.confidence:
                         ans, res.used_search = ans2, True
                         ans.source = "search"
             res.answer = ans
+        except transport.Aborted as exc:
+            res.stale, res.error_kind = True, error_kind(exc)
+            res.error = "the question changed; this answer is no longer needed"
         except AIUnavailable as exc:
+            res.error_kind = error_kind(exc)
             if str(exc) == "rate":
                 self.paused_until = time.monotonic() + 60
                 res.error = "the AI is busy (free limit per minute); trying again soon"
             else:
                 res.error = str(exc)
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            res.error_kind = error_kind(exc)
             res.error = f"the AI's reply could not be used ({exc})"
         except OSError as exc:
+            res.error_kind = error_kind(exc)
             res.error = f"no connection to the AI ({exc.__class__.__name__})"
         res.ms = (time.perf_counter() - t0) * 1000
         return res

@@ -130,6 +130,9 @@ difficulties: keep the interface simple, plain-worded and calm.
 | `qa/model.py`, `qa/text.py` | Question/Answer model, normalisation |
 | `qa/solvers.py` | built-in solvers (safe arithmetic parser, sequence rules); answer only if exactly one option fits, refuse when two readings fit |
 | `secrets.py` | API keys encrypted with Windows DPAPI (`keys.bin` in the data folder) |
+| `qa/ai_jobs.py` | v3.4: AI requests in the background - newest question wins, ≤ 2 running + 1 waiting, CancelToken |
+| `qa/transport.py` | v3.4: kept-open HTTPS connection to Gemini (proxy / other hosts: urllib as before), reply waited for in 0.1 s steps |
+| `diagnostics.py` | v3.4: local AI timing log (`diagnostics\ai_timing.jsonl`), whitelisted fields only, ~0.5 MB cap |
 
 Key ideas: detect windows by **layout** (grids of boxes) not by OCR; tiny text
 via **glyph templates** (`glyph_templates.npz`, built by
@@ -589,6 +592,51 @@ Smallest architecture:
 Brain changes needed before deployment: none to the reasoning; add the
 ask-only wrapper with a mandatory viewer; keep the B3 tests in the lab repo
 and run them in its CI before each deploy.
+
+## v3.4: AI speed changes A-D (owner-approved 2026-11-09)
+
+Measured first (`benchmarks/ai_speed_check/`, owner's PC): the model is fast
+(~0.65 s); the problems were Google-side spikes / 503s (~1 request in 10)
+made worse by v3.3's single AI lane (a stuck old request delayed the next
+question), and a reply with the option text instead of its letter being
+thrown away. Changes (no provider, model, prompt, thinking or dependency
+change):
+- A `diagnostics.py`: timing log (numbers and fixed words only), set on the
+  engine by the UI (`Engine.diag`), config `ai_timing_log`.
+- B `qa/ai_jobs.py`: AiScheduler; the engine calls `_drop_ai` wherever a
+  question is finished (memory, solver, game reveal, window closed).
+  Stopping a running request: the reply is read in 0.1 s steps
+  (`transport._PollingRaw`, non-blocking reads, CancelToken checked between
+  steps; an empty TLS read - TLS 1.3 session tickets - means "keep waiting").
+  Nothing is done to the socket from the cancelling thread: on Windows
+  shutdown()/close() from another thread don't wake a waiting read (owner's
+  trial), and SSLSocket.shutdown() from another thread can let a concurrent
+  send go out unencrypted (independent review of the first release candidate).
+- C `qa/transport.py`: KeepAliveHttp, Gemini host only, reconnect and send
+  again once only if no reply byte came back (a reply that broke off may have
+  been handled: never resent), a second send is counted, 50 s idle limit,
+  any proxy -> urllib.
+- D `qa/ai.option_index`: exact option text accepted when unambiguous
+  (CHOICE, ORDER); the first character is no longer taken as the letter;
+  ambiguity is judged loosely (case, edge punctuation: "a pie" / "A pie."
+  vs a letter A), text after a letter must be that option's text, only
+  text replies count. Options that are themselves letters ("c", "a", "b")
+  with a letter reply are now ambiguous (v3.3 took the letter).
+- The AI answer time shown is asked -> shown; a stopped request that was
+  sent counts towards the daily free limit; counting never fails an answer
+  and is locked (two lanes); each job's timing-log line is written once.
+Results: Windows before/after (accuracy 16/20 -> 19/20, "question changed"
+0.98 -> 0.63 s) and a real-play trial (37 requests, typical 0.82 s, max 2.0 s,
+0 overload) - `benchmarks/ai_speed_check/after_A-D/`, `trial_A-D/`.
+Development-only (never in the release ZIP, see tools/publish_release.py):
+`benchmarks/`, `trial/`, `trial_dist/`, `tools/build_trial.py`,
+`tools/deliberate_breaks_v34.py`, `tests/test_trial.py`,
+`tests/trial_e2e_harness.py`, `tests/test_ai_speed_check.py`.
+Open for later (owner decision): v3.5 question reading (open chat-history
+panel hides the question; PAREJAS sums skip the exact math reader and have
+no solver); exit abort when Python exits while the engine thread is in
+OpenCV/OCR, and `Engine._stop` / `ExplorerThread._stop` hiding
+`Thread._stop` (join/is_alive fail on Python <= 3.12).
 
 ## Known limits / ideas
 
