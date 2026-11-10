@@ -41,6 +41,11 @@ def main():
     say(common.python_banner())
     if w:
         say(w)
+    try:
+        import pypdf  # noqa: F401
+    except ImportError:
+        say("pypdf is NOT installed in this Python (run the STEP3 bat, which sets up .venv-check).")
+        return 1
     common.block_network()
     if not common.network_selftest():
         say("The network block is not working - nothing was run.")

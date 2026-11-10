@@ -9,7 +9,10 @@ its settings. Every test file and database is created inside this folder (in "te
 and can be deleted afterwards. The tests also refuse network connections and name lookups.
 
 WHAT YOU NEED
-Windows with Python 3.14 (the same Python you used for the earlier Brain checks).
+Windows with Python 3.14 (the same Python you used for the earlier Brain checks) and the
+internet ONCE. The first step you run creates a private environment inside this folder
+(.venv-check) and installs only pypdf there - the same pinned, hash-checked PDF reader the
+official Brain Windows check installs. Nothing is installed into your own Python.
 If "py -3.14" worked for you before, this works too.
 
 DO IT ONE STEP AT A TIME

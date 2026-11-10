@@ -17,6 +17,21 @@ if not defined PY (
   exit /b 2
 )
 echo  Using: %PY%
+if not exist ".venv-check\Scripts\python.exe" (
+  echo.
+  echo  First run: setting up a private Python environment in THIS folder ^(.venv-check^).
+  echo  It installs only pypdf, the PDF reader the Brain tests need ^(pinned and hash-checked,
+  echo  from source\requirements-brain.txt^). This needs the internet once.
+  %PY% -m venv .venv-check
+  if exist ".venv-check\Scripts\python.exe" (
+    ".venv-check\Scripts\python.exe" -m pip install --no-cache-dir --disable-pip-version-check --require-hashes -r source\requirements-brain.txt
+  )
+)
+if exist ".venv-check\Scripts\python.exe" (
+  set "PY=.venv-check\Scripts\python.exe"
+) else (
+  echo  Could not set up .venv-check - continuing with %PY%; PDF tests will fail without pypdf.
+)
 echo.
 %PY% -I -B tools\run_privacy_suite.py
 set "CODE=%ERRORLEVEL%"

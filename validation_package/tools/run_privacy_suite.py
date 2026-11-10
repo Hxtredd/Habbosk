@@ -101,6 +101,14 @@ def main():
     say(common.python_banner())
     if common.python_warning():
         say(common.python_warning())
+    try:
+        import pypdf
+        say("pypdf (PDF reader for the Brain tests): " + pypdf.__version__ + "   from " + os.path.dirname(pypdf.__file__))
+    except ImportError:
+        say("pypdf is NOT installed in this Python, so the PDF tests cannot run.")
+        say("Run the STEP bat files (they set up .venv-check with pypdf), not this script directly.")
+        say("RESULT: FAIL   pypdf missing; nothing was run")
+        return 1
     env = common.isolated_environment("suite")
     common.apply_environment(env)
     common.block_network()
