@@ -1,4 +1,4 @@
-SK ASSISTANT  (v3.3 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v3.4 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -234,6 +234,26 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   often the AI was right). Many questions are about this game's own world,
   which an AI can't know - memory stays the main source.
 
+  Faster, steadier AI answers (v3.4):
+    * When a question changes (or is answered, or closes) before the AI
+      has replied, that request is stopped at once and the new question
+      is asked straight away - it never waits behind an old one. At most
+      two requests run at a time and the same question is never asked
+      twice, so no free requests are wasted.
+    * SK keeps its connection to Gemini open between questions (if your
+      PC uses a proxy, it connects as before).
+    * If the AI answers with the option's text instead of its letter
+      ("V" instead of "D"), the answer is used when it can only mean one
+      option; anything that could mean two options is ignored.
+    * The time under an AI answer ("gemini · 0.8 s") is now the whole
+      time you waited.
+    * Timing log: %APPDATA%\SK Assistant\diagnostics\ai_timing.jsonl
+      keeps only numbers and fixed words about each AI request (how long
+      it took, answered / no answer and why, model) - never the question,
+      the options, the answer or your key. At most about 0.5 MB; nothing is
+      sent anywhere. To switch it off set "ai_timing_log": false in
+      config.json.
+
 
 2e. WORLD ATLAS / LIVE EXPLORER (new in v2.3)
 ---------------------------------------------
@@ -355,7 +375,8 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
     tessdata_dir, ocr_upscale, ocr_threads, min_confidence (60),
     read_names, require_layout, disappear_after_ms, window_geometry,
     opacity, debug_save, ai_model ("" = automatic), ai_daily_limit (200),
-    ai_price_in / ai_price_out ($ per million tokens, for the estimate)
+    ai_price_in / ai_price_out ($ per million tokens, for the estimate),
+    ai_timing_log (true = keep the AI timing log in the diagnostics folder)
 
 
 6. FILES

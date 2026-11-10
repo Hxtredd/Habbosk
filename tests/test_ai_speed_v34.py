@@ -280,7 +280,10 @@ class ConnectionReuse(unittest.TestCase):
         now = [100.0]
         h, srv, _ = self.make([], clock=lambda: now[0])
         h("POST", GEMINI, {}, {}, 8.0)
-        now[0] += transport.MAX_IDLE + 1
+        now[0] += 51.0                                    # the documented limit is 50 s
+        h("POST", GEMINI, {}, {}, 8.0)
+        self.assertEqual(srv.connects, 2)
+        now[0] += 30.0                                    # within the limit: reused
         h("POST", GEMINI, {}, {}, 8.0)
         self.assertEqual(srv.connects, 2)
 
@@ -696,6 +699,24 @@ class EngineCancellation(EngineBase):
         self.assertTrue(res.stale)
         s.shutdown()
 
+    def test_no_web_search_for_a_question_that_closed_before_it(self):
+        self.cfg.web_search, self.cfg.search_provider = True, "tavily"
+        calls = []
+        tok_holder = {}
+
+        def http(method, url, headers, body, timeout):
+            calls.append(url)
+            if "generativelanguage" in url:
+                tok_holder["tok"].cancel()                     # question closed during the AI call
+            return 200, gemini_reply({"answer": "A", "confidence": 0.3})
+        a = ai.AIAnswerer(self.cfg, self.mem, http)
+        s = ai_jobs.AiScheduler()
+        job = s.submit("q", a.answer, Question("PREGUNTA", "x", ["a", "b"]))
+        tok_holder["tok"] = job.token
+        job.future.result(timeout=2)
+        self.assertEqual([u for u in calls if "tavily" in u], [])   # no search request wasted
+        s.shutdown()
+
     def test_shown_time_includes_waiting(self):
         self.eng.ai = ai.AIAnswerer(self.cfg, self.mem, FakeHttp([], delay=0.3))
         st = {"shown": None}
@@ -710,6 +731,80 @@ class EngineCancellation(EngineBase):
         self.assertGreaterEqual(rec["total_ms"], 500)
         self.assertGreaterEqual(rec["request_ms"], 300)
         self.assertGreaterEqual(rec["poll_ms"], 150)
+
+
+class FakeScreen:
+    """The engine's screen: a quiz window is there until `shown` is cleared."""
+    shown = True
+    BOUNDS = {"left": 0, "top": 0, "width": 640, "height": 480}
+
+    def __init__(self, monitor=0):
+        self.screens = [self.BOUNDS]
+        self.monitor = self.BOUNDS
+
+    def targets(self, region):
+        return [self.BOUNDS]
+
+    def grab_bounds(self, b):
+        import numpy as np
+        return np.full((480, 640, 3), 22, np.uint8), self.BOUNDS
+
+    def close(self):
+        pass
+
+
+@unittest.skipUnless(__import__("shutil").which("tesseract") or os.name == "nt",
+                     "the engine loop needs Tesseract")
+class EngineLoop(EngineBase):
+    def test_closing_the_question_window_stops_the_ai_request(self):
+        """v3.4 B: when the quiz window disappears while the AI is still thinking,
+        the engine's own loop stops the request (Engine.run -> _drop_ai)."""
+        import types
+        from puzzle_assistant import engine as E
+        from puzzle_assistant.ocr import find_tesseract
+        if not find_tesseract(self.cfg):
+            self.skipTest("Tesseract not installed")
+        http = GatedHttp()
+        gate = http.gate("CERRADA")
+        self.eng.ai = ai.AIAnswerer(self.cfg, None, http)
+        self.cfg.region, self.cfg.money_puzzle, self.cfg.world_atlas = None, False, False
+        lay = types.SimpleNamespace(left=[], all_boxes=lambda: [(20, 100, 250, 37), (20, 150, 250, 37)])
+        q = Question("PREGUNTA", "pregunta CERRADA", ["a", "b"])
+        screen = types.SimpleNamespace(question=q, answered=False, progress=0, revealed=None,
+                                       verdict="", text_unsure=False)
+        FakeScreen.shown = True
+        patches = [mock.patch.object(E, "ScreenGrabber", FakeScreen),
+                   mock.patch.object(E, "locate_express", lambda *a, **k: None),
+                   mock.patch.object(E, "locate_question", lambda f: lay if FakeScreen.shown else None),
+                   mock.patch.object(E, "fingerprint", lambda f, l: 1),
+                   mock.patch.object(E, "read_question", lambda *a, **k: screen)]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        jobs = []
+        submit = self.eng._ai_jobs.submit
+
+        def spy(*args, **kw):
+            job = submit(*args, **kw)
+            jobs.append(job)
+            return job
+        self.eng._ai_jobs.submit = spy
+        self.eng.start()
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline and not http.calls:   # the AI has been asked
+            time.sleep(0.05)
+        self.assertTrue(http.calls, "the engine never asked the AI")
+        self.assertEqual(len(jobs), 1)
+        self.assertFalse(jobs[0].token.cancelled)
+        FakeScreen.shown = False                                  # the player closes the window
+        closed = time.monotonic()
+        while time.monotonic() - closed < 2.0 and not jobs[0].token.cancelled:
+            time.sleep(0.02)
+        self.assertTrue(jobs[0].token.cancelled, "request not stopped within 2 s of the window closing")
+        gate.set()
+        jobs[0].future.result(timeout=5)
+        time.sleep(0.1)
+        self.assertEqual([r["outcome"] for r in self.diag.read()], ["stale"])
 
 
 # ---------------------------------------------------------------------------
