@@ -271,6 +271,9 @@ class SummaryTests(unittest.TestCase):
         shutil.rmtree(tmp)
 
 
+@unittest.skipUnless(os.path.isfile(os.path.join(ROOT, "tools", "build_trial.py"))
+                     and os.path.isdir(os.path.join(ROOT, ".git")),
+                     "builds the package from git: only in the source repository, not inside the package")
 class PackageTests(unittest.TestCase):
     def test_package_leaves_out_everything_that_touches_the_normal_install(self):
         out = subprocess.run([PY, os.path.join(ROOT, "tools", "build_trial.py"), "HEAD"], capture_output=True,
