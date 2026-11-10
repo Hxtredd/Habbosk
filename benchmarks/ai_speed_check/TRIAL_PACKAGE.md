@@ -5,10 +5,11 @@ and the release branch untouched, the in-app updater never sees it.
 
 | | |
 |---|---|
-| Package | `trial_dist/SK_Assistant_TRIAL_8fc56b2.zip` (top folder "SK Assistant TRIAL", 170 files, 11 997 335 bytes) |
-| SHA-256 | `b4ffdec1415a1b54811886bdb9e142be5ed4566ec4490cdeabae9d3e7fe1a7f5` |
-| Code | commit `8fc56b2` = A-D (`e9cee60`) + closed-memory counting fix + trial tooling (`f03b38a`, `8fc56b2`) |
-| Built by | `tools/build_trial.py 8fc56b2` |
+| Package | `trial_dist/SK_Assistant_TRIAL_172d63b.zip` (top folder "SK Assistant TRIAL", 171 files, 12 000 041 bytes) |
+| SHA-256 | `5750b8ce9d80027ae8601da8b3e322f96602f359e614a5a4d2d12c381276c2da` |
+| Code | commit `172d63b` = A-D (`e9cee60`) + closed-memory counting fix + trial tooling (`f03b38a`, `8fc56b2`) + Windows test fix (`172d63b`) |
+| Built by | `tools/build_trial.py 172d63b` |
+| Replaces | `SK_Assistant_TRIAL_8fc56b2.zip` (SHA-256 b4ffdec1...): its self-test failed on the owner's PC, see below |
 
 ## Isolation (what makes it safe)
 
@@ -53,6 +54,22 @@ fake provider; no question text or key in the timing log or trial data.
   `threading.Thread._stop`: `join()` / `is_alive()` raise TypeError on
   Python <= 3.12 (3 existing tests fail on 3.12 for v3.3 and v3.4 alike;
   3.13 / 3.14 unaffected - the owner uses 3.14).
+
+## Owner's first Windows setup (8fc56b2): self-test failed - test defect, guard held
+
+TRIAL_SETUP's self-test reported one failure on the owner's PC (Windows,
+Python 3.14). Cause: tests/test_trial.py made its fake "normal SK" folder
+only at the Linux location and did not set APPDATA, so on Windows its test
+subprocesses used the owner's REAL %APPDATA%\SK Assistant as the folder to
+protect. In every one of those processes the guard was on for that real
+folder, so no write, delete, rename or database access to it was possible.
+What did happen: one launcher test read config.json and keys.bin there
+read-only (settings copied into a temporary trial folder that is deleted
+afterwards; the key compared in memory, never printed or saved) and failed
+on the key comparison; the "trial inside the normal folder" test could open
+a trial window from a temporary folder. Fixed in 172d63b: fake folder at
+both platforms' locations, and every trial test refuses to run unless the
+protected folder is inside its own temp folder.
 
 ## Limitations
 
