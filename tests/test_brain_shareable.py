@@ -372,6 +372,21 @@ class MoreFailClosed(unittest.TestCase):
         self.refused("\u201cLantern\u201d Garden", 'According to "Lantern" Garden, Mira maintains it.')
         self.refused("Lantern  Garden", "According to Lantern Garden, Mira maintains it.")
         self.refused("LANTERN garden", "According to lantern GARDEN, Mira maintains it.")
+        self.refused("\u2018Lantern\u2019 Garden", "According to 'Lantern' Garden, Mira maintains it.")
+
+    def test_free_text_slots_have_fixed_vocabularies(self):
+        r = contaminated()
+        r.steps[0]["outcome"] = "LUIS-SECRET-ROOM"
+        with self.assertRaises(NotShareable):
+            r.shareable()
+        r = contaminated()
+        r.steps[0]["claims"][0]["status"] = "LUIS-SECRET-ROOM"
+        with self.assertRaises(NotShareable):
+            r.shareable()
+        r = contaminated()
+        r.citations[0].status = "LUIS-SECRET-ROOM"
+        with self.assertRaises(NotShareable):
+            r.shareable()
 
     def test_a_malformed_container_is_notshareable(self):
         for over in ({"steps": 5}, {"citations": 5}, {"challenges": 5}, {"sides": 5}):
@@ -408,6 +423,16 @@ class MoreAnswers(Answers):
                      {"answer": 5}, {"possible": 5}):
             with self.assertRaises(NotShareable, msg=str(over)):
                 self.make(**over).shareable()
+
+    def test_hit_status_and_origin_have_fixed_vocabularies(self):
+        a = self.make()
+        a.hits[0].status = "LUIS-SECRET-ROOM"
+        with self.assertRaises(NotShareable):
+            a.shareable()
+        a = self.make()
+        a.hits[0].origin = "LUIS-SECRET-ROOM"
+        with self.assertRaises(NotShareable):
+            a.shareable()
 
     def test_hits_must_be_hits_and_their_score_is_not_carried(self):
         with self.assertRaises(NotShareable):
