@@ -28,23 +28,52 @@ def main():
         breaks = [b for b in breaks if any(o.lower() in b["name"].lower() for o in only)]
     env = common.isolated_environment("breaks")
     say_log = []
+    w = common.python_warning()
 
     def say(s=""):
         print(s, flush=True)
         say_log.append(s)
 
     say(common.python_banner())
+    if w:
+        say(w)
+    say("network block self-test: " + ("ok" if common.network_selftest() else "NOT WORKING - stop"))
     say(f"{len(breaks)} deliberate breaks; each runs the matching tests on a broken COPY.")
     say("")
     work = os.path.join(common.AREA, "break_work")
+    shutil.rmtree(work, ignore_errors=True)
+
+    def fresh_copy():
+        shutil.rmtree(work, ignore_errors=True)
+        os.makedirs(work, exist_ok=True)
+        for d in ("puzzle_assistant", "tests"):
+            shutil.copytree(os.path.join(common.SOURCE, d), os.path.join(work, d),
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                            dirs_exist_ok=True)
+
+    def run_tests(tests):
+        r = subprocess.run([sys.executable, "-I", "-B", os.path.join(common.HERE, "child_tests.py"),
+                            work] + tests, cwd=work, env=env, capture_output=True, text=True,
+                           timeout=900)
+        ran = [l for l in r.stderr.splitlines() if l.startswith("Ran ")]
+        return r, (int(ran[0].split()[1]) if ran else 0)
+
+    # BASELINE: the unbroken copy must pass, or "caught" would mean nothing
+    fresh_copy()
+    base_tests = sorted({t for b in breaks for t in b["tests"]})
+    r0, n0 = run_tests(base_tests)
+    say(f"baseline (no break): {n0} tests, " + ("all pass" if r0.returncode == 0 and n0 else "FAILED"))
+    if r0.returncode != 0 or n0 == 0:
+        say("The unbroken code does not pass here, so no break result would be meaningful.")
+        for l in r0.stderr.splitlines()[-12:]:
+            say("    " + l)
+        say("RESULT: FAIL   deliberate breaks, commit " + head["source commit"])
+        return 1
+    say("")
     caught = missed = setup = unexpected = 0
     t0 = time.time()
     for i, b in enumerate(breaks, 1):
-        shutil.rmtree(work, ignore_errors=True)
-        os.makedirs(work)
-        for d in ("puzzle_assistant", "tests"):
-            shutil.copytree(os.path.join(common.SOURCE, d), os.path.join(work, d),
-                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        fresh_copy()
         p = os.path.join(work, *b["file"].split("/"))
         text = open(p, encoding="utf-8", newline="").read()
         if text.count(b["old"]) != 1:
@@ -53,17 +82,18 @@ def main():
             continue
         open(p, "w", encoding="utf-8", newline="").write(text.replace(b["old"], b["new"]))
         try:
-            r = subprocess.run([sys.executable, "-I", os.path.join(common.HERE, "child_tests.py"),
-                                work] + b["tests"], cwd=work, env=env, capture_output=True,
-                               text=True, timeout=900)
-            was_caught = r.returncode != 0
-            first = [l for l in r.stderr.splitlines() if l.startswith(("FAIL:", "ERROR:"))][:1]
+            r, ran = run_tests(b["tests"])
+            fails = [l for l in r.stderr.splitlines() if l.startswith(("FAIL:", "ERROR:"))]
+            # caught = real test failures from tests that ran (not an import or harness error)
+            was_caught = r.returncode != 0 and ran > 0 and bool(fails) and \
+                not any("_FailedTest" in l or "ImportError" in l or "ModuleNotFound" in l for l in fails)
+            first = fails[:1]
         except subprocess.TimeoutExpired:
-            was_caught, first = True, ["(timed out)"]
+            was_caught, first = False, ["(timed out - not counted as caught)"]
         expected_equiv = bool(b.get("equivalent"))
         if was_caught:
             caught += 1
-            say(f"[{i:2d}/{len(breaks)}] CAUGHT  {b['name']}")
+            say(f"[{i:2d}/{len(breaks)}] CAUGHT  {b['name']}\n          by: " + (first[0].split(" (")[0][:90] if first else "?"))
         elif expected_equiv:
             say(f"[{i:2d}/{len(breaks)}] same-as-before (equivalent, expected)  {b['name']}\n"
                 f"          why: {b['equivalent']}")
@@ -73,6 +103,7 @@ def main():
             missed += 1
             unexpected += 1
     shutil.rmtree(work, ignore_errors=True)
+    common.remove_compiled(common.SOURCE)
     again, _ = verify_package.verify(quiet=True)
     say("")
     say(f"Breaks: {len(breaks)}; caught {caught}; not noticed {missed} "

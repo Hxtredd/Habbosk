@@ -1,5 +1,5 @@
 import hashlib, io, os, shutil, subprocess, sys, tarfile, zipfile
-S = os.path.dirname(os.path.abspath(__file__))   # folder holding pkg/ (see README_BUILD.txt)
+S = os.path.dirname(os.path.abspath(__file__))
 REPO = "/home/user/priv"
 SHA = subprocess.check_output(["git", "-C", REPO, "rev-parse", sys.argv[1]], text=True).strip()
 assert SHA == "68b500f3d691f714425497ceb6eac3beac8967ac", SHA
@@ -17,9 +17,11 @@ for f in os.listdir(os.path.join(S, "pkg")):
         shutil.copy(p, root)
 sys.path.insert(0, os.path.join(root, "tools"))
 import common
-fp = subprocess.check_output([sys.executable, "-c",
+fp = subprocess.check_output([sys.executable, "-B", "-c",
     "import sys;sys.path.insert(0,'.');from puzzle_assistant.devtools import brain_windows_check as b;print(b.code_fingerprint())"],
     cwd=os.path.join(root, "source"), text=True).strip()
+for d, ds, fs in os.walk(root):
+    assert "__pycache__" not in ds and not [f for f in fs if f.endswith(".pyc")], d
 files = common.file_list(os.path.join(root, "source"))
 assert common.source_tree_sha(os.path.join(root, "source"), files) == TREE
 with open(os.path.join(root, "MANIFEST.txt"), "w", encoding="utf-8", newline="\n") as m:

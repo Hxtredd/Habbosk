@@ -26,6 +26,11 @@ def verify(quiet=False):
     head, files = read_manifest()
     actual = common.file_list(common.SOURCE)
     problems = []
+    for d, dirs, fs in os.walk(common.SOURCE):          # compiled leftovers would run unchecked
+        for x in dirs + fs:
+            if x == "__pycache__" or x.endswith((".pyc", ".pyo")):
+                problems.append("compiled file/folder in source (not allowed): "
+                                + os.path.relpath(os.path.join(d, x), common.SOURCE))
     for rel in sorted(set(files) | set(actual)):
         if rel not in files:
             problems.append(f"EXTRA file not in the manifest: {rel}")
@@ -52,6 +57,8 @@ def verify(quiet=False):
     if not quiet:
         print("PACKAGE CHECK: OK - the source is byte-for-byte the tree of commit",
               head["source commit"])
+        print("(This file list ships inside the zip. For an outside check compare the tree id"
+              " above with the one I give you in the chat.)")
     return True, head
 
 

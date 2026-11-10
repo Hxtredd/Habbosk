@@ -18,7 +18,7 @@ if not defined PY (
 )
 echo  Using: %PY%
 echo.
-%PY% -I tools\privacy_breaks.py
+%PY% -I -B tools\privacy_breaks.py
 set "CODE=%ERRORLEVEL%"
 echo.
 if "%CODE%"=="0" (echo  FINISHED: PASS) else (echo  FINISHED: FAIL - send me the report file named above.)

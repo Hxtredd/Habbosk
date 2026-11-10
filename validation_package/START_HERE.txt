@@ -6,7 +6,7 @@ WHAT THIS DOES
 It runs the privacy tests for the SK Brain on your Windows computer, using only the folder
 you unzip. It never opens, copies or changes your everyday SK Assistant, its databases or
 its settings. Every test file and database is created inside this folder (in "test_area")
-and can be deleted afterwards. The tests also refuse every network connection.
+and can be deleted afterwards. The tests also refuse network connections and name lookups.
 
 WHAT YOU NEED
 Windows with Python 3.14 (the same Python you used for the earlier Brain checks).
@@ -20,6 +20,9 @@ DO IT ONE STEP AT A TIME
 2. Double-click  STEP1_CHECK_PACKAGE.bat
    Takes a few seconds. It proves the code in this folder is exactly commit 68b500f.
    You should see:  PACKAGE CHECK: OK ...   then   FINISHED: PASS
+   Check that the line "Git tree id (recomputed)" shows the same number I gave you in the
+   chat (34b167cea159bd5794b9524b3615044fbd9431e1). Also compare the zip's SHA-256 if you
+   like:  certutil -hashfile <zipfile> SHA256   (I give you the expected value in the chat).
    Press any key to close the window.
 
 3. Double-click  STEP2_RUN_PRIVACY_TESTS.bat

@@ -24,6 +24,9 @@ MODULES = [
 ]
 FULL = "--full" in sys.argv
 
+MINIMUM = {"Personal chal": 10, "Personal unve": 8, "Personal sour": 18, "Personal alia": 14,
+           "shareable() ": 4, "The original": 1, "Shared respo": 4, "Unknown or u": 16}
+
 # requirement -> test-id prefixes that must exist, run and all pass
 REQUIREMENTS = [
     ("Personal challenge text never appears in a shared response",
@@ -94,9 +97,13 @@ def main():
     if not ok:
         return 1
     say(common.python_banner())
+    if common.python_warning():
+        say(common.python_warning())
     env = common.isolated_environment("suite")
     common.apply_environment(env)
     common.block_network()
+    selftest = common.network_selftest()
+    say("Network block self-test: " + ("ok" if selftest else "NOT WORKING"))
     say("Private test area : " + common.AREA)
     say("Data folder       : " + env["SK_ASSISTANT_DATA"])
     say("Network           : blocked (loopback only)")
@@ -104,6 +111,19 @@ def main():
     os.chdir(common.SOURCE)
     sys.path.insert(0, common.SOURCE)
     sys.path.insert(0, os.path.join(common.SOURCE, "tests"))
+    from puzzle_assistant import config as _cfg
+    import tempfile
+    here = os.path.normcase(os.path.realpath(common.AREA))
+    where = {"config.DATA_DIR": str(_cfg.DATA_DIR), "temp folder": tempfile.gettempdir(),
+             "home folder": os.path.expanduser("~"), "APPDATA": os.environ.get("APPDATA", "")}
+    inside = True
+    for k, v in where.items():
+        good = os.path.normcase(os.path.realpath(v)).startswith(here)
+        inside &= good
+        say(f"  {k:16s}: {v}   [{'inside the test area' if good else 'OUTSIDE - STOP'}]")
+    if not inside:
+        say("RESULT: FAIL   a path points outside the test area; nothing was run")
+        return 1
     from puzzle_assistant.devtools import brain_windows_check as bwc
     fp = bwc.code_fingerprint()
     say("Brain source fingerprint: " + fp + "   (expected " + head["brain fingerprint"] + ")")
@@ -138,7 +158,8 @@ def main():
     for title, prefixes in REQUIREMENTS:
         matched = {t: w for t, w in res.outcome.items() if any(t.startswith(p) for p in prefixes)}
         missing = [p for p in prefixes if not any(t.startswith(p) for t in res.outcome)]
-        good = bool(matched) and not missing and all(w == "pass" for w in matched.values())
+        good = len(matched) >= MINIMUM.get(title[:12], 1) and not missing and \
+            all(w == "pass" for w in matched.values())
         all_ok &= good
         say(f"  [{'PASS' if good else 'FAIL'}] {title}  ({len(matched)} tests)")
         if missing:
@@ -150,6 +171,7 @@ def main():
             say(f"{name}: {test.id()}")
             say("    " + tb.strip().splitlines()[-1][:300])
     # the source must still be byte-for-byte the commit (tests must not have changed it)
+    common.remove_compiled(common.SOURCE)
     again, _ = verify_package.verify(quiet=True)
     say(f"Ran {res.testsRun} tests in {secs:.1f}s: {res.testsRun - len(res.failures) - len(res.errors) - n_skip} passed, "
         f"{len(res.failures)} failed, {len(res.errors)} errors, {n_skip} skipped")
@@ -158,7 +180,7 @@ def main():
             if w == "skipped":
                 say("  skipped: " + t)
     say("Source unchanged after the run: " + ("yes" if again else "NO"))
-    passed = res.wasSuccessful() and all_ok and fp_ok and again
+    passed = res.wasSuccessful() and all_ok and fp_ok and again and selftest
     if not fp_ok:
         say("The Brain fingerprint does not match: this is not the expected code.")
     say("")
