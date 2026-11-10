@@ -78,7 +78,7 @@ BREAKS = [
      "        except Exception:\n            # v3.4: the memory may already be closed",
      "        except ZeroDivisionError:\n            # v3.4: the memory may already be closed"),
     ("A5", "A: two lanes count the daily total without a lock", "puzzle_assistant/qa/ai.py",
-     "            with self._count_lock:              # read-then-write: one lane at a time",
+     "            with _COUNT_LOCK:                   # read-then-write: one at a time",
      "            if True:"),
     ("D1", "D: a letter that is also (loosely) another option's text is accepted", "puzzle_assistant/qa/ai.py",
      "        if loose_hits and loose_hits != [letter_idx]:", "        if False:"),

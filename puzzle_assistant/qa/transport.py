@@ -115,16 +115,20 @@ class _PollingRaw(io.RawIOBase):
     def readinto(self, buf) -> int:
         sock = self.sock
         deadline = time.monotonic() + self.timeout
+        want_write = False                  # TLS needs to send first (rare: renegotiation)
         while True:
             if self.token is not None and self.token.cancelled:
                 raise Aborted("request cancelled", sent=True)
             pending = getattr(sock, "pending", None)      # TLS data already decrypted
-            if not (pending is not None and pending() > 0):
+            if not (pending is not None and pending() > 0) or want_write:
                 left = deadline - time.monotonic()
                 if left <= 0:
                     raise socket.timeout("timed out")
                 try:
-                    ready, _, _ = select.select([sock], [], [], min(POLL, left))
+                    if want_write:
+                        _, ready, _ = select.select([], [sock], [], min(POLL, left))
+                    else:
+                        ready, _, _ = select.select([sock], [], [], min(POLL, left))
                 except (OSError, ValueError) as exc:
                     if self.token is not None and self.token.cancelled:
                         raise Aborted("request cancelled", sent=True) from exc
@@ -135,7 +139,12 @@ class _PollingRaw(io.RawIOBase):
             try:
                 sock.settimeout(0.0)
                 n = sock.recv_into(buf)
-            except (ssl.SSLWantReadError, ssl.SSLWantWriteError, BlockingIOError, InterruptedError):
+                want_write = False
+            except ssl.SSLWantWriteError:
+                want_write = True
+                continue
+            except (ssl.SSLWantReadError, BlockingIOError, InterruptedError):
+                want_write = False
                 continue                                   # e.g. TLS 1.3 tickets, no reply data yet
             finally:
                 try:
@@ -163,9 +172,14 @@ def _polling_response_class(token, timeout: float, state: dict):
     return PollingResponse
 
 
+# A kept-open connection the server has closed in the meantime fails with one
+# of these. TLS: a server that closes without the TLS goodbye gives SSLEOFError
+# on some Python versions (3.12 - found by the tests), SSLZeroReturnError on
+# a clean TLS close.
 _RETRY_ON_REUSED = (http.client.RemoteDisconnected, http.client.BadStatusLine,
                     http.client.ImproperConnectionState,
-                    ConnectionResetError, ConnectionAbortedError, BrokenPipeError)
+                    ConnectionResetError, ConnectionAbortedError, BrokenPipeError,
+                    ssl.SSLEOFError, ssl.SSLZeroReturnError)
 
 
 class KeepAliveHttp:
@@ -232,6 +246,7 @@ class KeepAliveHttp:
     # -- one request --------------------------------------------------------
     def __call__(self, method: str, url: str, headers: Dict[str, str], body: Optional[dict],
                  timeout: float) -> Tuple[int, dict]:
+        _set_info(keepalive=False, reused=False, reconnected=False, connect_ms=0.0, resent=False)
         parts = urlsplit(url)
         host = parts.hostname or ""
         if parts.scheme != "https" or host not in KEEPALIVE_HOSTS or self.proxy_configured():
@@ -270,6 +285,8 @@ class KeepAliveHttp:
                 return status, _decode(raw)
             except _RETRY_ON_REUSED:
                 self._drop(host)
+                _set_info(keepalive=True, reused=reused, reconnected=reconnected,
+                          connect_ms=connect_ms, resent=resent)
                 if token is not None and token.cancelled:
                     raise Aborted("request cancelled", sent=True)
                 # The server had closed the kept-open connection: reopen and send
@@ -281,6 +298,8 @@ class KeepAliveHttp:
                 raise
             except (OSError, http.client.HTTPException) as exc:
                 self._drop(host)
+                _set_info(keepalive=True, reused=reused, reconnected=reconnected,
+                          connect_ms=connect_ms, resent=resent)
                 if token is not None and token.cancelled:
                     raise Aborted("request cancelled", sent=True) from exc
                 if isinstance(exc, http.client.HTTPException) and not isinstance(exc, OSError):

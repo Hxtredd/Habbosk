@@ -73,6 +73,12 @@ class LetterMatching(unittest.TestCase):
         with self.assertRaises(ai.AmbiguousReply):
             ai.option_index("a", ["B", "a"])
 
+    def test_the_letters_own_option_as_its_text(self):
+        """Second review: the exact text of the option the letter names is that option."""
+        self.assertEqual(self.pick("A veces", ["A veces", "Nunca"]), "A veces")
+        self.assertEqual(self.pick("A pie", ["A pie", "En tren", "Andando"]), "A pie")
+        self.assertEqual(self.pick("B pie", ["pie", "B pie"]), "B pie")
+
     def test_text_after_the_letter_must_be_that_option(self):
         opts = ["Madrid", "París", "Roma"]
         self.assertEqual(self.pick("B) parís", opts), "París")    # case ignored for the check
@@ -275,6 +281,16 @@ class ConnectionReuse(unittest.TestCase):
             h("POST", GEMINI, {}, {}, 8.0)
         self.assertEqual(len(srv.sent), 3)
 
+    def test_connection_details_are_current_after_a_failure(self):
+        """Second review: a failed request must not report the previous request's details."""
+        h, srv, _ = self.make([(200, {}), http.client.RemoteDisconnected("closed"), ConnectionResetError()])
+        h("POST", GEMINI, {}, {}, 8.0)
+        with self.assertRaises(ConnectionResetError):
+            h("POST", GEMINI, {}, {}, 8.0)
+        info = transport.last_call()
+        self.assertTrue(info["reconnected"] and info["resent"])
+        self.assertFalse(info["reused"])
+
     def test_failure_on_a_fresh_connection_is_not_retried(self):
         h, srv, _ = self.make([ConnectionResetError()])
         with self.assertRaises(ConnectionResetError):
@@ -474,7 +490,7 @@ class RealSockets(KeyPatch):
         port = self.port
         if self.tls:
             import ssl
-            cctx = ssl.create_default_context(cafile=os.path.join(TLS_DIR, "localhost.pem"))
+            cctx = ssl.create_default_context(cafile=os.path.join(TLS_DIR, "ca.pem"))
 
             def factory(host, t):
                 return http.client.HTTPSConnection("127.0.0.1", port, timeout=t, context=cctx)
@@ -612,6 +628,8 @@ class RealSockets(KeyPatch):
         sched.shutdown()
 
 
+@unittest.skipUnless(os.path.isfile(os.path.join(TLS_DIR, "localhost.pem")),
+                     "test TLS files are not in the release package")
 class RealTLS13(RealSockets):
     tls = True
 

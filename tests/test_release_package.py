@@ -18,6 +18,7 @@ DEV_ONLY = ["benchmarks/ai_speed_check/ai_speed_check.py", "benchmarks/ai_speed_
             "trial/TRIAL_START.bat", "trial_dist/SK_Assistant_TRIAL_09ca4da.zip", "tools/build_trial.py",
             "tools/deliberate_breaks_v34.py", "tests/test_trial.py", "tests/trial_e2e_harness.py",
             "tests/test_ai_speed_check.py", "dist/SK_Assistant_v3.3.zip", "latest.json", ".gitignore",
+            "tests/fixtures/tls/localhost-key.pem", "tests/fixtures/tls/localhost.pem", "tests/fixtures/tls/ca.pem",
             ".gitattributes"]
 SHIPPED = ["app.py", "INSTALL.bat", "RUN.bat", "README.txt", "requirements.txt",
            "puzzle_assistant/diagnostics.py", "puzzle_assistant/qa/ai_jobs.py",
@@ -38,7 +39,8 @@ class ReleaseContents(unittest.TestCase):
                                check=True).stdout.split("\n")
         kept = pr.release_files(files)
         for f in kept:
-            self.assertFalse(f.startswith(("benchmarks/", "trial/", "trial_dist/", "dist/")), f)
+            self.assertFalse(f.startswith(("benchmarks/", "trial/", "trial_dist/", "dist/",
+                                           "tests/fixtures/tls/")), f)
             self.assertNotIn(f, pr.EXCLUDE_EXACT)
         for f in files:
             if f.startswith("puzzle_assistant/"):

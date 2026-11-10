@@ -35,6 +35,9 @@ from .model import CHOICE, ORDER, PAIRS, Answer, Question
 
 LETTERS = "ABCDEFGHIJ"
 PAID_ONLY = {"anthropic", "openai"}
+# v3.4: one lock for every AIAnswerer (two lanes + the Settings "Test AI"
+# button count into the same memory): the daily counter is read-then-write
+_COUNT_LOCK = threading.Lock()
 DEFAULT_MODELS = {"anthropic": "claude-haiku-5-5"}
 # rough USD per million tokens, used only for the spending estimate (editable in config)
 DEFAULT_PRICES = {"gemini": (0.0, 0.0), "anthropic": (1.0, 5.0), "openai": (0.4, 1.6)}
@@ -221,6 +224,9 @@ def option_index(raw, options: List[str]) -> int:
         if i < n:
             letter_idx = i
     if letter_idx is not None:
+        # "A veces" with option A "A veces": exactly the letter's own option
+        if exact_hits == [letter_idx] and loose_hits == [letter_idx]:
+            return letter_idx
         # "A pie" with the options "En coche", "A pie": exactly one option's text,
         # and as "letter A + text" it would not fit option A - so it means "A pie"
         if (rest and len(exact_hits) == 1 and exact_hits[0] != letter_idx
@@ -476,7 +482,6 @@ class AIAnswerer:
         # hosts, and any PC with a proxy, keep the v3.3 method (default_http)
         self.http = http or transport.KeepAliveHttp(fallback=default_http)
         self.paused_until = 0.0
-        self._count_lock = threading.Lock()     # v3.4: two lanes count at the same time
         self.atlas = None                       # world_atlas.db.Atlas, set by the UI
 
     def provider(self) -> Optional[Provider]:
@@ -513,7 +518,7 @@ class AIAnswerer:
         pin, pout = self._prices(provider)
         cost = (tin * pin + (tout or 0) * pout) / 1e6
         try:
-            with self._count_lock:              # read-then-write: one lane at a time
+            with _COUNT_LOCK:                   # read-then-write: one at a time
                 self.memory.add_usage(provider, 1, cost)
                 k = "ai_day:" + _dt.date.today().isoformat()
                 self.memory.set_meta(k, str(self._today() + 1))
@@ -538,6 +543,9 @@ class AIAnswerer:
             if exc.sent:                        # it reached the provider: count it
                 res.calls += 1
                 self._count(p.name, 0, 0)
+                if transport.last_call().get("resent"):   # and its earlier send too
+                    res.calls += 1
+                    self._count(p.name, 0, 0)
             raise
         except Exception:
             res.calls += 1

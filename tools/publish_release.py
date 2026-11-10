@@ -20,9 +20,9 @@ from puzzle_assistant import __version__  # noqa: E402
 
 
 # Development-only files that must never ship (v3.4): benchmarks and their
-# owner results, the isolated trial (launcher, guard, packages), and the tests
-# that need them. tests/test_release_package.py checks this list.
-EXCLUDE_PREFIX = ("dist/", ".git", "benchmarks/", "trial/", "trial_dist/")
+# owner results, the isolated trial (launcher, guard, packages), the tests
+# that need them, and the test-only TLS key (its tests skip without it). tests/test_release_package.py checks this list.
+EXCLUDE_PREFIX = ("dist/", ".git", "benchmarks/", "trial/", "trial_dist/", "tests/fixtures/tls/")
 EXCLUDE_EXACT = {"latest.json", "tools/build_trial.py", "tools/deliberate_breaks_v34.py",
                  "tests/test_trial.py", "tests/trial_e2e_harness.py",
                  "tests/test_ai_speed_check.py"}
