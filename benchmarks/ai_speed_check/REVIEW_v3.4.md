@@ -42,3 +42,18 @@ closes a kept connection without the TLS goodbye gives SSLEOFError, which was
 not treated as "closed in the meantime" (no reopen) - added SSLEOFError /
 SSLZeroReturnError to the reopen-once errors (still only on a reused
 connection with no reply byte received).
+
+## Round 3 - 211541e (Python 3.14.6)
+
+No blockers. Round-2 fixes, the SSLEOFError / SSLZeroReturnError reopen rule
+and `reset_call_info()` verified correct; TLS test files fine and excluded
+from the ZIP; the AI tests pass with and without the TLS files; the earlier
+repros pass on 3.14 (TLS 1.3 cancel 0.61-0.64 s, mid-body 0.40 s, no socket
+call from the cancelling thread).
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| 1 | should-fix | The release ZIP / latest.json committed in 65545e4 were built from d531c89 (before reset_call_info) | Rebuilt from 211541e; release-candidate commit replaces them |
+| 2 | minor | A reused connection that is reset or reaches EOF while waiting for the reply (e.g. a network drop seconds into Gemini's processing) is resent although Gemini may have handled the first send (received == 0 can't tell) | Not changed: same as before review, at most one extra request per question, and it is counted. Possible follow-up: resend only if the failure comes within ~0.5 s of sending |
+| 3 | note | A failure after a resend: the log's `calls` is one low; failures don't count towards the daily limit (as in v3.3) | Documented |
+| 4 | note | Gemini's 404 model re-pick makes two HTTP calls in one ask; only the second is described | Pre-existing (v3.3), documented |
