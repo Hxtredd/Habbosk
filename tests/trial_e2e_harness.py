@@ -84,7 +84,12 @@ except PermissionError:
     result["probe"] = "blocked"
 result["blocked_after_probe"] = guard_.blocked
 
-srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeGemini)
+class QuietServer(http.server.ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        pass                                     # stopped requests are expected here
+
+
+srv = QuietServer(("127.0.0.1", 0), FakeGemini)
 srv.daemon_threads = True
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 port = srv.server_address[1]
