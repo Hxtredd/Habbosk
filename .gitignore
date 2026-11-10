@@ -7,3 +7,5 @@ config.json
 brain_windows_check_report.txt
 .venv-check/
 !tests/data/
+trial_data/
+trial_results/

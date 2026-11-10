@@ -485,10 +485,15 @@ class AIAnswerer:
         if not self.memory:
             return
         pin, pout = self._prices(provider)
-        cost = (tin * pin + tout * pout) / 1e6
-        self.memory.add_usage(provider, 1, cost)
-        k = "ai_day:" + _dt.date.today().isoformat()
-        self.memory.set_meta(k, str(self._today() + 1))
+        cost = (tin * pin + (tout or 0) * pout) / 1e6
+        try:
+            self.memory.add_usage(provider, 1, cost)
+            k = "ai_day:" + _dt.date.today().isoformat()
+            self.memory.set_meta(k, str(self._today() + 1))
+        except Exception:
+            # v3.4: the memory may already be closed (SK shutting down while a
+            # stopped request finishes); counting must never break an answer
+            pass
 
     def _prices(self, provider: str) -> Tuple[float, float]:
         if self.cfg.ai_price_in or self.cfg.ai_price_out:

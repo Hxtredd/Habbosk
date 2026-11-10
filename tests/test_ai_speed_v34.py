@@ -758,5 +758,19 @@ class Quota(KeyPatch):
         mem.close()
 
 
+class ShutdownCounting(KeyPatch):
+    def test_closed_memory_does_not_break_a_stopped_request(self):
+        tmp = tempfile.mkdtemp()
+        mem = Memory(os.path.join(tmp, "m.db"))
+
+        def http(method, url, headers, body, timeout):
+            mem.close()                                       # SK shuts down meanwhile
+            raise transport.Aborted("x", sent=True)
+        a = ai_answerer(http, mem)
+        res = a.answer(Question("PREGUNTA", "x", ["a", "b"]))
+        self.assertTrue(res.stale)
+        self.assertEqual((res.provider, res.calls), ("gemini", 1))
+
+
 if __name__ == "__main__":
     unittest.main()
