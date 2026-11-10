@@ -1076,6 +1076,18 @@ class CountingWithTwoLanes(KeyPatch):
             t.join()
         self.assertEqual(wins.count(True), 1)
 
+    def test_claiming_the_log_line_waits_for_the_lock(self):
+        """Deterministic: check-and-set happens under the job's lock."""
+        job = ai_jobs.AiJob("q", ai_jobs.CancelToken())
+        done = threading.Event()
+        with job._log_lock:
+            t = threading.Thread(target=lambda: (job.claim_log(), done.set()))
+            t.start()
+            self.assertFalse(done.wait(0.3))                  # blocked while the lock is held
+        self.assertTrue(done.wait(2))
+        t.join()
+        self.assertFalse(job.claim_log())                     # already claimed
+
 
 class ShutdownCounting(KeyPatch):
     def test_closed_memory_does_not_break_a_stopped_request(self):
