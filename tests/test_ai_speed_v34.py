@@ -1107,6 +1107,17 @@ class CountingWithTwoLanes(KeyPatch):
         self.assertFalse(job.claim_log())                     # already claimed
 
 
+class CallDetails(KeyPatch):
+    def test_no_details_left_over_from_an_earlier_request(self):
+        """Found when the release package skipped the TLS tests: a call that did
+        not go through the connection code read the previous request's details."""
+        transport._set_info(keepalive=True, reused=True, reconnected=True, connect_ms=5.0, resent=True)
+        a = ai_answerer(FakeHttp([transport.Aborted("x", sent=True)]))
+        res = a.answer(Question("PREGUNTA", "x", ["a", "b"]))
+        self.assertEqual(res.calls, 1)
+        self.assertFalse(res.reused or res.reconnected)
+
+
 class ShutdownCounting(KeyPatch):
     def test_closed_memory_does_not_break_a_stopped_request(self):
         tmp = tempfile.mkdtemp()

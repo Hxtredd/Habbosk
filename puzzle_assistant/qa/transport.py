@@ -62,6 +62,12 @@ def _set_info(**kw) -> None:
     _info.last = kw
 
 
+def reset_call_info() -> None:
+    """Forget the previous request's details (called before every AI call, so
+    last_call() can never describe an earlier request)."""
+    _info.last = {}
+
+
 def urllib_http(method: str, url: str, headers: Dict[str, str], body: Optional[dict],
                 timeout: float) -> Tuple[int, dict]:
     """The v3.3 method: urllib, a new connection each time, system proxy honoured."""

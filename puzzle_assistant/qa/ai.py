@@ -537,6 +537,7 @@ class AIAnswerer:
         token = current_token()
         if token is not None and token.cancelled:
             raise transport.Aborted("question changed", sent=False)
+        transport.reset_call_info()             # details below are this call's only
         try:
             text, tin, tout = p.ask(SYSTEM, user, timeout)
         except transport.Aborted as exc:
