@@ -37,7 +37,11 @@ def main():
     say(common.python_banner())
     if w:
         say(w)
-    say("network block self-test: " + ("ok" if common.network_selftest() else "NOT WORKING - stop"))
+    common.block_network()
+    if not common.network_selftest():
+        say("The network block is not working - nothing was run.")
+        return 1
+    say("network block self-test: ok (parent and every test process)")
     say(f"{len(breaks)} deliberate breaks; each runs the matching tests on a broken COPY.")
     say("")
     work = os.path.join(common.AREA, "break_work")
@@ -59,6 +63,7 @@ def main():
         return r, (int(ran[0].split()[1]) if ran else 0)
 
     # BASELINE: the unbroken copy must pass, or "caught" would mean nothing
+    env = common.isolated_environment("breaks")
     fresh_copy()
     base_tests = sorted({t for b in breaks for t in b["tests"]})
     r0, n0 = run_tests(base_tests)
@@ -73,6 +78,7 @@ def main():
     caught = missed = setup = unexpected = 0
     t0 = time.time()
     for i, b in enumerate(breaks, 1):
+        env = common.isolated_environment("breaks")      # fresh data, temp and home per break
         fresh_copy()
         p = os.path.join(work, *b["file"].split("/"))
         text = open(p, encoding="utf-8", newline="").read()
@@ -80,13 +86,24 @@ def main():
             say(f"[{i:2d}/{len(breaks)}] SETUP-ERROR {b['name']}: expected 1 match, found {text.count(b['old'])}")
             setup += 1
             continue
-        open(p, "w", encoding="utf-8", newline="").write(text.replace(b["old"], b["new"]))
+        broken_text = text.replace(b["old"], b["new"])
+        try:
+            compile(broken_text, p, "exec")
+        except SyntaxError as e:
+            say(f"[{i:2d}/{len(breaks)}] SETUP-ERROR {b['name']}: the broken code does not compile ({e.msg})")
+            setup += 1
+            continue
+        open(p, "w", encoding="utf-8", newline="").write(broken_text)
         try:
             r, ran = run_tests(b["tests"])
             fails = [l for l in r.stderr.splitlines() if l.startswith(("FAIL:", "ERROR:"))]
-            # caught = real test failures from tests that ran (not an import or harness error)
-            was_caught = r.returncode != 0 and ran > 0 and bool(fails) and \
-                not any("_FailedTest" in l or "ImportError" in l or "ModuleNotFound" in l for l in fails)
+            kind = common.error_kind(r.stderr)
+            # caught = a test ran and its own check failed (an assertion or our NotShareable
+            # refusal); a crash of the edited code (syntax / name / import error) is not a catch
+            was_caught = r.returncode != 0 and ran > 0 and \
+                (kind == "assertion" or (kind == "other" and bool(b.get("allow_other"))))
+            if r.returncode != 0 and not was_caught:
+                say(f"          (failed with kind '{kind}', not an assertion: not counted as caught)")
             first = fails[:1]
         except subprocess.TimeoutExpired:
             was_caught, first = False, ["(timed out - not counted as caught)"]
@@ -103,14 +120,16 @@ def main():
             missed += 1
             unexpected += 1
     shutil.rmtree(work, ignore_errors=True)
-    common.remove_compiled(common.SOURCE)
+    odd = common.remove_compiled(common.SOURCE)
+    if odd:
+        say("unexpected files in __pycache__: " + ", ".join(odd[:5]))
     again, _ = verify_package.verify(quiet=True)
     say("")
     say(f"Breaks: {len(breaks)}; caught {caught}; not noticed {missed} "
         f"({missed - unexpected} documented equivalents, {unexpected} UNEXPECTED); "
         f"setup errors {setup}; {time.time() - t0:.0f}s")
     say("Source unchanged after the run: " + ("yes" if again else "NO"))
-    passed = unexpected == 0 and setup == 0 and again
+    passed = unexpected == 0 and setup == 0 and again and not odd
     say("RESULT: " + ("PASS" if passed else "FAIL") + "   deliberate breaks, commit " + head["source commit"])
     say("Platform: " + common.python_banner())
     try:

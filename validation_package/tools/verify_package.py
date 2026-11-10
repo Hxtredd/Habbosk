@@ -28,6 +28,9 @@ def verify(quiet=False):
     problems = []
     for d, dirs, fs in os.walk(common.SOURCE):          # compiled leftovers would run unchecked
         for x in dirs + fs:
+            if os.path.islink(os.path.join(d, x)):
+                problems.append("link in source (not allowed): "
+                                + os.path.relpath(os.path.join(d, x), common.SOURCE))
             if x == "__pycache__" or x.endswith((".pyc", ".pyo")):
                 problems.append("compiled file/folder in source (not allowed): "
                                 + os.path.relpath(os.path.join(d, x), common.SOURCE))

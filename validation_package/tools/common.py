@@ -48,13 +48,16 @@ def block_network():
 
 def network_selftest():
     """Proves the block works: a connection and a lookup to the outside must both be refused."""
-    for attempt in (lambda: socket.socket().connect(("192.0.2.1", 80)),
-                    lambda: socket.getaddrinfo("example.com", 80)):
+    def conn():
+        with socket.socket() as k:
+            k.connect(("192.0.2.1", 80))
+    for attempt in (conn, lambda: socket.getaddrinfo("example.com", 80)):
         try:
             attempt()
-        except OSError:
-            continue
-        return False
+        except OSError as e:
+            if "blocked by the SK" in str(e):
+                continue
+        return False                         # it got further than the block: not working
     return True
 
 
@@ -63,6 +66,9 @@ def isolated_environment(tag):
     Returns the env dict; nothing outside PKG is used."""
     import shutil
     root = os.path.join(AREA, tag)
+    pkg_real = os.path.realpath(PKG)
+    if os.path.commonpath([os.path.realpath(root), pkg_real]) != pkg_real:
+        raise SystemExit("Refusing to clear a folder outside the package: " + root)
     shutil.rmtree(root, ignore_errors=True)
     if os.path.exists(root):
         raise SystemExit("Could not clear " + root + " - close any program using it and try again.")
@@ -157,10 +163,49 @@ def python_banner():
 
 def remove_compiled(root):
     """Delete compiled leftovers that the test run itself created (some tests start their own
-    Python processes). Done only AFTER a run, never before: a pre-existing one is a failure."""
+    Python processes). Done only AFTER a run, never before: a pre-existing one is a failure.
+    Returns anything in a __pycache__ folder that is NOT a .pyc file (reported, then removed)."""
     import shutil
+    odd = []
     for d, dirs, fs in os.walk(root):
         for x in list(dirs):
             if x == "__pycache__":
-                shutil.rmtree(os.path.join(d, x), ignore_errors=True)
+                full = os.path.join(d, x)
+                for dd, _, ff in os.walk(full):
+                    odd += [os.path.join(dd, f) for f in ff if not f.endswith(".pyc")]
+                shutil.rmtree(full, ignore_errors=True)
                 dirs.remove(x)
+    return odd
+
+
+def error_kind(stderr: str):
+    """Why did a test run fail? 'assertion' = a test noticed the change (AssertionError or our own
+    NotShareable refusal); 'broken' = the harness or the edited code is simply broken
+    (syntax / name / import errors ...); 'other' = some other exception."""
+    import re
+    blocks, cur = [], None
+    for line in stderr.splitlines():
+        if line.startswith("=" * 20):
+            cur = []
+            blocks.append(cur)
+        elif line.startswith("-" * 20) and cur is not None and len(cur) > 2 and \
+                any(l.startswith("Traceback") for l in cur):
+            cur = None
+        elif cur is not None:
+            cur.append(line)
+    kinds = []
+    for b in blocks:
+        top = [l for l in b if re.match(r"^[A-Za-z_][\w.]*(Error|Exception|NotShareable)\b", l)]
+        names = [re.match(r"^([\w.]+)", l).group(1).split(".")[-1] for l in top]
+        if any(n in ("AssertionError", "NotShareable") for n in names):
+            kinds.append("assertion")
+        elif any(n in ("SyntaxError", "IndentationError", "NameError", "UnboundLocalError",
+                       "ImportError", "ModuleNotFoundError") for n in names):
+            kinds.append("broken")
+        else:
+            kinds.append("other")
+    if not kinds:
+        return "none"
+    if "assertion" in kinds:
+        return "assertion"
+    return "broken" if "broken" in kinds else "other"

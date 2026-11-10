@@ -24,8 +24,7 @@ MODULES = [
 ]
 FULL = "--full" in sys.argv
 
-MINIMUM = {"Personal chal": 10, "Personal unve": 8, "Personal sour": 18, "Personal alia": 14,
-           "shareable() ": 4, "The original": 1, "Shared respo": 4, "Unknown or u": 16}
+MINIMUM = [10, 8, 18, 14, 4, 1, 4, 16]       # fewest tests each line below may match
 
 # requirement -> test-id prefixes that must exist, run and all pass
 REQUIREMENTS = [
@@ -104,6 +103,9 @@ def main():
     common.block_network()
     selftest = common.network_selftest()
     say("Network block self-test: " + ("ok" if selftest else "NOT WORKING"))
+    if not selftest:
+        say("RESULT: FAIL   the network block is not working; nothing was run")
+        return 1
     say("Private test area : " + common.AREA)
     say("Data folder       : " + env["SK_ASSISTANT_DATA"])
     say("Network           : blocked (loopback only)")
@@ -118,7 +120,11 @@ def main():
              "home folder": os.path.expanduser("~"), "APPDATA": os.environ.get("APPDATA", "")}
     inside = True
     for k, v in where.items():
-        good = os.path.normcase(os.path.realpath(v)).startswith(here)
+        real = os.path.normcase(os.path.realpath(v))
+        try:
+            good = os.path.commonpath([real, here]) == here
+        except ValueError:
+            good = False
         inside &= good
         say(f"  {k:16s}: {v}   [{'inside the test area' if good else 'OUTSIDE - STOP'}]")
     if not inside:
@@ -155,10 +161,10 @@ def main():
     say("")
     say("What the protections cover")
     all_ok = True
-    for title, prefixes in REQUIREMENTS:
+    for (title, prefixes), least in zip(REQUIREMENTS, MINIMUM):
         matched = {t: w for t, w in res.outcome.items() if any(t.startswith(p) for p in prefixes)}
         missing = [p for p in prefixes if not any(t.startswith(p) for t in res.outcome)]
-        good = len(matched) >= MINIMUM.get(title[:12], 1) and not missing and \
+        good = len(matched) >= least and not missing and \
             all(w == "pass" for w in matched.values())
         all_ok &= good
         say(f"  [{'PASS' if good else 'FAIL'}] {title}  ({len(matched)} tests)")
@@ -171,7 +177,9 @@ def main():
             say(f"{name}: {test.id()}")
             say("    " + tb.strip().splitlines()[-1][:300])
     # the source must still be byte-for-byte the commit (tests must not have changed it)
-    common.remove_compiled(common.SOURCE)
+    odd = common.remove_compiled(common.SOURCE)
+    if odd:
+        say("unexpected files in __pycache__: " + ", ".join(odd[:5]))
     again, _ = verify_package.verify(quiet=True)
     say(f"Ran {res.testsRun} tests in {secs:.1f}s: {res.testsRun - len(res.failures) - len(res.errors) - n_skip} passed, "
         f"{len(res.failures)} failed, {len(res.errors)} errors, {n_skip} skipped")
@@ -180,7 +188,7 @@ def main():
             if w == "skipped":
                 say("  skipped: " + t)
     say("Source unchanged after the run: " + ("yes" if again else "NO"))
-    passed = res.wasSuccessful() and all_ok and fp_ok and again and selftest
+    passed = res.wasSuccessful() and all_ok and fp_ok and again and selftest and not odd
     if not fp_ok:
         say("The Brain fingerprint does not match: this is not the expected code.")
     say("")

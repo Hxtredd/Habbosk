@@ -717,7 +717,8 @@
   "new": "        except ZeroDivisionError:\n            raise NotShareable(\"x\")",
   "tests": [
    "tests.test_brain_shareable"
-  ]
+  ],
+  "allow_other": "the tests expect NotShareable; a raw TypeError escaping is the detection"
  },
  {
   "name": "[shareable] citation type check removed",

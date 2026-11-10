@@ -10,6 +10,9 @@ import common  # noqa: E402
 if __name__ == "__main__":
     root = sys.argv[1]
     common.block_network()
+    if not common.network_selftest():
+        print('network block is not working in the test process', file=sys.stderr)
+        sys.exit(3)
     os.chdir(root)
     sys.path.insert(0, root)
     sys.path.insert(0, os.path.join(root, "tests"))
