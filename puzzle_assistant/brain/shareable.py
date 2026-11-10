@@ -21,7 +21,6 @@ class NotShareable(ValueError):
 
 
 _OUTCOMES = {"value", "absent", "missing", "conflicting", "ambiguous", ""}
-_CLAIM_STATUSES = None          # filled from model.STATUSES on first use
 
 
 def _bad(why: str):
@@ -357,5 +356,7 @@ def sanitize_answer(a):
     out = dataclasses.replace(src, question="", trace=[], hits=hits, steps=steps)
     kept = [out.answer or "", out.possible or ""] + _strings([steps, [h.text for h in hits]])
     _check_residue(residue.names, residue.texts, kept)
+    for h in hits:                                  # shared library claims: their text vouches too
+        residue.shared_words |= set(_words(h.text))
     _check_provenance(out.answer, out.possible, "", steps, [], [], [], residue.shared_words)
     return out

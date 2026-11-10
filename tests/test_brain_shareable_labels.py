@@ -193,16 +193,20 @@ class MoreRealFlows(RealFlows):
              "Who maintains the room the northern exit of the Lantern Garden leads to?"]
 
     def test_the_extra_questions_pass_when_shared(self):
-        for who in ("rita", "ana"):
-            s = self.open(who)
-            shared = 0
-            for q in self.EXTRA:
-                r = s.respond(q)
-                if r.audience == "shared":
-                    out = r.shareable()
-                    self.assertFalse(has_personal(dump(out)), q)
-                    shared += 1
-            self.assertGreaterEqual(shared, 3, who) if who == "rita" else None
+        s = self.open("rita")
+        for q in self.EXTRA:
+            r = s.respond(q)
+            self.assertEqual((r.category, r.audience), ("established", "shared"), q)
+            out = r.shareable()
+            self.assertFalse(has_personal(dump(out)), q)
+
+    def test_quest_rewards_in_both_languages(self):
+        s = self.open("rita")
+        es = s.respond("Cuantas monedas da la mision del Faro Sur?").shareable()
+        self.assertIn("monedas", es.value)
+        self.assertIn("30", " ".join(str(st["value"]) for st in es.steps))   # step values are not localised
+        en = s.respond("How many coins does the quest in the Faro Norte give?").shareable()
+        self.assertIn("coins", en.value)
 
     def test_the_reverse_alias_direction(self):
         """The asker's personal entity is the canonical name and the shared place name is its
@@ -253,6 +257,55 @@ class SubjectDerivedName(unittest.TestCase):
         self.assertIn("Harbour Steps", r.shareable().steps[0]["ask"])
         self.assertEqual(r.shareable().citations[0].subject, "")             # vouches only
         r.citations[0].subject = ""
+        with self.assertRaises(NotShareable):
+            r.shareable()
+
+
+class SubjectFromTheStore(unittest.TestCase):
+    """A shared claim that does not name its place in its text (the place is its SUBJECT), made
+    the legacy way and migrated: respond() must carry the subject on the citation so the label is
+    vouched for, shareable() must pass it, and the subject itself must not be passed on."""
+    def setUp(self):
+        import secrets, shutil, tempfile
+        from puzzle_assistant.brain import split as S
+        from puzzle_assistant.brain.api import Brain
+        from puzzle_assistant.brain.library import Library
+        self.d = tempfile.mkdtemp(prefix="sk_subj_")
+        self.addCleanup(shutil.rmtree, self.d, True)
+        b = Brain(os.path.join(self.d, "knowledge.db"), "", "")
+        ana = b.local_user
+        mod = b.store.add_contributor("Moderator (legacy)", "moderator")
+        b.store.add_contributor("Luis (legacy)", "external_user")
+        s1 = b.add_source("document", title="Steps guide", captured_at="2026-01-02", by=ana)
+        c1 = b.learn("The northern exit leads to the Rope Shed.", "imported", "Harbour Steps", by=ana)
+        b.add_evidence(c1, "direct", s1, "The northern exit leads to the Rope Shed.", by=ana)
+        b.propose_share(c1, by=ana)
+        b.review(c1, "verified", reviewer=mod)
+        b.approve_share(c1, mod)
+        b.close()
+        hk, lk = secrets.token_bytes(32), secrets.token_bytes(32)
+        S.split_file(os.path.join(self.d, "knowledge.db"), self.d, hk, lk)
+        self.lib = Library(os.path.join(self.d, "brain"), hk, lk)
+        self.addCleanup(self.lib.close)
+        from puzzle_assistant.brain.library import mint_grant
+        u = [x for x in self.lib.users() if x["kind"] == "external_user"][0]
+        self.sess = self.lib.open_session(mint_grant(hk, self.lib.installation_id, self.lib.epoch,
+                                                    u.get("user_id") or u["id"], "user"))
+        self.addCleanup(self.sess.close)
+
+    def test_the_citation_carries_the_subject_and_the_label_is_accepted(self):
+        r = self.sess.respond("Where does the northern exit of the Harbour Steps lead?")
+        self.assertEqual((r.category, r.audience, r.value), ("established", "shared", "Rope Shed"))
+        self.assertEqual([c.subject for c in r.citations], ["Harbour Steps"])   # set by _cite
+        self.assertIn("Harbour Steps", " ".join(st["ask"] for st in r.steps))
+        out = r.shareable()                                  # not refused
+        self.assertEqual([c.subject for c in out.citations], [""])             # vouches only
+        self.assertIn("Harbour Steps", " ".join(st["ask"] for st in out.steps))
+
+    def test_without_the_subject_the_same_response_is_refused(self):
+        r = self.sess.respond("Where does the northern exit of the Harbour Steps lead?")
+        for c in r.citations:
+            c.subject = ""
         with self.assertRaises(NotShareable):
             r.shareable()
 

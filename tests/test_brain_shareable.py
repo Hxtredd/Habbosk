@@ -358,8 +358,9 @@ class MoreFailClosed(unittest.TestCase):
     def refused(self, title, sentence):
         r = contaminated(sentence=sentence)
         r.citations[0].evidence[1]["source"] = title
-        with self.assertRaises(NotShareable, msg=(title, sentence)):
+        with self.assertRaises(NotShareable, msg=(title, sentence)) as cm:
             r.shareable()
+        self.assertIn("removed name", str(cm.exception))      # the residue check, not another
 
     def test_removed_names_are_found_after_accents_quotes_spacing_and_truncation(self):
         self.refused("Garden Lantern Mira", "According to Garden Lantern Mira, Mira maintains it.")
