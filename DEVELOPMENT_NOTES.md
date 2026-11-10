@@ -1300,6 +1300,30 @@ Windows: NOT run yet - waiting for the owner's reports.
 Documents (docs/): B7_ARCHITECTURE_PROPOSAL.md, OWNER_APPROVALS_OUTSTANDING.md,
 DELIBERATE_BREAK_HARNESS_SCOPE.md (proposal only; nothing built).
 
+### B6.3 - reviewer's steps[].ask concern (branch claude/brain-privacy-ask-labels, child of claude/brain-privacy-shareable)
+
+External review (ChatGPT, of 68b500f): shareable() removes the top-level question but keeps
+steps[].ask, which reason.py builds partly from names the asker typed. Investigation: in every
+realistic flow tried (forward, inverse, chains, ANYWHERE, Spanish, typos, person and place
+aliases in both directions) a response marked shared has labels made of the fixed wording and
+names from SHARED claims; a label holding a personal alias occurs only on answers that are not
+shared (reproduction attempts: not reproduced). The helper nevertheless trusted the label text
+(reproduced on 68b500f with hand-built responses: 3 of the new tests fail there).
+Fix (commit a79e2ed474bf1d38c73f871d5618dde96ad0e77b): shareable() now checks that every word of
+each step label and step value, the value, possible value and sentence comes from the response's
+own shared material (claim texts, kept evidence/passages, hit texts, citation subjects) or the
+fixed answer wording; fixed vocabularies for step outcome, claim/citation/hit status and hit
+origin; Citation gained `subject` (set in respond._cite; vouching only, blanked in the copy);
+ask() results are unchanged. Known fail-closed limits: ask() answers whose place name comes from
+a claim subject, custom relation labels, and a shown name taken from an uncited claim are
+refused (never leaked). Design limit: word-level provenance is defence in depth, not the guarantee.
+Results (Linux): whole suite via the package 896 tests, 894 passed, 2 skipped (Windows-only);
+privacy suite 219; deliberate breaks 89 caught + 8 documented equivalents, 0 unexpected (97);
+Brain fingerprint 2e607284c4b6b2ed; git tree ea6127e7508889a60f435539e488f70c9a6c8337.
+Security Auditor reviews: 3 rounds, Claude reviews (not independent). Windows: NOT run.
+Package zip SHA-256 cf69352f921d2b97314042b7081c2b0a81790fdd9915fcebdb8fbf65552d9393
+(supersedes the 68b500f package for the candidate; the 68b500f result stays valid for 68b500f).
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the

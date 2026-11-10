@@ -24,3 +24,13 @@ child branch is decided: integrate 68b500f alone, or the child tip); B7 decision
   installation configuration, not user content; shareable() would refuse a label word it cannot
   find in the shared material (fails closed, so such answers are refused, not leaked).
 - README states Python 3.9-3.13; Brain checks run only on 3.14 (see decision 7).
+
+## Update 2026-11-10 (ask-labels child branch)
+- Decision (mine): not reproducible -> still hardened. The reviewer's concern is a real trust gap in
+  the helper even though no real flow leaks; a precise word-level check was added and tested.
+- Decision (mine): keep ask() / BrainAnswer shapes unchanged (regression guards pin them), so the
+  subject vouching is carried on Response citations only; ask() answers with subject-derived
+  names fail closed.
+- Decision (mine): the 68b500f package stays valid for 68b500f; a new package exists for a79e2ed.
+- Risk: fail-closed false refusals remain for custom relation labels and a few subject-derived
+  cases; they refuse, never leak.

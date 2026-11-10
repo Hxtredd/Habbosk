@@ -3,10 +3,13 @@
 Nothing below has happened. Each item names the exact thing to approve.
 
 ## Privacy work
-1. **Windows results for the privacy validation package** (commit 68b500f; zip SHA-256
-   `4cb411195973f14a116fb44bdf846873246a1e0460ddf457d20e7b5c11e8305b`). Pending your run.
-2. **Integration of `claude/brain-privacy-shareable`** into `claude/brain-integration`
-   (fast-forward only, to an exact SHA - 68b500f unless I report a fix) - after item 1.
+1. **Windows results for the privacy validation package.** Run the NEWER package (commit a79e2ed, zip
+   SHA-256 `cf69352f921d2b97314042b7081c2b0a81790fdd9915fcebdb8fbf65552d9393`); the 68b500f package
+   (`4cb41119...`) is superseded unless you prefer to integrate 68b500f alone.
+2. **Integration** into `claude/brain-integration` (fast-forward only, to an exact SHA). Two candidates:
+   `claude/brain-privacy-shareable` (68b500f, the externally reviewed commit) or its child
+   `claude/brain-privacy-ask-labels` (a79e2ed, my recommendation: it contains 68b500f plus the
+   label hardening) - after item 1 on the chosen package.
    Includes Response.shareable() (a helper only; no sharing feature).
 3. **Fast-forward of the record branches** (notes only): `claude/brain-privacy-record`,
    `claude/brain-integration-record`, `claude/brain-b6-integration-record`, `claude/brain-b6-record`.
