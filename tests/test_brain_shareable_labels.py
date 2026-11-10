@@ -31,6 +31,16 @@ def has_personal(text: str) -> bool:
     return any(m in t for m in PERSONAL)
 
 
+def clean(**over):
+    """A shared-marked response with no other contamination (so only the checked field can fail)."""
+    r = contaminated(related=[], understood_as="", interpretation=None, clarification=None,
+                     challenges=[], sides=[])
+    r.steps[0].pop("extra"); r.steps[0].pop("alias_note"); r.steps[0]["candidates"] = []
+    r.steps[0]["claims"][0].pop("note")
+    r.citations[0].evidence[:] = [r.citations[0].evidence[0]]
+    return dataclasses.replace(r, **over) if over else r
+
+
 class HandBuiltLabels(unittest.TestCase):
     """A shared-marked response whose label, value or sentence names something that is not in
     its shared material. Before this change shareable() passed all of these through."""
@@ -40,7 +50,7 @@ class HandBuiltLabels(unittest.TestCase):
                     "who looks after it (LUIS-SECRET-ROOM)",
                     "who looks after it (Lantern Garden, Luis' hideout)",
                     "where it leads (the place called LUIS-SECRET-ROOM)"):
-            r = contaminated()
+            r = clean()
             r.steps[0]["ask"] = ask
             with self.assertRaises(NotShareable, msg=ask):
                 r.shareable()
@@ -49,14 +59,14 @@ class HandBuiltLabels(unittest.TestCase):
         for over in ({"value": "LUIS-SECRET-ROOM"}, {"possible": "LUIS-SECRET-ROOM"},
                      {"sentence": "LUIS-SECRET-ROOM maintains it."}):
             with self.assertRaises(NotShareable, msg=str(over)):
-                contaminated(**over).shareable()
-        r = contaminated()
+                clean(**over).shareable()
+        r = clean()
         r.steps[0]["value"] = "Luis Nick"
         with self.assertRaises(NotShareable):
             r.shareable()
 
     def test_legitimate_labels_pass(self):
-        r = contaminated()
+        r = clean()
         for ask in ("who looks after it (Lantern Garden)", "the room whose caretaker is mira",
                     "where it leads (Lantern Garden, left side)",
                     "where the exit leads (no place named; the only one documented is Lantern Garden)"):
