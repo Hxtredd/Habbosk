@@ -160,6 +160,63 @@ def _side(s: Any, residue: "Residue"):
     return None
 
 
+_LABEL_WORDS = ("the room whose caretaker is runner who looks after it runs its where leads to "
+                "exit no place named only one documented is side called room id quest reward "
+                "coins monedas left right north south east west up down in out")
+
+
+def _words(text: str) -> List[str]:
+    return re.findall(r"[^\W_]+", _norm(text))
+
+
+def _template_words() -> set:
+    """Every word of the fixed answer wording and step labels (both languages)."""
+    from .respond import _T
+    from . import reason
+    words = set(_words(_LABEL_WORDS))
+    for lang in _T.values():
+        for t in lang.values():
+            words |= set(_words(re.sub(r"\{[^}]*\}", " ", t)))
+    for v in list(reason._LABEL.values()) + list(reason._DIRS.values()):
+        words |= set(_words(v))
+    return words
+
+
+def _check_provenance(value, possible, sentence, steps, cits, ch, sides):
+    """A name in a step label, the value, the possible value or the sentence must come from the
+    shared material the response itself carries (claim texts, kept evidence, kept passages) or
+    from the fixed wording. A label is built from names the ASKER typed or that her own aliases
+    map to; this makes sure none of them is in a response passed on. Fail closed: a word that
+    cannot be found raises NotShareable."""
+    corpus = set()
+    for st in steps:
+        for c in st["claims"] + st["also_unverified"]:
+            corpus |= set(_words(c["text"]))
+    for c in cits:
+        corpus |= set(_words(c.text))
+        for e in c.evidence:
+            corpus |= set(_words(e["quote"]) + _words(e["source"]) + _words(e["date"]))
+    for g in ch:
+        for v in g["values"]:
+            corpus |= set(_words(v or ""))
+        for e in g["examples"]:
+            corpus |= set(_words(e["text"]))
+    for x in sides:
+        corpus |= set(_words(x["value"] or ""))
+    fixed = _template_words()
+    for st in steps:
+        for w in _words(st["ask"]):
+            if w not in corpus and w not in fixed:
+                _bad("a step label holds a name not found in the shared material")
+        for w in _words(st["value"] or ""):
+            if w not in corpus:
+                _bad("a step value holds a name not found in the shared material")
+    for what, text in (("value", value), ("possible", possible), ("sentence", sentence)):
+        for w in _words(text or ""):
+            if w not in corpus and w not in fixed:
+                _bad(f"the {what} holds a word not found in the shared material")
+
+
 def _check_residue(names: List[str], texts: List[str], kept: List[str]):
     """A string removed above (a source title, a personal passage, a publisher...) must not
     survive inside text that was kept (e.g. a ready-made sentence naming the source). Names
@@ -251,6 +308,7 @@ def sanitize_response(r):
     # wording the asker typed (question, understood_as, related) overlaps with shared words by
     # nature and is not scanned; titles, publishers and passages of removed material are
     _check_residue(residue.names, residue.texts, kept)
+    _check_provenance(out.value, out.possible, out.sentence, steps, cits, ch, sides)
     return out
 
 
@@ -284,4 +342,5 @@ def sanitize_answer(a):
     out = dataclasses.replace(src, question="", trace=[], hits=hits, steps=steps)
     kept = [out.answer or "", out.possible or ""] + _strings([steps, [h.text for h in hits]])
     _check_residue(residue.names, residue.texts, kept)
+    _check_provenance(out.answer, out.possible, "", steps, [], [], [])
     return out

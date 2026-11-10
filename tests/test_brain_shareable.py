@@ -126,7 +126,10 @@ class Contaminated(unittest.TestCase):
 
     def test_a_clean_response_passes_unchanged_apart_from_the_asker_only_fields(self):
         r = contaminated(related=[], understood_as="", interpretation=None, question="q",
-                         challenges=[], sides=[], citations=[], steps=[], clarification=None)
+                         challenges=[], sides=[], clarification=None)
+        r.steps[0].pop("extra"); r.steps[0].pop("alias_note"); r.steps[0]["candidates"] = []
+        r.steps[0]["claims"][0].pop("note")
+        r.citations[0].evidence[:] = [r.citations[0].evidence[0]]
         s = r.shareable()
         self.assertEqual(dataclasses.replace(s, question="q"), r)
 
@@ -208,8 +211,9 @@ class Answers(unittest.TestCase):
         a = BrainAnswer("Who maintains the LUIS-TYPED-QUESTION?", True, "Mira", "documented",
                         "verified", hits, ["found 5 related records", "LUIS-SECRET-ROOM"],
                         "established", None,
-                        [{"ask": "x", "outcome": "value", "value": "Mira", "verified": True,
-                          "candidates": [], "claims": [{"id": 1, "text": "t", "status": "verified",
+                        [{"ask": "who looks after it (Lantern Garden)", "outcome": "value", "value": "Mira",
+                          "verified": True,
+                          "candidates": [], "claims": [{"id": 1, "text": "Mira maintains the Lantern Garden.", "status": "verified",
                                                          "scope": "shared"}],
                           "also_unverified": [], "x": "LUIS-SOURCE-TITLE"}], "shared")
         return dataclasses.replace(a, **over) if over else a
