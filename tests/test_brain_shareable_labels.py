@@ -68,7 +68,7 @@ class HandBuiltLabels(unittest.TestCase):
     def test_legitimate_labels_pass(self):
         r = clean()
         for ask in ("who looks after it (Lantern Garden)", "the room whose caretaker is mira",
-                    "where it leads (Lantern Garden, left side)",
+                    "where it leads (Lantern Garden, north side)",
                     "where the exit leads (no place named; the only one documented is Lantern Garden)"):
             r.steps[0]["ask"] = ask
             self.assertEqual(r.shareable().steps[0]["ask"], ask)
@@ -163,6 +163,96 @@ class RealFlows(World):
         r = self.open("luis").respond("Which room does LUIS-NICK-FOR-MIRA maintain?")
         self.assertIn("luis nick for mira", " ".join(st["ask"] for st in r.steps))
         self.assertNotEqual(r.audience, "shared")
+        with self.assertRaises(NotShareable):
+            r.shareable()
+
+
+class MoreRealFlows(RealFlows):
+    """Quest rewards in both languages, a place taken from the claim's SUBJECT, the northern exit,
+    the reverse alias direction (the asker's entity is canonical, the shared name its alias) and
+    BrainAnswer (ask) - all must pass shareable() when shared and be refused otherwise."""
+    def setUp(self):
+        super().setUp()
+        ana = self.open("ana")
+        for text, subject in (("La misión del Faro Sur da 30 monedas.", "Faro Sur"),
+                              ("The quest in the Faro Norte gives 50 coins.", "Faro Norte"),
+                              ("The northern exit of the Lantern Garden leads to the Rope Shed.", "Lantern Garden")):
+            sid = self.imp(ana, text + "\n", "ana-x%d.txt" % len(self.shared), publisher="Harbour Press")
+            c = ana.learn(text, "imported", subject)
+            ana.cite(c, sid, text)
+            ana.attest_source(sid, "checked")
+            m = self.open("mod")
+            sh = m.approve(self.fid("ana"), ana.propose(c, {sid: ["quote", "full_text"]}))
+            ssid = m.store._db.execute("SELECT source_id FROM evidence WHERE claim_id=?", (sh,)).fetchone()[0]
+            m.attest_source(ssid, "checked by a moderator")
+            m.review(sh, "verified")
+            self.shared.append(sh)
+
+    EXTRA = ["Cuantas monedas da la mision del Faro Sur?", "How many coins does the quest in the Faro Norte give?",
+             "Where does the northern exit of the Lantern Garden lead?",
+             "Who maintains the room the northern exit of the Lantern Garden leads to?"]
+
+    def test_the_extra_questions_pass_when_shared(self):
+        for who in ("rita", "ana"):
+            s = self.open(who)
+            shared = 0
+            for q in self.EXTRA:
+                r = s.respond(q)
+                if r.audience == "shared":
+                    out = r.shareable()
+                    self.assertFalse(has_personal(dump(out)), q)
+                    shared += 1
+            self.assertGreaterEqual(shared, 3, who) if who == "rita" else None
+
+    def test_the_reverse_alias_direction(self):
+        """The asker's personal entity is the canonical name and the shared place name is its
+        alias: the canonical key is personal, the label must still show the shared wording."""
+        l = self.open("luis")
+        e = l.add_entity("LUIS-SECRET-ROOM", "room"); l.approve_alias(l.add_alias(e, "Lantern Garden"))
+        l.learn("Luis visits the Lantern Garden every Monday SECRET-VISIT.", "user", "Lantern Garden")
+        pinned = 0
+        for q in ["Who maintains the Lantern Garden?", "Who maintains the LUIS-SECRET-ROOM?",
+                  "Where does the exit of the Lantern Garden lead?",
+                  "Who maintains the room the Lantern Garden leads to?"]:
+            r = l.respond(q)
+            if r.audience == "shared":
+                self.assertFalse(has_personal(dump(r.shareable())), q)
+                pinned += 1
+        self.assertGreaterEqual(pinned, 2)
+
+    def test_ask_answers(self):
+        l = self.open("luis")
+        l.learn("Luis visits the Lantern Garden every Monday SECRET-VISIT.", "user", "Lantern Garden")
+        n = 0
+        for q in ["Who maintains the Lantern Garden?", "Who maintains the Rope Shed?",
+                  "Who maintains the room the Lantern Garden leads to?"]:
+            a = l.ask(q)
+            if a.audience == "shared":
+                self.assertFalse(has_personal(dump(a.shareable())), q)
+                n += 1
+        self.assertGreaterEqual(n, 2)
+
+    def test_the_northern_exit_answer(self):
+        r = self.open("rita").respond("Where does the northern exit of the Lantern Garden lead?")
+        self.assertEqual((r.category, r.audience), ("established", "shared"))
+        out = r.shareable()
+        self.assertTrue(any("north" in st["ask"] for st in out.steps))
+
+
+class SubjectDerivedName(unittest.TestCase):
+    """A place name may come from a claim's SUBJECT (a claim that does not name its place). The
+    step claims carry that subject so the name is vouched for; without it the label is refused."""
+    def test_vouched_by_the_subject_only(self):
+        r = clean(value="Rope Shed", sentence="Rope Shed.")
+        r.steps[0]["value"] = "Rope Shed"
+        r.steps[0]["ask"] = "where it leads (Harbour Steps, north side)"
+        r.steps[0]["claims"][0]["text"] = "The northern exit leads to the Rope Shed."
+        r.steps[0]["claims"][0]["subject"] = "Harbour Steps"
+        r.citations[0].text = "The northern exit leads to the Rope Shed."
+        r.citations[0].evidence[0]["quote"] = "The northern exit leads to the Rope Shed."
+        self.assertIn("Harbour Steps", r.shareable().steps[0]["ask"])
+        self.assertNotIn("subject", r.shareable().steps[0]["claims"][0])      # vouches only
+        del r.steps[0]["claims"][0]["subject"]
         with self.assertRaises(NotShareable):
             r.shareable()
 

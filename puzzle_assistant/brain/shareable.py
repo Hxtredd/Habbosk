@@ -20,6 +20,10 @@ class NotShareable(ValueError):
     """The response cannot be established as safe to pass on."""
 
 
+_OUTCOMES = {"value", "absent", "missing", "conflicting", "ambiguous", ""}
+_CLAIM_STATUSES = None          # filled from model.STATUSES on first use
+
+
 def _bad(why: str):
     raise NotShareable(why)
 
@@ -29,6 +33,12 @@ class Residue:
     def __init__(self):
         self.names: List[str] = []
         self.texts: List[str] = []
+        self.shared_words: set = set()          # words of shared claims' own subjects
+
+
+def _statuses():
+    from .model import STATUSES
+    return set(STATUSES)
 
 
 def _int(v: Any, what: str) -> int:
@@ -61,26 +71,28 @@ def _opt_str(v: Any, what: str):
     return None if v is None else _str(v, what)
 
 
-def _shared_claim(c: Any, what: str) -> dict:
+def _shared_claim(c: Any, what: str, residue: "Residue" = None) -> dict:
     """A claim entry of a step: its scope must be 'shared' (it would contradict the audience)."""
     if not isinstance(c, dict) or c.get("scope") != "shared":
         _bad(f"{what}: not a shared claim")
+    if residue is not None and isinstance(c.get("subject"), str):
+        residue.shared_words |= set(_words(c["subject"]))      # vouches for a name only; not kept
     return {"id": _int(c.get("id"), what + " id"), "text": _str(c.get("text"), what + " text"),
-            "status": _str(c.get("status"), what + " status"), "scope": "shared"}
+            "status": _one_of(c.get("status"), _statuses(), what + " status"), "scope": "shared"}
 
 
 def _step(st: Any, residue: "Residue") -> dict:
     if not isinstance(st, dict):
         _bad("step: not a mapping")
     out = {"ask": _str(st.get("ask", ""), "step ask"),
-           "outcome": _str(st.get("outcome", ""), "step outcome"),
+           "outcome": _one_of(st.get("outcome", ""), _OUTCOMES, "step outcome"),
            "value": _opt_str(st.get("value"), "step value"),
            "verified": bool(st.get("verified")),
            # names of other candidate places can only exist in an ambiguous (never shared)
            # answer; they are never carried over
            "candidates": [],
-           "claims": [_shared_claim(c, "step claim") for c in (st.get("claims") or [])],
-           "also_unverified": [_shared_claim(c, "step also_unverified")
+           "claims": [_shared_claim(c, "step claim", residue) for c in (st.get("claims") or [])],
+           "also_unverified": [_shared_claim(c, "step also_unverified", residue)
                                for c in (st.get("also_unverified") or [])]}
     for k, v in st.items():                       # whatever else a step carries is not copied
         if k not in out:
@@ -119,7 +131,8 @@ def _citation(c, residue: "Residue"):
                        "personal_details": False})
         else:                                      # personal, or not established: left out
             residue.names += _strings(e.get("source"))   # a title a sentence may name
-    return Citation(_int(c.claim_id, "citation id"), _str(c.text, "citation text"), _str(c.status, "status"),
+    return Citation(_int(c.claim_id, "citation id"), _str(c.text, "citation text"),
+                    _one_of(c.status, _statuses(), "citation status"),
                     "shared", ev, bool(c.supports))
 
 
@@ -162,7 +175,7 @@ def _side(s: Any, residue: "Residue"):
 
 _LABEL_WORDS = ("the room whose caretaker is runner who looks after it runs its where leads to "
                 "exit no place named only one documented is side called room id quest reward "
-                "coins monedas left right north south east west up down in out")
+                "coins monedas")
 
 
 def _words(text: str) -> List[str]:
@@ -182,13 +195,13 @@ def _template_words() -> set:
     return words
 
 
-def _check_provenance(value, possible, sentence, steps, cits, ch, sides):
+def _check_provenance(value, possible, sentence, steps, cits, ch, sides, extra_words=()):
     """A name in a step label, the value, the possible value or the sentence must come from the
     shared material the response itself carries (claim texts, kept evidence, kept passages) or
     from the fixed wording. A label is built from names the ASKER typed or that her own aliases
     map to; this makes sure none of them is in a response passed on. Fail closed: a word that
     cannot be found raises NotShareable."""
-    corpus = set()
+    corpus = set(extra_words)
     for st in steps:
         for c in st["claims"] + st["also_unverified"]:
             corpus |= set(_words(c["text"]))
@@ -209,7 +222,7 @@ def _check_provenance(value, possible, sentence, steps, cits, ch, sides):
             if w not in corpus and w not in fixed:
                 _bad("a step label holds a name not found in the shared material")
         for w in _words(st["value"] or ""):
-            if w not in corpus:
+            if w not in corpus and w not in fixed:
                 _bad("a step value holds a name not found in the shared material")
     for what, text in (("value", value), ("possible", possible), ("sentence", sentence)):
         for w in _words(text or ""):
@@ -308,7 +321,8 @@ def sanitize_response(r):
     # wording the asker typed (question, understood_as, related) overlaps with shared words by
     # nature and is not scanned; titles, publishers and passages of removed material are
     _check_residue(residue.names, residue.texts, kept)
-    _check_provenance(out.value, out.possible, out.sentence, steps, cits, ch, sides)
+    _check_provenance(out.value, out.possible, out.sentence, steps, cits, ch, sides,
+                      residue.shared_words)
     return out
 
 
@@ -336,11 +350,13 @@ def sanitize_answer(a):
         if h.module == "library" and isinstance(h.detail, dict) and \
                 h.detail.get("scope") == "shared":
             # the score is computed from the asker's question and corpus: not carried
+            from .model import ORIGINS
             hits.append(Hit(h.module, _str(h.record_id, "hit id"), _str(h.text, "hit text"),
-                            _str(h.status, "hit status"), _str(h.origin, "hit origin"), 0.0,
+                            _one_of(h.status, _statuses(), "hit status"),
+                            _one_of(h.origin, set(ORIGINS), "hit origin"), 0.0,
                             _str(h.category, "hit category"), [], {"scope": "shared"}))
     out = dataclasses.replace(src, question="", trace=[], hits=hits, steps=steps)
     kept = [out.answer or "", out.possible or ""] + _strings([steps, [h.text for h in hits]])
     _check_residue(residue.names, residue.texts, kept)
-    _check_provenance(out.answer, out.possible, "", steps, [], [], [])
+    _check_provenance(out.answer, out.possible, "", steps, [], [], [], residue.shared_words)
     return out
