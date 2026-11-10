@@ -341,53 +341,6 @@ class ConnectionReuse(unittest.TestCase):
         self.assertLess(time.monotonic() - t0, 1.5)
         self.assertEqual(out, {"aborted": True, "sent": True})
 
-    def test_cancel_wakes_a_windows_like_socket_by_closing_it(self):
-        """Windows: shutdown() alone does not end the wait; ai_jobs closes the socket there."""
-        class WinSock(FakeSock):
-            def shutdown(self, how):
-                pass                                      # like Windows: the reader keeps waiting
-
-            def close(self):
-                self.conn.shut.set()
-
-        class WinConn(FakeConn):
-            def connect(self):
-                self.server.connects += 1
-                self.sock = WinSock(self)
-
-        srv = FakeServer(["hang"])
-        h = transport.KeepAliveHttp(fallback=FakeHttp([]), proxies=lambda: {},
-                                    connection_factory=lambda host, t: WinConn(srv, host, t))
-        for close_too, should_stop in ((True, True), (False, False)):
-            srv.actions = ["hang"]
-            tok = ai_jobs.CancelToken()
-            out = {}
-
-            def run():
-                ai_jobs._local.token = tok
-                try:
-                    h("POST", GEMINI, {}, {}, 8.0)
-                except transport.Aborted:
-                    out["aborted"] = True
-                except Exception as exc:
-                    out["other"] = exc
-                finally:
-                    ai_jobs._local.token = None
-            with mock.patch.object(ai_jobs, "CLOSE_ON_CANCEL", close_too):
-                t = threading.Thread(target=run, daemon=True)
-                t.start()
-                time.sleep(0.1)
-                tok.cancel()
-                t.join(1.0)
-                self.assertEqual(not t.is_alive(), should_stop, close_too)
-                if should_stop:
-                    self.assertEqual(out, {"aborted": True})
-                else:                                     # let the fake reader finish
-                    for c in srv.conns:
-                        c.shut.set()
-                    t.join(2)
-            h.close()
-
     def test_cancelled_before_sending_sends_nothing(self):
         h, srv, _ = self.make([])
         tok = ai_jobs.CancelToken()
@@ -498,6 +451,35 @@ class RealSockets(KeyPatch):
         r = ai_answerer(self.http).answer(Question("PREGUNTA", "x", ["A1", "B1"]), timeout=0.4)
         self.assertLess(time.monotonic() - t0, 2.0)
         self.assertEqual(r.error_kind, "timeout")
+
+    def test_cancel_stops_a_real_hanging_request_when_nothing_wakes_the_socket(self):
+        """Like Windows (owner's PC): neither shutdown nor close ends a waiting
+        read. The request must still stop quickly: it waits in 0.1 s steps."""
+        LocalGemini.mode = "hang"
+        sched = ai_jobs.AiScheduler()
+        a = ai_answerer(self.http)
+        with mock.patch.object(ai_jobs, "_shutdown", lambda conn: None):
+            job = sched.submit("q1", a.answer, Question("PREGUNTA", "x", ["A1", "B1"]), 8.0)
+            time.sleep(0.3)
+            t0 = time.monotonic()
+            sched.cancel(job)
+            res = job.future.result(timeout=2)
+            self.assertLess(time.monotonic() - t0, 0.5)
+        self.assertTrue(res.stale)
+        self.assertEqual(res.error_kind, "stale")
+        sched.shutdown()
+
+    def test_waiting_in_steps_keeps_the_time_limit(self):
+        LocalGemini.mode = "hang"
+        sched = ai_jobs.AiScheduler()
+        a = ai_answerer(self.http)
+        with mock.patch.object(ai_jobs, "_shutdown", lambda conn: None):
+            t0 = time.monotonic()
+            job = sched.submit("q1", a.answer, Question("PREGUNTA", "x", ["A1", "B1"]), 0.5)
+            res = job.future.result(timeout=3)
+        self.assertLess(time.monotonic() - t0, 1.5)
+        self.assertEqual(res.error_kind, "timeout")
+        sched.shutdown()
 
     def test_cancel_stops_a_real_hanging_request(self):
         LocalGemini.mode = "hang"

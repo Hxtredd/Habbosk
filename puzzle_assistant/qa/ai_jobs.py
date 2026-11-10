@@ -21,7 +21,6 @@ Now:
 from __future__ import annotations
 
 import socket
-import sys
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -62,12 +61,11 @@ class CancelToken:
             _shutdown(c)
 
 
-# Windows: shutdown() does not wake a thread that is waiting (select) for the
-# reply - found on the owner's PC (the request kept running until the server
-# answered). Closing the socket does wake it there. Linux: shutdown() wakes it;
-# the socket is not closed from this thread (its number could be reused at once
-# by another connection while the reading thread still holds it).
-CLOSE_ON_CANCEL = sys.platform == "win32"
+# Stopping a running request: transport.wait_for_reply checks the token every
+# 0.1 s while waiting for the reply (works on Windows and Linux). shutdown()
+# below additionally ends a read that is already in progress on Linux; on
+# Windows it does not, and closing the socket from here doesn't either
+# (found on the owner's PC) - there the socket time limit ends such a read.
 
 
 def _shutdown(conn) -> None:
@@ -79,11 +77,6 @@ def _shutdown(conn) -> None:
         sock.shutdown(socket.SHUT_RDWR)
     except OSError:
         pass
-    if CLOSE_ON_CANCEL:
-        try:
-            sock.close()
-        except Exception:
-            pass
 
 
 def current_token() -> Optional[CancelToken]:

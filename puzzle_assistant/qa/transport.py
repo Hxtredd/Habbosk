@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import select
 import socket
 import ssl
 import threading
@@ -83,6 +84,47 @@ def _decode(raw: bytes) -> dict:
     except ValueError:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+POLL = 0.1                      # seconds between checks while waiting for the reply
+
+
+def wait_for_reply(conn, token, timeout: float) -> None:
+    """Wait until the reply starts arriving, in short steps, so a cancelled
+    request stops within POLL seconds (v3.4 B).
+
+    Found on the owner's PC: on Windows neither shutdown() nor close() from
+    another thread ends a thread that is already waiting for the reply
+    (http.client keeps the socket open while its reader exists). So the
+    request never waits in one long call: it checks the CancelToken every
+    POLL seconds and only reads once data is there. Same time limit as
+    before (the socket timeout). A reply that stalls after it has started
+    is still ended by the socket timeout."""
+    sock = getattr(conn, "sock", None)
+    if token is None or sock is None:
+        return
+    try:
+        sock.fileno()
+    except Exception:                   # not a real socket (tests)
+        return
+    deadline = time.monotonic() + timeout
+    while True:
+        if token.cancelled:
+            raise Aborted("request cancelled", sent=True)
+        pending = getattr(sock, "pending", None)          # TLS bytes already decrypted
+        if pending is not None and pending() > 0:
+            return
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise socket.timeout("timed out")
+        try:
+            ready, _, _ = select.select([sock], [], [], min(POLL, left))
+        except (OSError, ValueError):
+            if token.cancelled:
+                raise Aborted("request cancelled", sent=True)
+            raise
+        if ready:
+            return
 
 
 _RETRY_ON_REUSED = (http.client.RemoteDisconnected, http.client.BadStatusLine,
@@ -179,6 +221,7 @@ class KeepAliveHttp:
                 if getattr(conn, "sock", None) is not None:
                     conn.sock.settimeout(timeout)
                 conn.request(method, path, body=data, headers=hdrs)
+                wait_for_reply(conn, token, timeout)
                 resp = conn.getresponse()
                 raw = resp.read()
                 status = resp.status
