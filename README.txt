@@ -1,4 +1,4 @@
-SK ASSISTANT  (v3.4 - formerly Puzzle Answer Assistant, Windows prototype)
+SK ASSISTANT  (v3.4.1 - formerly Puzzle Answer Assistant, Windows prototype)
 ==================================================
 
 A small always-on-top window that watches your screen for the
@@ -150,6 +150,10 @@ Requirements: Windows 10 or 11 (64-bit), Python 3.9 - 3.13.
   total in green ("Verified", and "= 390" on the left of the input box).
   You type it yourself. If the count does not match the game it shows
   "Not sure" ("? 390") - check before typing.
+  v3.4.1: a coin or bill is no longer counted twice when the PC is briefly
+  busy while it crosses (a round showed 129 instead of 128). Items only enter
+  at the left of the strip, so one that seems to appear in the middle is the
+  same item again.
 
 2c. QUESTIONS (library "Estudiar en la biblioteca", more coming)
 -----------------------------------------------------------------
