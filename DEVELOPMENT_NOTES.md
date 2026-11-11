@@ -18,10 +18,10 @@ difficulties: keep the interface simple, plain-worded and calm.
 1. **Read-only for puzzles and questions.** Never click, move the mouse,
    type, or interact with the browser/game for them. Single exception agreed
    with the owner: World Atlas "Go to Room" types `:taxi <id>` in the hotel
-   chat only on the owner's click (one command per click). The player does every action. The owner later asked about
-   an "automated" option; it was **declined** (it would be a bot earning in-game
-   currency, against the server's rules and other players). Offer accessibility
-   help instead (bigger marks, spoken cues, high contrast).
+   chat only on the owner's click (one command per click). The player does every action.
+   **Changed 2026-11-11 by the owner's decision (see "Work automation" below):**
+   automating job work is allowed under the founder's conditions. Everything
+   else stays read-only / one action per click.
 2. **Never present a guess as certain.** A wrong click costs the player a point.
    When unsure, show "Not sure / check X" — never a clickable-looking answer.
 3. **Ask before building.** The owner often asks questions first ("don't build
@@ -29,6 +29,22 @@ difficulties: keep the interface simple, plain-worded and calm.
 4. Keep the puzzle features working when adding anything. Run all tests.
 5. No API keys or personal data in the repository (`data/` and `config.json`
    are git-ignored).
+
+## Work automation - owner's decision 2026-11-11
+
+Earlier an "automated" option was declined (it would play by itself). The owner
+then showed that the HabboSK founder allows automating job work, first in a
+2020 message and confirmed again in the community Discord on 2026-11-11 ("sigue
+siendo lo mismo"): **allowed, but the player must be present and not AFK** -
+if someone in the room talks to them and they keep working without answering,
+they can be reported. Required safeguards for any automation built:
+1. presence check at random intervals ("¿Sigues ahí?") - no answer = stop;
+2. watch the room chat: someone writing to / mentioning the player, or new
+   chat nearby, pauses at once and alerts the player, who answers themselves;
+3. only answers SK is sure of; "Not sure" = stop and ask;
+4. any key / mouse movement or Esc stops it; session time limit;
+5. no automation in rooms whose rules forbid autoclick/type.
+Nothing is built before the owner approves a written plan.
 
 ## Owner preferences
 
