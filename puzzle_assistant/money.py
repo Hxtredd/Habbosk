@@ -205,6 +205,15 @@ class Track:
     cx: float
     w: int
     reads: List[Tuple[str, float]] = field(default_factory=list)
+    first_cx: float = 0.0
+    mid_strip: bool = False      # first seen in the middle of the strip (should not happen)
+
+    def speed(self) -> Optional[float]:
+        """Pixels per second to the right, once it has been followed for a while."""
+        dt = self.last_t - self.first_t
+        if dt >= 0.15 and self.cx > self.first_cx:
+            return (self.cx - self.first_cx) / dt
+        return None
 
     def value(self) -> Tuple[Optional[int], float, int]:
         """(majority value, agreement 0..1, number of good reads)"""
@@ -231,10 +240,21 @@ class MoneyState:
 
 class MoneyTracker:
     LOST_AFTER = 0.35     # s without a sighting: the item has left the strip
+    # v3.5: coins and bills only ever ENTER at the left edge of the strip. An item
+    # first seen further right is one that was lost for a moment (SK did not look
+    # at the screen for a while - a busy PC): it is picked up again where its
+    # speed says it should be, instead of being counted a second time (the owner's
+    # round: 129 shown, 128 correct).
+    ENTRY = 0.25          # new items appear in the left quarter of the strip
+    REFIND_WITHIN = 2.0   # s: a lost item can be picked up again (crossing takes ~1.8 s)
+    # before any speed is known: items cross at 0.38-0.50 strip widths per second
+    # in the recorded rounds (coins faster than bills); a margin either side
+    SPEED_RANGE = (0.3, 0.65)
 
     def __init__(self):
         self.frozen = False   # set once the round is complete: nothing can change it
         self.tracks: List[Track] = []
+        self.last_update: Optional[float] = None   # when SK last looked at the strip
         self.vistos: Optional[Tuple[int, int]] = None
         self.legend: List[int] = []
 
@@ -242,6 +262,11 @@ class MoneyTracker:
         if self.frozen:
             return
         W = strip.shape[1]
+        # how far right a NEW item can be: the entry zone, plus how far it could
+        # have moved while SK was not looking (or anywhere, before the first look)
+        blind = None if self.last_update is None else max(0.0, t - self.last_update)
+        self.last_update = t
+        entry = W if blind is None else self.ENTRY * W + self.SPEED_RANGE[1] * W * blind
         live = [tr for tr in self.tracks if t - tr.last_t <= self.LOST_AFTER]
         used = set()
         for x, y, w, h in sorted(strip_items(strip), key=lambda b: -b[0]):
@@ -254,13 +279,44 @@ class MoneyTracker:
                 d = cx - tr.cx
                 if -0.25 * max(w, tr.w) <= d <= 0.6 * max(w, tr.w) + 500 * dt and abs(d) < best_d:
                     best, best_d = tr, abs(d)
+            if best is None and cx > self.ENTRY * W:
+                best = self._refind(cx, w, t, used, W)
             if best is None:
-                best = Track(t, t, cx, w)
+                best = Track(t, t, cx, w, first_cx=cx, mid_strip=cx > entry)
                 self.tracks.append(best)
             used.add(id(best))
             best.last_t, best.cx, best.w = t, cx, max(best.w, w)
             if x > 1 and x + w < W - 1:                       # fully visible
                 best.reads.append(read_item(strip[y:y + h, x:x + w]))
+
+    def _refind(self, cx: float, w: int, t: float, used: set, W: int) -> Optional[Track]:
+        """The lost item that should now be at cx, judged by its speed. Without any
+        measured speed yet, only an item that fits the known speed range, and only
+        if exactly one does."""
+        speeds = [v for v in (tr.speed() for tr in self.tracks) if v]
+        typical = float(np.median(speeds)) if speeds else None
+        best, best_d, unsure = None, 1e9, []
+        for tr in self.tracks:
+            if id(tr) in used:
+                continue
+            gap = t - tr.last_t
+            if gap <= 0 or gap > self.REFIND_WITHIN:
+                continue
+            size = max(w, tr.w)
+            if cx < tr.cx - 0.25 * size:                  # items never move left
+                continue
+            v = tr.speed() or typical
+            if v is None:
+                lo, hi = self.SPEED_RANGE
+                if tr.cx + lo * W * gap - 0.8 * size <= cx <= tr.cx + hi * W * gap + 0.8 * size:
+                    unsure.append(tr)
+                continue
+            d = abs(cx - (tr.cx + v * gap))
+            if d <= 0.8 * size + 0.15 * v * gap and d < best_d:
+                best, best_d = tr, d
+        if best is None and len(unsure) == 1:
+            best = unsure[0]
+        return best
 
     def set_vistos(self, v: Optional[Tuple[int, int]]) -> None:
         if v is not None and not self.frozen:
@@ -286,6 +342,8 @@ class MoneyTracker:
                 problems.append(f"item {i + 1} read as {val}, not in {self.legend}")
             elif val is not None and not sure:
                 problems.append(f"item {i + 1} unclear (read {val})")
+            if tr.mid_strip:
+                problems.append(f"item {i + 1} appeared in the middle of the strip")
             items.append((val, sure))
             total += val or 0
         on_strip = sum(1 for tr in self.tracks if t - tr.last_t <= self.LOST_AFTER)
