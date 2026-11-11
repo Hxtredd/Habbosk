@@ -638,6 +638,19 @@ no solver); exit abort when Python exits while the engine thread is in
 OpenCV/OCR, and `Engine._stop` / `ExplorerThread._stop` hiding
 `Thread._stop` (join/is_alive fail on Python <= 3.12).
 
+## v3.4.1: money puzzle - no double count after a short pause (owner's round 2026-11-11)
+
+The owner's round (1/5/50, 10 items, 128) showed 129: SK missed the screen for
+> 0.35 s while coins crossed, and `_money_loop` timed each picture by when the
+grab STARTED, so after a slow grab coins seemed to jump ahead "in no time" and
+were counted again. Pictures are now timed when the grab finishes, and
+`MoneyTracker` only starts a new item in the left part of the strip (plus what
+it could have moved while SK was not looking); an item first seen further right
+is re-attached to the lost one by its speed (before any speed is known: the
+recorded 0.38-0.50 strip widths/s range, single candidate only), otherwise it
+is flagged and the result is not verified. Test round:
+`tests/fixtures/money_coins_128.npz`.
+
 ## Known limits / ideas
 
 - Tk window placement on multi-DPI two-screen setups was unreliable; the

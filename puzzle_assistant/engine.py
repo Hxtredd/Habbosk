@@ -600,7 +600,11 @@ class Engine(threading.Thread):
                 continue
             self._rescan.clear()
             img, _ = grabber.grab_bounds(region)
-            tracker.update(img[sy:sy + sh, sx:sx + sw], t)
+            # v3.5: the picture shows the moment the grab FINISHED - a slow grab
+            # (Windows capture can stall) must not look like coins jumping ahead
+            # in no time (the owner's round: 129 shown, 128 correct)
+            shot_t = time.monotonic()
+            tracker.update(img[sy:sy + sh, sx:sx + sw], shot_t)
             if ocr_job is not None and ocr_job.done():
                 try:
                     tracker.set_vistos(parse_vistos(ocr_job.result()))
@@ -625,7 +629,7 @@ class Engine(threading.Thread):
             if self._snapshot.is_set():
                 self._snapshot.clear()
                 self._save_snapshot([img], None)
-            st = tracker.state(t)
+            st = tracker.state(shot_t)
             sig = (st.total, st.counted, st.seen, st.expected, st.done, st.verified,
                    st.on_strip, tuple(st.items))
             if sig != last_sig:

@@ -1,7 +1,7 @@
 {
- "version": "3.4.0",
- "zip": "dist/SK_Assistant_v3.4.zip",
- "sha256": "a853e4ed0bc7dcf889b1ffcbfc3aa12d618ab0dbab03d6c4a28080009adcaad5",
- "size": 11966795,
- "notes": "Faster, steadier AI answers: a question that changes no longer waits for an old AI request (it is stopped), the connection to Gemini is kept open, an answer given as the option's text is used when it can only mean one option, and the time shown is the real wait. New local timing log (numbers only) in the diagnostics folder."
+ "version": "3.4.1",
+ "zip": "dist/SK_Assistant_v3.4.1.zip",
+ "sha256": "bd3f26b88ab3dea328837f09593d0ed2f8260dcb864bd4f6755bc7bfcf91293d",
+ "size": 13732828,
+ "notes": "Money puzzle: a coin or bill is no longer counted twice when the PC is briefly busy while it crosses (a round showed 129 instead of 128)."
 }

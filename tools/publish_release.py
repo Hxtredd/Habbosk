@@ -35,7 +35,10 @@ def release_files(files):
 
 def main() -> None:
     notes = sys.argv[1] if len(sys.argv) > 1 else ""
-    short = ".".join(__version__.split(".")[:2])
+    # "3.4.0" -> v3.4 (as before); a patch release keeps its full number,
+    # "3.4.1" -> v3.4.1, so its download address differs from the release it fixes
+    parts = __version__.split(".")
+    short = ".".join(parts[:2]) if len(parts) < 3 or parts[2] == "0" else __version__
     files = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True,
                            check=True).stdout.split("\n")
     files = release_files(files)
