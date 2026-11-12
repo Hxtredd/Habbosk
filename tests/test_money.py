@@ -27,6 +27,10 @@ ROUNDS = {
     # after SK briefly did not look at the screen
     "money_coins_128": dict(items=[5, 5, 5, 5, 5, 50, 1, 1, 1, 50], total=128,
                             legend=[1, 5, 50], expected=10),
+    # the job's money count (Armería, owner's recording 2026-11-11, 15 frames a
+    # second): the owner typed 49 and it was accepted
+    "money_job_49": dict(items=[1, 10, 5, 1, 1, 10, 20, 1], total=49,
+                         legend=[1, 5, 10, 20], expected=8),
 }
 
 
@@ -257,6 +261,97 @@ class MoneyVerifiedTests(unittest.TestCase):
             self.assertEqual((st.seen, st.expected), (want["expected"], want["expected"]), name)
             self.assertTrue(st.done and st.verified, (name, st.problems))
             self.assertEqual(st.total, want["total"])
+
+
+
+@unittest.skipUnless(find_tesseract(Config()), "Tesseract not installed")
+class NumberedByTheGameTests(unittest.TestCase):
+    """v3.5 (owner: "sometimes it counts a bill twice or even 3 times"): every
+    item gets its number from the game's own "Vistos N" counter - an item SK
+    loses and finds again keeps its number, so it can only count once."""
+
+    @classmethod
+    def setUpClass(cls):
+        from puzzle_assistant.ocr import Tesseract
+        ocr = Tesseract(Config())
+        cls.vistos = {}                     # the counter in every frame (read once)
+        for name in ROUNDS:
+            frames, _, _, (bx, by, bw, bh) = load(name)
+            cls.vistos[name] = [parse_vistos(ocr.text(prep_for_ocr(f[by:by + bh, bx:bx + bw][:, :int(bw * 0.45)],
+                                                                     3.0), psm=7)) for f in frames]
+
+    def replay(self, name, keep=lambda k, t: True, every=3, tracker=None, junk=None):
+        frames, times, (sx, sy, sw, sh), (bx, by, bw, bh) = load(name)
+        tr = tracker or MoneyTracker()
+        n = 0
+        for k, (f, t) in enumerate(zip(frames, times)):
+            if not keep(k, float(t)):
+                continue
+            strip = f[sy:sy + sh, sx:sx + sw]
+            if junk is not None and junk(k):
+                strip = strip.copy()
+                cv2.rectangle(strip, (150, 8), (180, sh - 8), (255, 255, 255), -1)
+            tr.update(strip, float(t))
+            n += 1
+            if n % every == 0:                  # the counter is read now and then (engine: ~0.3 s)
+                tr.set_vistos(self.vistos[name][k], tr.last_visible)
+                tr.set_legend(read_legend(f[by:by + bh, bx:bx + bw]))
+        want = ROUNDS[name]
+        tr.set_vistos((want["expected"], want["expected"]))
+        return tr.state(float(times[-1]) + 1.0)
+
+    def check(self, st, name, msg=""):
+        want = ROUNDS[name]
+        self.assertEqual([v for v, _ in st.items], want["items"], (name, msg, st.problems))
+        self.assertEqual((st.total, st.counted), (want["total"], want["expected"]), (name, msg))
+        self.assertTrue(st.done and st.verified, (name, msg, st.problems))
+
+    def test_every_round(self):
+        for name in ROUNDS:
+            self.check(self.replay(name), name)
+
+    def forgetful(self):
+        """A tracker that loses every item it doesn't see in the very next
+        picture and never re-finds one: each gap makes "new" items."""
+        tr = MoneyTracker()
+        tr.LOST_AFTER = 0.01
+        tr._refind = lambda *a, **k: None
+        tr.ENTRY = 1.0                          # a "new" item may be anywhere
+        return tr
+
+    def test_items_seen_again_count_once(self):
+        for name in ROUNDS:
+            for gap in (0.3, 0.6):
+                # SK stops looking for `gap` seconds every second
+                keep = lambda k, t, g=gap: (t % 1.0) >= g
+                st = self.replay(name, keep=keep, every=1, tracker=self.forgetful())
+                self.check(st, name, f"gap {gap}")
+
+    def test_the_old_way_would_have_counted_twice(self):
+        """Sanity check of the test above: without the game's numbers the same
+        pictures give too many items."""
+        frames, times, (sx, sy, sw, sh), _ = load("money_job_49")
+        tr = self.forgetful()
+        for f, t in zip(frames, times):
+            if (float(t) % 1.0) >= 0.3:
+                tr.update(f[sy:sy + sh, sx:sx + sw], float(t))
+        tr.set_vistos((8, 8))
+        st = tr.state(float(times[-1]) + 1.0)
+        self.assertGreater(st.counted, 8)
+        self.assertFalse(st.verified)
+
+    def test_a_glitch_shape_is_not_an_item(self):
+        for name in ROUNDS:
+            self.check(self.replay(name, junk=lambda k: k % 25 == 7), name, "glitch")
+
+    def test_never_more_items_than_the_game_shows_and_wrong_never_verified(self):
+        for name in ROUNDS:
+            for gap in (0.8, 1.5):              # long blind spells: items may be missed
+                keep = lambda k, t, g=gap: (t % 2.0) >= g
+                st = self.replay(name, keep=keep, every=1, tracker=self.forgetful())
+                self.assertLessEqual(st.counted, ROUNDS[name]["expected"], (name, gap))
+                if st.total != ROUNDS[name]["total"]:
+                    self.assertFalse(st.verified, (name, gap, st.total))
 
 
 if __name__ == "__main__":

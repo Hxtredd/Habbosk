@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -207,6 +207,18 @@ class Track:
     reads: List[Tuple[str, float]] = field(default_factory=list)
     first_cx: float = 0.0
     mid_strip: bool = False      # first seen in the middle of the strip (should not happen)
+    # v3.5: which item of the round this is (1st, 2nd, ...), from the game's own
+    # "Vistos N" counter: index -> how many readings said so
+    votes: Dict[int, int] = field(default_factory=dict)
+
+    def index(self) -> Tuple[Optional[int], bool]:
+        """(item number, clear?) - the number most readings gave."""
+        if not self.votes:
+            return None, False
+        ranked = sorted(self.votes.items(), key=lambda kv: (-kv[1], kv[0]))
+        best, n = ranked[0]
+        second = ranked[1][1] if len(ranked) > 1 else 0
+        return best, n > second and n >= 0.5 * sum(self.votes.values())
 
     def speed(self) -> Optional[float]:
         """Pixels per second to the right, once it has been followed for a while."""
@@ -257,6 +269,7 @@ class MoneyTracker:
         self.last_update: Optional[float] = None   # when SK last looked at the strip
         self.vistos: Optional[Tuple[int, int]] = None
         self.legend: List[int] = []
+        self.last_visible: List[Track] = []        # items seen in the latest picture, right to left
 
     def update(self, strip: np.ndarray, t: float) -> None:
         if self.frozen:
@@ -269,6 +282,7 @@ class MoneyTracker:
         entry = W if blind is None else self.ENTRY * W + self.SPEED_RANGE[1] * W * blind
         live = [tr for tr in self.tracks if t - tr.last_t <= self.LOST_AFTER]
         used = set()
+        visible: List[Track] = []
         for x, y, w, h in sorted(strip_items(strip), key=lambda b: -b[0]):
             cx = x + w / 2
             best, best_d = None, 1e9
@@ -285,9 +299,11 @@ class MoneyTracker:
                 best = Track(t, t, cx, w, first_cx=cx, mid_strip=cx > entry)
                 self.tracks.append(best)
             used.add(id(best))
+            visible.append(best)
             best.last_t, best.cx, best.w = t, cx, max(best.w, w)
             if x > 1 and x + w < W - 1:                       # fully visible
                 best.reads.append(read_item(strip[y:y + h, x:x + w]))
+        self.last_visible = sorted(visible, key=lambda tr: -tr.cx)
 
     def _refind(self, cx: float, w: int, t: float, used: set, W: int) -> Optional[Track]:
         """The lost item that should now be at cx, judged by its speed. Without any
@@ -318,9 +334,27 @@ class MoneyTracker:
             best = unsure[0]
         return best
 
-    def set_vistos(self, v: Optional[Tuple[int, int]]) -> None:
-        if v is not None and not self.frozen:
-            self.vistos = v
+    def set_vistos(self, v: Optional[Tuple[int, int]],
+                   visible: Optional[List[Track]] = None) -> None:
+        """The game's "Vistos N/M". visible: the items seen in the SAME picture
+        the counter was read from (last_visible right after update()).
+
+        v3.5 (owner: "sometimes it counts a bill twice or 3 times"): the game
+        counts an item the moment it appears at the left, and items leave at
+        the right in the same order. So in any picture the k items on the
+        strip are exactly items N-k+1 .. N (rightmost = oldest). Every item SK
+        follows gets its number this way; two "items" with the same number
+        are one item seen twice, and there can never be more than M items."""
+        if v is None or self.frozen:
+            return
+        self.vistos = v
+        if visible:
+            n, k = v[0], len(visible)
+            if 0 < k <= n:                     # more shapes than counted items: a glitch, skip
+                order = sorted(visible, key=lambda tr: -tr.cx)
+                for j, tr in enumerate(order):
+                    i = n - k + 1 + j
+                    tr.votes[i] = tr.votes.get(i, 0) + 1
 
     def set_legend(self, legend: List[int]) -> None:
         if legend:
@@ -329,6 +363,8 @@ class MoneyTracker:
     def state(self, t: float) -> MoneyState:
         if self.frozen:
             return self._final
+        if any(tr.votes for tr in self.tracks):
+            return self._numbered_state(t)
         problems: List[str] = []
         items: List[Tuple[Optional[int], bool]] = []
         total = 0
@@ -357,5 +393,61 @@ class MoneyTracker:
         st = MoneyState(items, total, len(items), on_strip, seen, expected, list(self.legend),
                         done, verified, problems)
         if done:  # the round is over: freeze the answer until the puzzle closes
+            self.frozen, self._final = True, st
+        return st
+
+    def _numbered_state(self, t: float) -> MoneyState:
+        """v3.5: the items are the game's own item numbers 1..M; every shape SK
+        followed belongs to one of them (several shapes for one number = the
+        same item seen twice: their readings are pooled, it counts once)."""
+        problems: List[str] = []
+        groups: Dict[int, List[Track]] = {}
+        newest = 0.0
+        for tr in self.tracks:
+            i, clear = tr.index()
+            if i is None:
+                continue
+            if not clear:
+                problems.append(f"item {i}: its place in the order is unclear")
+            groups.setdefault(i, []).append(tr)
+            newest = max(newest, tr.first_t)
+        seen, expected = self.vistos if self.vistos else (None, None)
+        on_strip = sum(1 for tr in self.tracks if t - tr.last_t <= self.LOST_AFTER)
+        top = max(max(groups, default=0), seen or 0)       # items the game has shown so far
+        if expected is not None and top > expected:
+            problems.append(f"an item numbered above the game's {expected}")
+            top = expected
+        items: List[Tuple[Optional[int], bool]] = []
+        total = 0
+        for i in range(1, top + 1):
+            trs = groups.get(i, [])
+            good = [txt for tr in trs for txt, sc in tr.reads if txt and sc >= GOOD_SCORE]
+            if not good:
+                items.append((None, False))
+                problems.append(f"item {i} was not seen clearly")
+                continue
+            best = max(set(good), key=good.count)
+            val, agree = int(best), good.count(best) / len(good)
+            sure = agree >= 0.8 and len(good) >= 3
+            if self.legend and val not in self.legend:
+                sure = False
+                problems.append(f"item {i} read as {val}, not in {self.legend}")
+            elif not sure:
+                problems.append(f"item {i} unclear (read {val})")
+            items.append((val, sure))
+            total += val
+        # items that just appeared and have no number yet (shown, not yet verified)
+        for tr in sorted(self.tracks, key=lambda tr: tr.first_t):
+            if not tr.votes and t - tr.last_t <= self.LOST_AFTER and tr.first_t > newest:
+                val, agree, n = tr.value()
+                items.append((val, False))
+                total += val or 0
+        done = expected is not None and seen == expected and on_strip == 0 and len(items) > 0
+        if done and len(items) != expected:
+            problems.append(f"counted {len(items)} items but the game says {expected}")
+        verified = done and not problems and all(s for _, s in items)
+        st = MoneyState(items, total, len(items), on_strip, seen, expected, list(self.legend),
+                        done, verified, problems)
+        if done:
             self.frozen, self._final = True, st
         return st

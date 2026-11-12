@@ -46,6 +46,18 @@ they can be reported. Required safeguards for any automation built:
 5. no automation in rooms whose rules forbid autoclick/type.
 Nothing is built before the owner approves a written plan.
 
+**Money count, 2026-11-12 (owner: "sometimes it counts a bill twice or even 3
+times")**: every coin / bill now gets its number from the game's own "Vistos
+N/M" counter. Checked on all 4 recorded rounds: the counter goes up in the same
+frame an item appears at the left, and items leave at the right in order, so
+the k items on the strip are always items N-k+1..N. Each "Vistos" reading
+(engine: ~every 0.3 s, read from the same picture as the strip) labels the
+items seen in it; shapes with the same number are one item seen twice (their
+readings are pooled), the count can't exceed M, and a number never seen
+clearly = not verified. Without any reading the old tracking is used (never
+verified then). Tests: tests/test_money.py NumberedByTheGameTests (a tracker
+that forgets every item between pictures still gives the right total).
+
 **Plan approved 2026-11-11** ("yes thats good"), built 2026-11-12 on the dev
 branch (`puzzle_assistant/work/`, not released yet). Phase 1 = the walking
 tasks; the owner added: type `:beber` when energy gets low.

@@ -591,6 +591,7 @@ class Engine(threading.Thread):
         keypad_region = {"left": b["left"] + kx - pad, "top": b["top"] + ky - pad,
                          "width": kw + 2 * pad, "height": kh + 2 * pad}
         ocr_job = None
+        ocr_visible: list = []
         next_ocr = next_check = 0.0
         missing_since: Optional[float] = None
         last_sig = None
@@ -608,7 +609,8 @@ class Engine(threading.Thread):
             tracker.update(img[sy:sy + sh, sx:sx + sw], shot_t)
             if ocr_job is not None and ocr_job.done():
                 try:
-                    tracker.set_vistos(parse_vistos(ocr_job.result()))
+                    # v3.5: with the items seen in the picture the counter was read from
+                    tracker.set_vistos(parse_vistos(ocr_job.result()), ocr_visible)
                 except Exception:
                     pass
                 ocr_job = None
@@ -617,6 +619,7 @@ class Engine(threading.Thread):
                 tracker.set_legend(read_legend(band))
                 left = prep_for_ocr(band[:, :int(bw * 0.45)], 3.0)
                 ocr_job = analyzer.pool.submit(analyzer.ocr.text, left, 7)
+                ocr_visible = list(tracker.last_visible)          # same picture as the band
                 next_ocr = t + 0.3
             if t >= next_check:            # still open? (keypad still there)
                 next_check = t + 0.2
