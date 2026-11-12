@@ -83,6 +83,16 @@ tasks; the owner added: type `:beber` when energy gets low.
   (max ~150); below the setting (default 40) it types `:beber` in the chat
   (same chat-box steps as Go to Room; also finds the box when SK's own window
   hides the room-name bar) and stops if energy did not go up.
+- Owner's corrections 2026-11-12: (1) Barrer casquillos can show several
+  "Basura" - ALL are picked up (panel "Llevas N/M de basura"; SK keeps
+  collecting while N < M, even if the panel already says to take the load),
+  then the load goes to the bin. What to pick up is always under a "!" bubble
+  with the task's label: those bubbles come first (one that gives no button
+  is skipped), the arrow only after. (2) Colocar la munición: step 1 = the
+  boxes under the upper "Munición" label; step 2 = click the three guns on the
+  counter, right where the teal arrow is (not its floor label). The bin is
+  still clicked on its "Contenedor" label (as in the recordings). Bubbles with
+  their top hidden behind something still count.
 - Invisible bullets (owner, 2026-11-12: a game glitch hides some trash): the
   owner keeps the game's "Objetos" window open with "bala" typed in its search
   box. When Barrer casquillos has no visible "Basura" marker (or the marked

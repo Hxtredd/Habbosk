@@ -394,7 +394,9 @@ class WorkRunner(threading.Thread):
         if p.active in V.MANUAL_TASKS:
             self._unsure("manual", f"“{p.active}” is a mini-game task - please do it yourself.", pause=True)
             return
-        if p.carrying or p.deliver:
+        if p.load is not None and p.load[0] < p.load[1]:
+            self.pick_up(img, b, p)                  # "Llevas 1/3": collect the rest first
+        elif p.carrying or p.deliver:
             self.deliver(img, b, p)
         elif p.going or p.active:
             self.pick_up(img, b, p)
@@ -419,56 +421,65 @@ class WorkRunner(threading.Thread):
         self._wait_change(p, f"“{o.task}” to start")
 
     def _target_label(self, p: V.PanelState) -> Optional[str]:
+        if p.load_kind:                              # "Llevas 1/3 de basura" says what is collected
+            return p.load_kind
         return V.WALKING_TASKS.get(p.active or "")
 
     def pick_up(self, img, b, p: V.PanelState) -> None:
+        """Pick up the next thing. Owner (2026-11-12): what to pick up is always
+        under a "!" bubble with the task's label - for Barrer casquillos there
+        can be several "Basura" and ALL of them are collected before the load
+        goes to the bin. So the labelled bubbles come first (any one will do;
+        one that gives no button is skipped), then the task's arrow, then -
+        for bullets the game doesn't show - the Objetos list."""
         want = self._target_label(p)
         ms = self.markers(img)
         arrows = [m for m in ms if m.kind == "arrow"]
-        cands = [m for m in ms if m.kind == "bubble" and want and m.label == want]
-        # the task's arrow marks the exact object; without one, the object's bubble
-        if len(arrows) == 1:
-            target = arrows[0]
-        elif len(arrows) > 1:
+        cands = sorted((m for m in ms if m.kind == "bubble" and want and m.label == want),
+                       key=lambda m: (m.box[1], m.box[0]))
+        if len(arrows) > 1 and not cands:
             self._unsure("target", f"Stopped: {len(arrows)} arrows on screen - not sure which one.")
             return
-        elif len(cands) > 1:
-            self._unsure("target", f"Stopped: {len(cands)} “{want}” markers - not sure which one.")
-            return
-        elif cands:
-            target = cands[0]
-        elif want == "Basura" and self.objetos_bullet(img, b, p):
-            return                                   # an invisible bullet, from the Objetos list
-        else:
+        targets = cands + (arrows if len(arrows) == 1 and not p.carrying else [])
+        if not targets:
+            if want == "Basura" and self.objetos_bullet(img, b, p):
+                return                               # an invisible bullet, from the Objetos list
             self._unsure("target", f"Stopped: can't find the “{want or 'target'}” marker.")
             return
         self._acted()
+        for target in targets:
+            btn = self._try_target(target, b)
+            if self.stopping:
+                return
+            if btn is not None:
+                self._click(V.button_click_point(btn), b)
+                self._wait_change(p, "the pick-up")
+                return
+        if want == "Basura":
+            # the marked bullets may be ones the game doesn't show (glitch)
+            img3, _ = self.desk.grab()
+            if self.objetos_bullet(img3, b, p):
+                return
+        if not self.stopping:
+            self.stop("Stopped: no yellow button appeared for any marked object.")
+
+    def _try_target(self, target: V.Marker, b) -> Optional[V.Box]:
+        """Click the object under a marker (then its label once); the yellow
+        button that opened, or None."""
+        img, _ = self.desk.grab()
         before = V.yellow_buttons(img)
         pt = target.click_point
         self.status(f"Picking up: {target.label or 'marked object'}.")
         self._click(pt, b)
         btn = self._wait_button(before, pt)
-        if btn is None and target.label_box is not None:     # try the label itself once
+        if btn is None and target.label_box is not None and not self.stopping:
             x, y, w, h = target.label_box
             pt = (x + w // 2, y + h // 2)
             img2, _ = self.desk.grab()
             before = V.yellow_buttons(img2)
             self._click(pt, b)
             btn = self._wait_button(before, pt)
-        if self.stopping:
-            return
-        if btn is None and want == "Basura":
-            # the marked bullet may be one of the invisible ones (game glitch)
-            img3, _ = self.desk.grab()
-            if self.objetos_bullet(img3, b, p):
-                return
-        if self.stopping:
-            return
-        if btn is None:
-            self.stop("Stopped: the object's yellow button didn't appear.")
-            return
-        self._click(V.button_click_point(btn), b)
-        self._wait_change(p, "the pick-up")
+        return btn
 
     def objetos_bullet(self, img, b, p: V.PanelState) -> bool:
         """Owner, 2026-11-12: some bullets can't be seen (a game glitch). The
@@ -519,16 +530,29 @@ class WorkRunner(threading.Thread):
         self._acted()
         a = arrows[0]
         self.status(f"Taking it to {a.label or 'the marked spot'}.")
+        pt = self.deliver_point(a, p)
         before = V.yellow_buttons(img)
-        self._click(a.click_point, b)
-        btn = self._wait_button(before, a.click_point) if a.label is None else None
+        self._click(pt, b)
+        btn = self._wait_button(before, pt)          # some spots open a button first
         if btn is not None:
             self._click(V.button_click_point(btn), b)
         self._wait_change(p, "the delivery", allow_money=True)
 
+    @staticmethod
+    def deliver_point(a: V.Marker, p: V.PanelState) -> V.Point:
+        """Where to click to drop the load. Owner (2026-11-12) and the recording:
+        the ammunition goes on the three guns on the counter - right where the
+        arrow is (above its "Armero" label); the trash goes to the bin, whose
+        "Contenedor" label was clicked in the recordings."""
+        ammo = p.load_kind == "Munición" or p.active == "Colocar la munición" or a.label == "Armero"
+        if ammo:
+            x, y, w, h = a.box
+            return x + w // 2, y + h // 2
+        return a.click_point
+
     def _wait_change(self, p: V.PanelState, what: str, allow_money: bool = False) -> None:
         """Wait until the panel shows something else (the next step)."""
-        sig = (p.active, p.step, p.going, p.carrying, p.deliver, p.working, p.remaining,
+        sig = (p.active, p.step, p.load, p.going, p.carrying, p.deliver, p.working, p.remaining,
                tuple(o.title for o in p.offers))
         end = self.clock() + STEP_TIMEOUT
         while not self.stopping and self.clock() < end:
@@ -541,7 +565,7 @@ class WorkRunner(threading.Thread):
             q = self.read_panel(img)
             if not q.found:
                 continue                                # e.g. covered by the money window
-            qs = (q.active, q.step, q.going, q.carrying, q.deliver, q.working, q.remaining,
+            qs = (q.active, q.step, q.load, q.going, q.carrying, q.deliver, q.working, q.remaining,
                   tuple(o.title for o in q.offers))
             if qs != sig:
                 if p.active and not q.active and (q.remaining or 0) < (p.remaining or 10 ** 6):

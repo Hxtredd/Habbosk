@@ -80,8 +80,9 @@ def find_markers(img: np.ndarray, scale: float = 1.0) -> List[Marker]:
         x, y, w, h, a = (int(v) for v in st[i])
         if y < img.shape[0] * 0.12:              # the browser / top bar icons
             continue
-        if 16 * scale <= w <= 28 * scale and 15 * scale <= h <= 26 * scale \
-                and 220 * s2 <= a <= 380 * s2 and w >= h * 0.95:
+        # a bubble whose top is hidden (something in front of it) still counts
+        if 16 * scale <= w <= 28 * scale and 12 * scale <= h <= 26 * scale \
+                and 150 * s2 <= a <= 380 * s2 and w >= h * 0.95:
             out.append(Marker("bubble", (x, y, w, h)))
         elif 12 * scale <= w <= 22 * scale and 18 * scale <= h <= 27 * scale \
                 and 140 * s2 <= a <= 240 * s2 and h > w:
@@ -297,6 +298,8 @@ class PanelState:
     step: Optional[Tuple[int, int]] = None
     going: bool = False                   # "Ve al objetivo"
     carrying: bool = False                # "Llevas 1/1 ..."
+    load: Optional[Tuple[int, int]] = None   # "Llevas 1/3 de basura" -> (1, 3)
+    load_kind: Optional[str] = None       # the label of what is carried ("Basura", "Munición")
     deliver: bool = False                 # "Lleva la carga a su sitio"
     working: bool = False                 # "Trabajando..." (a mini-game / action at the spot)
     remaining: Optional[int] = None       # "Te quedan N tareas pagadas"
@@ -383,6 +386,16 @@ def parse_panel(words, width: float, panel_img: Optional[np.ndarray] = None) -> 
         p.step = (int(m.group(1)), int(m.group(2)))
     p.going = "objetivo" in alltext
     p.carrying = bool(re.search(r"llevas\s+\d", alltext))
+    # the "Llevas N/M ..." line (OCR: "ltevas 1/1 cajas", "1/1 llevas de basura")
+    for _, t, _ in texts:
+        nt = norm(t)
+        if re.search(r"[a-z]{1,2}evas\b", nt) and "paso" not in nt:
+            m = re.search(r"(\d+)\s*/\s*(\d+)", nt)
+            if m and 0 < int(m.group(2)) <= 20 and int(m.group(1)) <= int(m.group(2)):
+                p.load = (int(m.group(1)), int(m.group(2)))
+                p.carrying = True
+                p.load_kind = "Basura" if "basura" in nt else ("Munición" if "caja" in nt else None)
+            break
     p.deliver = "a su sitio" in alltext or "lleva la carga" in alltext
     p.working = "trabajando" in alltext
     irs = [(w.cx, w.cy) for _, _, row in texts for w in row

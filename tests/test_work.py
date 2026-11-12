@@ -119,6 +119,15 @@ class ReadingWithOcr(unittest.TestCase):
         self.assertEqual([m.label for m in ms].count("Basura"), 1)
         self.assertNotIn("Munición", [m.label for m in ms])
 
+    def test_three_basura_even_half_hidden(self):
+        """Owner's screenshot (2026-11-12, with the owner's red pen circles cutting
+        two of the bubbles): 4 desks, the ammunition and 3 Basura."""
+        ms = self.labels("room_three_basura")
+        bubbles = [m for m in ms if m.kind == "bubble"]
+        self.assertEqual(len(bubbles), 8, [(m.label, m.box) for m in bubbles])
+        self.assertGreaterEqual([m.label for m in bubbles].count("Basura"), 2)
+        self.assertEqual([m.label for m in bubbles].count("Munición"), 1)
+
     def panel(self, name):
         img = pic(name)
         up = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
@@ -511,6 +520,129 @@ class Helper(unittest.TestCase):
         r, g, d, c = make(work_energy_min=40)
         run_for(r, g, 30)
         self.assertEqual(d.typed, [])
+
+
+class SeveralBasura(unittest.TestCase):
+    """Owner, 2026-11-12: Barrer casquillos can show several "Basura" - all
+    of them are picked up ("Llevas 1/3 de basura" ...), then the load goes to
+    the bin. What to pick up is always under a "Basura" bubble."""
+
+    SPOTS = [(500, 400), (800, 600), (1100, 460)]
+
+    def setup(self, say_deliver_early=False, hidden=()):
+        g = Game(task="Barrer casquillos")
+        left = list(self.SPOTS)
+        st = {"load": 0, "pending": None}
+
+        def bubble(x, y):
+            return V.Marker("bubble", (x, y, 22, 20), (x - 5, y + 30, 33, 13), "Basura")
+
+        def panel():
+            if g.phase == "offers":
+                return V.PanelState(True, offers=[V.Offer("Barrer casquillos", "Barrer casquillos", True, (230, 300))],
+                                    remaining=g.remaining)
+            if g.phase == "going":
+                n = st["load"]
+                return V.PanelState(True, active="Barrer casquillos", going=n == 0, carrying=n > 0,
+                                    load=(n, 3) if n else None, load_kind="Basura" if n else None,
+                                    deliver=say_deliver_early and n > 0, step=(1, 2), remaining=g.remaining)
+            if g.phase == "carrying":
+                return V.PanelState(True, active="Barrer casquillos", carrying=True, load=(3, 3), load_kind="Basura",
+                                    deliver=True, step=(2, 2), remaining=g.remaining)
+            return V.PanelState(False)
+
+        def markers():
+            ms = [V.Marker("bubble", (300, 300, 22, 20), (295, 330, 33, 13), "Tarea")]
+            ms += [bubble(x, y) for x, y in left]
+            if g.phase == "carrying" or (g.phase == "going" and st["load"]):
+                ms.append(V.Marker("arrow", (700, 300, 16, 22), (690, 330, 44, 13), None))   # the bin
+            return ms
+
+        def click(x, y):
+            g.clicks.append((x, y))
+            if g.phase == "offers" and (x, y) == (230, 300):
+                g.phase = "going"
+                return
+            if g.phase == "going":
+                if g.popup and (x, y) == V.button_click_point(g.button()):
+                    g.popup = False
+                    left.remove(st["pending"])
+                    st["load"] += 1
+                    if st["load"] == 3:
+                        g.phase = "carrying"
+                    return
+                for spot in left:
+                    if (x, y) == bubble(*spot).click_point and spot not in hidden:
+                        g.popup, st["pending"] = True, spot
+                        return
+            if g.phase == "carrying" and abs(x - 712) < 30:
+                g.phase, g.remaining = "offers", g.remaining - 1
+                st["load"] = 0
+                left[:] = list(self.SPOTS)
+        def button():                                         # opens next to the clicked object
+            x, y = st["pending"] or self.SPOTS[0]
+            return (x - 60, y - 40, 160, 36)
+        g.panel, g.markers, g.click, g.button = panel, markers, click, button
+        r, g, d, c = make(game=g)
+        return r, g
+
+    def test_collects_all_three_then_goes_to_the_bin(self):
+        r, g = self.setup()
+        run_for(r, g, 60)
+        self.assertGreaterEqual(r.tasks_done, 1, r.stopped_reason)
+        bin_clicks = [i for i, (x, y) in enumerate(g.clicks) if abs(x - 712) < 30 and abs(y - 343) < 30]
+        buttons = [i for i, p in enumerate(g.clicks)
+                   if any(p == V.button_click_point((x - 60, y - 40, 160, 36)) for x, y in self.SPOTS)]
+        self.assertGreaterEqual(len(buttons), 3)
+        self.assertLess(buttons[2], bin_clicks[0])           # all three picked up before the bin
+
+    def test_keeps_collecting_even_if_the_panel_already_says_take_it(self):
+        r, g = self.setup(say_deliver_early=True)
+        run_for(r, g, 60)
+        self.assertGreaterEqual(r.tasks_done, 1, r.stopped_reason)
+
+    def test_a_basura_without_button_is_skipped(self):
+        r, g = self.setup(hidden=[(500, 400)])                 # this one gives no button
+        with mock.patch.object(V, "find_objetos_search", return_value=None):
+            r.ocr = SimpleNamespace(words=lambda img, psm=6: [])
+            run_for(r, g, 30)
+        # the other two were collected; then nothing else to pick up -> stops, never at the bin
+        buttons = [p for p in g.clicks
+                   if any(p == V.button_click_point((x - 60, y - 40, 160, 36)) for x, y in self.SPOTS)]
+        self.assertEqual(len(buttons), 2)
+        self.assertFalse(any(abs(x - 712) < 30 and abs(y - 343) < 30 for x, y in g.clicks))
+        self.assertIn("no yellow button", r.stopped_reason)
+
+
+class WhereToDrop(unittest.TestCase):
+    """Owner (2026-11-12): ammunition onto the three guns (where the arrow is),
+    trash to the bin (its label, as in the recordings)."""
+
+    ARROW = V.Marker("arrow", (1074, 586, 18, 22), (1050, 612, 60, 13), None)
+
+    def test_ammunition_goes_on_the_guns_under_the_arrow(self):
+        p = V.PanelState(True, active="Colocar la munición", carrying=True, load=(1, 1), load_kind="Munición")
+        self.assertEqual(R.WorkRunner.deliver_point(self.ARROW, p), (1083, 597))
+        # even when the task name wasn't read, the load line says it's ammunition
+        p = V.PanelState(True, carrying=True, load=(1, 1), load_kind="Munición")
+        self.assertEqual(R.WorkRunner.deliver_point(self.ARROW, p), (1083, 597))
+
+    def test_trash_goes_to_the_bin_label(self):
+        p = V.PanelState(True, active="Barrer casquillos", carrying=True, load=(3, 3), load_kind="Basura")
+        self.assertEqual(R.WorkRunner.deliver_point(self.ARROW, p), self.ARROW.click_point)
+
+    def test_ammunition_pickup_clicks_the_boxes_under_the_upper_label(self):
+        """Step 1: the boxes under the "!" bubble's label (owner's circle), not
+        the floor ring of the arrow below them."""
+        r, g, d, c = make()
+        g.phase = "going"
+        bubble = V.Marker("bubble", (720, 574, 22, 20), (708, 603, 43, 13), "Munición")
+        arrow = V.Marker("arrow", (724, 630, 16, 22), (708, 660, 44, 13), "Munición")
+        g.markers = lambda: [bubble, arrow]
+        r._pause = lambda reason: r.stop("test: paused")
+        run_for(r, g, 3)
+        self.assertEqual(g.clicks[0], bubble.click_point)
+        self.assertLess(g.clicks[0][1], arrow.box[1])        # above the arrow and its ring
 
 
 class InvisibleBullets(unittest.TestCase):
