@@ -86,6 +86,13 @@ class Config:
     ai_price_out: float = 0.0
     ai_timing_log: bool = True          # v3.4: local AI timing log (numbers only), diagnostics folder
 
+    # --- work helper (owner-approved 2026-11-11; only runs on "Start working") --
+    work_my_name: str = ""              # Habbo name: a chat line mentioning it pauses the helper
+    work_energy_min: int = 40           # type ":beber" when energy is below this
+    work_session_minutes: int = 60      # stops by itself after this long
+    work_presence_min: float = 8.0      # "¿Sigues ahí?" every 8-15 minutes (random)
+    work_presence_max: float = 15.0
+
     # --- UI --------------------------------------------------------------
     check_updates: bool = True          # look for a new version when SK starts (never installs by itself)
     always_on_top: bool = True

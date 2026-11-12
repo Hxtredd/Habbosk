@@ -46,6 +46,35 @@ they can be reported. Required safeguards for any automation built:
 5. no automation in rooms whose rules forbid autoclick/type.
 Nothing is built before the owner approves a written plan.
 
+**Plan approved 2026-11-11** ("yes thats good"), built 2026-11-12 on the dev
+branch (`puzzle_assistant/work/`, not released yet). Phase 1 = the walking
+tasks; the owner added: type `:beber` when energy gets low.
+- Start/stop: "▶ Start working" in SK (Windows only). Any key press, click or
+  pointer movement by the owner stops it (Windows' last-input time and the
+  pointer position are compared with what SK itself did). Never clicks a spot
+  under one of SK's own windows (they are hidden from SK's screen pictures).
+- Tasks: Colocar la munición, Barrer casquillos (Recomendado first). It presses
+  "Ir", clicks the task's teal arrow (or the object under its "!" bubble with
+  the right label - never a "Tarea" desk), then the yellow button ("Coger",
+  "Recoger"), then the arrow where the load goes ("Armero", "Contenedor").
+  Ammunition ends with the money count: SK's money counter must be verified
+  (every item sure, "Vistos" matches); SK clicks the digits on the game's
+  keypad, checks the box shows them (else clears and pauses), then the tick.
+- Mini-game tasks (Montar un arma, Limpiar el banco) pause it for the owner.
+- Safeguards: "¿Sigues ahí?" every 8-15 min (45 s to answer, else stop); a new
+  chat line mentioning the owner's Habbo name (Settings > Work helper) pauses +
+  beeps until "Continue" (the approved plan: mentions, not every chat line - the
+  job room's chat is busy); anything unclear on 3 fresh looks in a row = stop
+  (or pause) with the reason; session limit 60 min (setting); only while the
+  job panel is on screen.
+- Energy: read from the top bar's number, checked against the bar's length
+  (max ~150); below the setting (default 40) it types `:beber` in the chat
+  (same chat-box steps as Go to Room; also finds the box when SK's own window
+  hides the room-name bar) and stops if energy did not go up.
+- Learned from the owner's 4 recordings (Armería · Prescott, 1920x1080); test
+  pictures in tests/fixtures/work (crops without chat or names);
+  tests/test_work.py.
+
 ## Owner preferences
 
 - Name: **SK Assistant**. Folder/package names stay `PuzzleAnswerAssistant` /

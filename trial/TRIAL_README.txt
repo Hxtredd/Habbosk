@@ -1,7 +1,7 @@
-SK ASSISTANT TRIAL  (test version of the AI speed changes A-D - not a release)
+SK ASSISTANT TRIAL  (test version of the WORK HELPER - not a release)
 ==========================================================================
 
-This folder is a complete SK Assistant (the normal app plus changes A-D)
+This folder is a complete SK Assistant (v3.4.1 plus the new work helper)
 that runs completely separately from your everyday SK Assistant:
 
   * Its data (question memory, World Atlas, settings, AI timing log) is in
@@ -26,14 +26,25 @@ USE THE TRIAL
   1. Close your normal SK Assistant (window closed - check the taskbar).
   2. Double-click TRIAL_START.bat. The window title says
      "SK Assistant - TRIAL (test version)".
-  3. Play normally: library questions and Preguntas express are what we want
-     to measure. Leave it open as long as you like; close it when done.
-     The time under an AI answer is now the real wait.
+  3. Settings > Work helper: type your Habbo name (SK pauses when someone
+     mentions it). Energy level for :beber (40) and minutes (60) can stay.
+  4. In the game: clock in at the Armería and leave the job panel open.
+     Move SK's window so it doesn't cover the room or the job panel
+     (SK never clicks under its own window - it would stop instead).
+  5. Press "Start working" in SK and take your hand off the mouse and
+     keyboard. Stay at the PC and watch.
+     - Any key or mouse movement stops it at once (that is the safety stop).
+     - "¿Sigues ahí?" appears now and then: click "Sí, sigo aquí".
+     - When someone mentions your name it beeps and pauses: answer them
+       yourself, then press "Continue" in SK.
+     - Mini-game tasks (Montar un arma, Limpiar el banco) pause it: do them
+       yourself, then press "Continue".
+     - When it stops, the reason is shown under the buttons.
 
 AFTER PLAYING
-  Double-click TRIAL_SUMMARY.bat and send the two files it saves
-  (trial_results\TRIAL_SUMMARY_....txt / .json) to Claude. They contain
-  timings and counts only - no questions, answers or keys.
+  Tell Claude what happened: tasks done, every stop / pause and its reason
+  (the text under the buttons), and anything it did that you didn't expect.
+  A short screen recording of a stop that looks wrong helps most.
 
 BACK TO YOUR NORMAL SK ASSISTANT
   Close the trial window, then start SK Assistant from its usual icon.

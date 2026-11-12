@@ -248,6 +248,17 @@ class App:
             b.grid(row=0, column=i, padx=(0, 4))
             buttons[txt] = b
         self.b_overlay, self.b_power = buttons["Numbers"], buttons["On"]
+        # work helper (owner-approved 2026-11-11): Windows only, only on this button
+        self._work = None
+        self._work_q: "queue.Queue" = queue.Queue()
+        self._presence_win = None
+        self.b_work = _flat_button(bar, "▶ Start working", self.toggle_work, self._font(FONT, 9))
+        if sys.platform == "win32":
+            self.b_work.grid(row=1, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        self.b_continue = _flat_button(bar, "Continue", self._work_continue, self._font(FONT, 9))
+        self.l_work = tk.Label(m, text="", bg=BG, fg=DIM, font=self._font(FONT, 9), anchor="w",
+                               justify="left")
+        self.l_work.grid(row=5, column=0, sticky="we", padx=14, pady=(0, 8))
         self.l_mode = tk.Label(bar, text="", bg=BG, fg=DIM, font=self._font(FONT, 8))
         self.l_mode.grid(row=0, column=10, sticky="e")
 
@@ -317,6 +328,124 @@ class App:
             self.l_warn.config(text="")
         else:
             self._waiting("Waiting for puzzle…")
+
+    # -- work helper -------------------------------------------------------------
+    def toggle_work(self) -> None:
+        if self._work is not None:
+            self._work.stop("Stopped with the button.")
+            return
+        from .work.desk import available
+        ok, why = available()
+        if not ok:
+            self.l_work.config(text=why, fg=BAD)
+            return
+        if not str(self.cfg.work_my_name or "").strip():
+            self.l_work.config(text="Enter your Habbo name in Settings → Work helper first "
+                                    "(SK pauses when someone mentions it).", fg=BAD)
+            return
+        if not (self.cfg.assistant_on and self.cfg.money_puzzle):
+            self.l_work.config(text="Switch SK on and “Money puzzle” on in Settings first "
+                                    "(the ammunition task ends with counting money).", fg=BAD)
+            return
+        self.l_work.config(text="Looking for the job panel…", fg=DIM)
+        self.b_work.config(text="■ Stop working")
+        cfg, wq = self.cfg, self._work_q
+
+        def start():
+            from .work.desk import WindowsDesk, find_game_screen
+            from .work.runner import Status, WorkRunner
+            try:
+                ocr = Tesseract(cfg)
+                screen = find_game_screen(ocr)
+            except Exception as exc:
+                wq.put(("status", Status(f"Couldn't start: {exc}", "stop")))
+                return
+            if screen is None:
+                wq.put(("status", Status("The job panel isn't on screen - open it in the game "
+                                         "(Fichar entrada) and press Start again.", "stop")))
+                return
+            runner = WorkRunner(cfg, WindowsDesk(screen), ocr,
+                                status=lambda st: wq.put(("status", st)),
+                                ask_presence=lambda: wq.put(("presence", None)))
+            wq.put(("runner", runner))
+            runner.start()
+        threading.Thread(target=start, daemon=True).start()
+
+    def _work_continue(self) -> None:
+        if self._work is not None:
+            self._work.resume()
+        self.b_continue.grid_remove()
+
+    def _work_poll(self) -> None:
+        colours = {"info": DIM, "ok": GOOD, "warn": WARN, "stop": BAD}
+        try:
+            while True:
+                kind, val = self._work_q.get_nowait()
+                if kind == "runner":
+                    self._work = val
+                elif kind == "presence":
+                    self._ask_presence()
+                elif kind == "status":
+                    self.l_work.config(text=val.text, fg=colours.get(val.kind, DIM))
+                    if val.kind == "stop":
+                        self._work = None
+                        self.b_work.config(text="▶ Start working")
+                        self.b_continue.grid_remove()
+                        self._close_presence()
+        except queue.Empty:
+            pass
+        if self._work is not None:
+            self._work.sk_windows = self._sk_window_rects()
+        if self._work is not None and self._work.paused_reason:
+            self.b_continue.grid(row=1, column=4, columnspan=2, sticky="w", pady=(4, 0))
+        self.root.after(200, self._work_poll)
+
+    def _sk_window_rects(self) -> list:
+        """Screen rectangles of SK's visible windows (the work helper never clicks
+        there: SK's windows are hidden from its screen pictures)."""
+        out = []
+        skip = getattr(getattr(self, "overlay", None), "win", None)     # click-through marks
+        wins = [self.root] + [w for w in self.root.winfo_children()
+                              if isinstance(w, tk.Toplevel) and w is not skip]
+        for w in wins:
+            try:
+                if w.winfo_viewable():
+                    out.append((w.winfo_rootx(), w.winfo_rooty(), w.winfo_width(), w.winfo_height()))
+            except tk.TclError:
+                pass
+        return out
+
+    def _ask_presence(self) -> None:
+        self._close_presence()
+        w = self._presence_win = tk.Toplevel(self.root)
+        w.title("SK Assistant")
+        w.configure(bg=PANEL)
+        w.attributes("-topmost", True)
+        tk.Label(w, text="¿Sigues ahí?", bg=PANEL, fg=FG, font=self._font(FONT_SEMI, 16)).pack(
+            padx=30, pady=(18, 6))
+        tk.Label(w, text="The work helper stops in 45 s without an answer.", bg=PANEL, fg=DIM,
+                 font=self._font(FONT, 9)).pack(padx=30)
+
+        def yes():
+            if self._work is not None:
+                self._work.presence_answered()
+            self._close_presence()
+        b = _flat_button(w, "Sí, sigo aquí", yes, self._font(FONT_SEMI, 11))
+        b.pack(pady=(10, 18))
+        w.protocol("WM_DELETE_WINDOW", yes)
+        w.lift()
+        try:
+            w.focus_force()
+        except tk.TclError:
+            pass
+
+    def _close_presence(self) -> None:
+        if self._presence_win is not None:
+            try:
+                self._presence_win.destroy()
+            except tk.TclError:
+                pass
+            self._presence_win = None
 
     # -- Assistant / Explorer: open or closed; tabs, docked, or separate --------
     DOCKS = [("tab", "One at a time (tabs)"), ("right", "Side by side: Explorer right"),
@@ -675,6 +804,8 @@ class App:
         try:
             while True:
                 latest = self.q.get_nowait()
+                if latest.get("state") == "money" and self._work is not None:
+                    self._work.on_money(latest.get("money"), latest.get("place") or {})
                 if latest.get("state") == "info":
                     self.l_hint.config(text=latest.get("msg", ""), fg=ACCENT)
                     latest = None
@@ -938,6 +1069,7 @@ class App:
             self.explorer.start()
             self.root.after(1500, self._atlas_poll)
         self.root.after(25, self._poll)
+        self.root.after(200, self._work_poll)
         self.root.after(4000, self._check_updates_later)
         self.root.mainloop()
 
@@ -947,6 +1079,8 @@ class App:
             self.cfg.window_geometry = self._base_geom
             self.cfg.save()
         finally:
+            if self._work is not None:
+                self._work.stop("Stopped: SK was closed.")
             self.engine.stop()
             if self.explorer is not None:
                 self.explorer.stop()

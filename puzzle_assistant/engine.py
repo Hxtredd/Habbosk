@@ -584,7 +584,8 @@ class Engine(threading.Thread):
 
         sx, sy, sw, sh = rel(panel.strip)
         bx, by, bw, bh = rel(panel.band)
-        place = {"input": scr(panel.input), "strip": scr(panel.strip)}
+        # keypad: for the work helper, which types the total on the game's keypad
+        place = {"input": scr(panel.input), "strip": scr(panel.strip), "keypad": scr(panel.keypad)}
         kx, ky, kw, kh = panel.keypad
         pad = max(10, kh // 6)
         keypad_region = {"left": b["left"] + kx - pad, "top": b["top"] + ky - pad,

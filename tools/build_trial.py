@@ -55,7 +55,7 @@ def build(rev: str = "HEAD") -> str:
     out = os.path.join(ROOT, "trial_dist", f"SK_Assistant_TRIAL_{commit[:7]}.zip")
     info = {"commit": commit, "built": _dt.datetime.now().isoformat(timespec="seconds"),
             "kind": "trial (development build, not a release)",
-            "changes": "AI speed A-D (timing log, safe cancellation, connection reuse, letter matching)"}
+            "changes": "Work helper (walking tasks, :beber, safeguards) on top of v3.4.1"}
     stamp = (1980, 1, 1, 0, 0, 0)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for f in sorted(keep):

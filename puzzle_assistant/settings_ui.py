@@ -174,6 +174,39 @@ class SettingsWindow:
         tk.Frame(f, bg=PANEL, height=6).pack()
 
         f = self._section(
+            "Work helper",
+            "Does the job's walking tasks (ammunition, sweeping) while you are at the PC. "
+            "Starts only with “Start working”; any mouse or keyboard use stops it, it asks "
+            "“¿Sigues ahí?” now and then, and pauses when someone mentions your name.")
+
+        def entry_row(label, attr, width, conv):
+            row = tk.Frame(f, bg=PANEL)
+            row.pack(fill="x", padx=12, pady=(2, 4))
+            tk.Label(row, text=label, bg=PANEL, fg=FG, font=(FONT, 10)).pack(side="left")
+            e = tk.Entry(row, width=width, bg=HOVER, fg=FG, insertbackground=FG, relief="flat",
+                         font=(FONT, 10))
+            e.insert(0, str(getattr(cfg, attr)))
+            e.pack(side="left", padx=(6, 0))
+
+            def set_value(_e=None):
+                try:
+                    setattr(cfg, attr, conv(e.get().strip()))
+                except ValueError:
+                    pass
+                e.delete(0, "end")
+                e.insert(0, str(getattr(cfg, attr)))
+                self._saved(attr)
+            e.bind("<FocusOut>", set_value)
+            e.bind("<Return>", set_value)
+
+        entry_row("My Habbo name:", "work_my_name", 18, str)
+        entry_row("Type :beber when energy is below", "work_energy_min", 5,
+                  lambda v: max(5, min(300, int(v))))
+        entry_row("Stop after (minutes)", "work_session_minutes", 5,
+                  lambda v: max(5, min(240, int(v))))
+        tk.Frame(f, bg=PANEL, height=6).pack()
+
+        f = self._section(
             "AI and internet",
             "Used only for new questions the memory and built-in solvers can't answer. "
             "AI answers are marked “AI · unverified”: check them before clicking. "

@@ -27,7 +27,8 @@ sys.path.insert(0, HERE)
 import guard  # noqa: E402
 
 QUICK = ["tests.test_ai", "tests.test_ai_speed_v34", "tests.test_ai_speed_check", "tests.test_express",
-         "tests.test_question_marks", "tests.test_qa_memory", "tests.test_trial", "test_windows_tls"]
+         "tests.test_question_marks", "tests.test_qa_memory", "tests.test_trial", "test_windows_tls",
+         "tests.test_work"]
 
 
 class Recorder(unittest.TextTestResult):
