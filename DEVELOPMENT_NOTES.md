@@ -90,6 +90,12 @@ tasks; the owner added: type `:beber` when energy gets low.
   SK waits with its next click until the pointer has rested 2 s. (This
   replaces safeguard 4's "any key / mouse movement stops it"; the founder's
   condition - present, not AFK - is still covered by "¿Sigues ahí?".)
+- Ammunition drop, owner 2026-11-12 ("make sure that in the corner you can
+  see the armero para pistolas selected, SK has a problem of clicking on the
+  desk itself"): SK clicks where the arrow is, reads the name above the
+  yellow button that opens (recording: "Armero para Pistolas" above
+  "Colocar") and presses "Colocar" only for that name; otherwise it tries 4
+  more spots around the arrow, then stops naming what it selected.
 - Owner's corrections 2026-11-12: (1) Barrer casquillos can show several
   "Basura" - ALL are picked up (panel "Llevas N/M de basura"; SK keeps
   collecting while N < M, even if the panel already says to take the load),

@@ -174,6 +174,18 @@ class ReadingWithOcr(unittest.TestCase):
         self.assertEqual(p.active, "Limpiar el banco")
         self.assertTrue(p.working)
 
+    def test_name_of_the_selected_object(self):
+        words = lambda im, psm: self.ocr.words(im, psm)
+        img = pic("popup_armero_colocar")
+        btns = V.yellow_buttons(img)
+        self.assertEqual(len(btns), 1)
+        name = V.selected_name(img, btns[0], words)
+        self.assertTrue(V.is_gun_rack(name), name)
+        img = pic("popup_coger")                              # the ammunition boxes: not the rack
+        name = V.selected_name(img, V.yellow_buttons(img)[0], words)
+        self.assertFalse(V.is_gun_rack(name), name)
+        self.assertFalse(V.is_gun_rack("Mostrador"))
+
     def test_objetos_list_first_bala_below_the_search_box(self):
         img = pic("objetos_bala")
         words = lambda im, psm: self.ocr.words(im, psm)
@@ -227,6 +239,9 @@ class Game:
         self.chat = []
         self.energy = 120
         self.dead_clicks = False         # clicks do nothing
+        self.selected = ""               # name in the window a click opened
+        self.rack_after = []             # what the next clicks on the counter select
+        self.wrong_placed = False
 
     def panel(self):
         if self.phase == "offers":
@@ -260,6 +275,22 @@ class Game:
             self.popup = True
         elif self.phase == "going" and self.popup and (x, y) == V.button_click_point(self.button()):
             self.popup, self.phase = False, "carrying"
+        elif self.phase == "carrying" and self.task == "Colocar la munición" and not self.popup \
+                and abs(x - 708) < 30:
+            # the click selects something on the counter: the rack, or the desk
+            self.selected = self.rack_after.pop(0) if self.rack_after else "Armero para Pistolas"
+            self.popup = True
+        elif self.phase == "carrying" and self.task == "Colocar la munición" and self.popup:
+            if (x, y) == V.button_click_point(self.button()) and self.selected == "Armero para Pistolas":
+                self.popup = False
+                if self.money:
+                    self.phase = "money"
+                else:
+                    self.phase, self.remaining = "offers", self.remaining - 1
+            elif abs(x - 708) < 30:
+                self.selected = self.rack_after.pop(0) if self.rack_after else "Armero para Pistolas"
+            elif (x, y) == V.button_click_point(self.button()):
+                self.wrong_placed = True                     # "Colocar" pressed on the desk
         elif self.phase == "carrying" and abs(x - 712) < 30:
             if self.money:
                 self.phase = "money"
@@ -373,7 +404,8 @@ def run_for(r, game, seconds):
         if r.clock() >= end:
             r.stop("test time over")
     r._check_hands_off = check
-    with mock.patch.object(V, "yellow_buttons", side_effect=yellow_for(game)):
+    with mock.patch.object(V, "yellow_buttons", side_effect=yellow_for(game)), \
+            mock.patch.object(V, "selected_name", side_effect=lambda img, btn, w: game.selected):
         r.run()
 
 
@@ -670,6 +702,32 @@ class WhereToDrop(unittest.TestCase):
         run_for(r, g, 3)
         self.assertEqual(g.clicks[0], bubble.click_point)
         self.assertLess(g.clicks[0][1], arrow.box[1])        # above the arrow and its ring
+
+
+class GunRack(unittest.TestCase):
+    """Owner (2026-11-12): for Colocar la munición the click must select the
+    "Armero para Pistolas" (check the window's name) - SK had clicked the desk."""
+
+    def test_wrong_object_is_not_used_and_the_rack_is_tried_again(self):
+        r, g, d, c = make()
+        g.rack_after = ["Mostrador de armas", "Armero para Pistolas"]
+        run_for(r, g, 30)
+        self.assertGreaterEqual(r.tasks_done, 1, r.stopped_reason)
+        self.assertFalse(g.wrong_placed)
+
+    def test_never_the_rack_stops_without_pressing_colocar(self):
+        r, g, d, c = make()
+        g.rack_after = ["Mostrador de armas"] * 10
+        run_for(r, g, 60)
+        self.assertIn("couldn't select the Armero para Pistolas", r.stopped_reason)
+        self.assertIn("Mostrador de armas", r.stopped_reason)
+        self.assertFalse(g.wrong_placed)
+        self.assertEqual(r.tasks_done, 0)
+
+    def test_trash_still_goes_to_the_bin_label(self):
+        p = V.PanelState(True, active="Barrer casquillos", carrying=True, load=(1, 1), load_kind="Basura")
+        a = V.Marker("arrow", (1012, 746, 16, 22), (992, 776, 60, 13), "Contenedor")
+        self.assertFalse(R.WorkRunner._is_ammo(a, p))
 
 
 class InvisibleBullets(unittest.TestCase):

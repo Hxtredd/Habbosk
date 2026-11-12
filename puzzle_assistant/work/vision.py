@@ -494,3 +494,20 @@ def objetos_entries(img: np.ndarray, search: Point, ocr_words) -> List[Point]:
     found = _words_in(img, (sx - 25, sy + 22, 140, 260), ocr_words, 6)   # inside the window only
     return sorted(((x, y) for t, x, y, _ in found if norm(t).strip(".,:;") == "bala"),
                   key=lambda p: p[1])
+
+
+# ---------------------------------------------------------------------------
+# What a click selected: the name above the yellow button
+# ---------------------------------------------------------------------------
+def selected_name(img: np.ndarray, btn: Box, ocr_words) -> str:
+    """The object's name in the little window right above its yellow button
+    ("Armero para Pistolas" above "Colocar")."""
+    x, y, w, h = btn
+    return " ".join(t for t, _, _, _ in _words_in(img, (x, y - 40, w, 32), ocr_words, 6))
+
+
+def is_gun_rack(name: str) -> bool:
+    """Owner (2026-11-12): the ammunition goes on the "Armero para Pistolas" -
+    SK sometimes selected the desk under it instead."""
+    n = norm(name)
+    return "armero" in n and "pistol" in n

@@ -562,6 +562,9 @@ class WorkRunner(threading.Thread):
             return
         self._acted()
         a = arrows[0]
+        if self._is_ammo(a, p):
+            self.place_ammo(a, b, p)
+            return
         self.status(f"Taking it to {a.label or 'the marked spot'}.")
         pt = self.deliver_point(a, p)
         before = V.yellow_buttons(img)
@@ -570,6 +573,49 @@ class WorkRunner(threading.Thread):
         if btn is not None:
             self._click(V.button_click_point(btn), b)
         self._wait_change(p, "the delivery", allow_money=True)
+
+    @staticmethod
+    def _is_ammo(a: V.Marker, p: V.PanelState) -> bool:
+        return p.load_kind == "Munición" or p.active == "Colocar la munición" or a.label == "Armero"
+
+    # spots to try on the gun rack, around the arrow's centre (px): the desk is
+    # right under the rack, so a click can select the desk instead
+    RACK_TRIES = ((0, 0), (0, -6), (-7, -3), (7, -3), (0, -11))
+
+    def place_ammo(self, a: V.Marker, b, p: V.PanelState) -> None:
+        """Owner (2026-11-12): click the "Armero para Pistolas" (the three guns,
+        where the arrow is) and check the window that opens is really it -
+        not the desk under it - before pressing its "Colocar"."""
+        x, y, w, h = a.box
+        cx, cy = x + w // 2, y + h // 2
+        seen = []
+        words = lambda im, psm: self.ocr.words(im, psm)
+        for dx, dy in self.RACK_TRIES:
+            pt = (cx + dx, cy + dy)
+            self.status("Taking the ammunition to the Armero para Pistolas.")
+            self._click(pt, b)
+            end = self.clock() + BUTTON_WAIT
+            found = None
+            while found is None and not self.stopping and self.clock() < end:
+                self.wait(0.25)
+                img2, _ = self.desk.grab()
+                # every button is checked by its name: after a wrong pick (the
+                # desk) its window can stay open where the rack's then appears
+                for btn in V.yellow_buttons(img2):
+                    name = V.selected_name(img2, btn, words)
+                    if V.is_gun_rack(name):
+                        found = btn
+                        break
+                    if name and name not in seen:
+                        seen.append(name)
+            if self.stopping:
+                return
+            if found is not None:
+                self._click(V.button_click_point(found), b)          # "Colocar"
+                self._wait_change(p, "placing the ammunition", allow_money=True)
+                return
+        self.stop("Stopped: couldn't select the Armero para Pistolas"
+                  + (f" (selected: {', '.join(seen)})" if seen else "") + ".")
 
     @staticmethod
     def deliver_point(a: V.Marker, p: V.PanelState) -> V.Point:
