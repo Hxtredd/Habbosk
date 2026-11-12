@@ -124,6 +124,8 @@ class WorkRunner(threading.Thread):
         self._objetos: Optional[V.Point] = None      # the Objetos window's search box (cached)
         self._holding: Optional[str] = None          # what SK picked up for the running task
         self._holding_task: Optional[str] = None
+        self._last_target: Optional[V.Point] = None   # where SK last clicked to pick up
+        self._picked_at: list = []                    # (spot, time) of recent pick-ups
         # SK's own windows on screen (left, top, width, height), kept up to date by
         # the UI. SK can't see them in its screen pictures (they are hidden from
         # capture), so a spot under one of them must never be clicked.
@@ -453,12 +455,31 @@ class WorkRunner(threading.Thread):
             self.choose_task(b, p)
 
     def _picked(self, what: Optional[str], p: V.PanelState) -> None:
-        """Remember that something was picked up for the running task."""
+        """Remember that something was picked up for the running task - and
+        where, so a marker still shown there for a moment (the character now
+        stands on it) is not clicked again."""
         self._holding = what or "?"
         self._holding_task = p.active
+        # only trash goes away when picked up (the ammunition boxes stay put)
+        if self._last_target is not None and what == "Basura":
+            self._picked_at.append((self._last_target, self.clock()))
+
+    PICKED_SPOT = 45         # px around a spot just picked up from
+    PICKED_FOR = 20.0        # s it is left alone
+
+    def _fresh(self, m: V.Marker) -> bool:
+        """False for a marker at a spot SK picked up from moments ago."""
+        now = self.clock()
+        self._picked_at = [(pt, t) for pt, t in self._picked_at if now - t < self.PICKED_FOR]
+        x, y = m.click_point
+        return not any(abs(x - px) <= self.PICKED_SPOT and abs(y - py) <= self.PICKED_SPOT
+                       for (px, py), _ in self._picked_at)
 
     def _basura_visible(self, img) -> bool:
-        return any(m.kind == "bubble" and m.label == "Basura" for m in self.markers(img))
+        ms = self.markers(img)
+        if any(m.kind == "arrow" and m.label == "Contenedor" for m in ms):
+            return False                             # the bin is signalled: all collected
+        return any(m.label == "Basura" and self._fresh(m) for m in ms)
 
     def choose_task(self, b, p: V.PanelState) -> None:
         walking = [o for o in p.offers if o.task in V.WALKING_TASKS]
@@ -495,8 +516,16 @@ class WorkRunner(threading.Thread):
         arrows = [m for m in ms if m.kind == "arrow"]
         # owner (2026-11-12): the thing's "!" bubble can sit right on top of an
         # arrow, hiding its own label - then the arrow carries the name
-        cands = sorted((m for m in ms if want and m.label == want),
+        # owner (2026-11-12): the Contenedor is signalled when all the trash is
+        # collected (the panel's "Llevas N/M" says how many) - then to the bin
+        bin_arrow = [a for a in arrows if a.label == "Contenedor"]
+        if want == "Basura" and bin_arrow and (p.load is None or p.load[0] >= p.load[1]) \
+                and self._holding is not None:
+            self.deliver(img, b, p)
+            return
+        cands = sorted((m for m in ms if want and m.label == want and self._fresh(m)),
                        key=lambda m: (m.kind != "bubble", m.box[1], m.box[0]))
+        arrows = [a for a in arrows if self._fresh(a)]
         if len(arrows) > 1 and not cands:
             self._unsure("target", f"Stopped: {len(arrows)} arrows on screen - not sure which one.")
             return
@@ -530,6 +559,7 @@ class WorkRunner(threading.Thread):
         img, _ = self.desk.grab()
         before = V.yellow_buttons(img)
         pt = target.click_point
+        self._last_target = pt
         self.status(f"Picking up: {target.label or 'marked object'}.")
         self._click(pt, b)
         btn = self._wait_button(before, pt)
@@ -585,6 +615,11 @@ class WorkRunner(threading.Thread):
 
     def deliver(self, img, b, p: V.PanelState) -> None:
         arrows = [m for m in self.markers(img) if m.kind == "arrow"]
+        if len(arrows) > 1:
+            # a drop-off arrow by name wins; arrows naming things to pick up are not it
+            named = [a for a in arrows if a.label in ("Contenedor", "Armero")]
+            others = [a for a in arrows if a.label not in ("Basura", "Munición")]
+            arrows = named if len(named) == 1 else others
         if len(arrows) != 1:
             self._unsure("deliver", "Stopped: can't tell where to take the load "
                          f"({len(arrows)} arrows on screen).")

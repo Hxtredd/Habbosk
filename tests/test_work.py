@@ -744,6 +744,52 @@ class LabelOnTheArrow(unittest.TestCase):
         self.assertEqual(g.clicks[0], arrow.click_point)
 
 
+class BinSignalled(unittest.TestCase):
+    """Owner (2026-11-12): when all trash is picked up ("Llevas 1/1 de basura")
+    the Contenedor is signalled - SK goes there; it had clicked the owner's own
+    character, standing where the trash was."""
+
+    BIN = V.Marker("arrow", (827, 446, 17, 21), (812, 476, 50, 14), "Contenedor")
+
+    def setup(self, panel):
+        r, g, d, c = make(game=Game(task="Barrer casquillos"))
+        g.phase = "going"
+        r._holding, r._holding_task = "Basura", "Barrer casquillos"
+        r._picked_at = [((1230, 360), c())]                  # just picked up there
+        lingering = V.Marker("bubble", (1220, 300, 22, 20), (1214, 330, 33, 13), "Basura")
+        g.markers = lambda: [lingering, self.BIN]
+        g.panel = lambda: panel
+        r._pause = lambda reason: r.stop("test: paused")
+        run_for(r, g, 4)
+        return r, g, lingering
+
+    def test_load_unread_bin_signalled_goes_to_the_bin(self):
+        r, g, lingering = self.setup(V.PanelState(True, active="Barrer casquillos", remaining=50))
+        self.assertTrue(g.clicks)
+        self.assertEqual(g.clicks[0], self.BIN.click_point)
+        self.assertNotIn(lingering.click_point, g.clicks)
+
+    def test_full_load_with_two_arrows_takes_the_bin(self):
+        p = V.PanelState(True, active="Barrer casquillos", carrying=True, load=(1, 1), load_kind="Basura",
+                         deliver=True, step=(2, 2), remaining=50)
+        r, g = make(game=Game(task="Barrer casquillos"))[:2]
+        g.phase = "going"
+        stale = V.Marker("arrow", (1220, 300, 16, 22), (1210, 330, 40, 13), "Basura")
+        g.markers = lambda: [stale, self.BIN]
+        g.panel = lambda: p
+        r._pause = lambda reason: r.stop("test: paused")
+        run_for(r, g, 4)
+        self.assertEqual(g.clicks[0], self.BIN.click_point)
+
+    def test_a_spot_just_picked_up_is_not_clicked_again(self):
+        r, g, d, c = make(game=Game(task="Barrer casquillos"))
+        r._picked_at = [((1230, 360), c())]
+        near = V.Marker("bubble", (1220, 300, 22, 20), (1214, 330, 33, 13), "Basura")
+        self.assertFalse(r._fresh(near))
+        c.t += 25                                            # later it may be trash again
+        self.assertTrue(r._fresh(near))
+
+
 class AfterPickingUpTheBoxes(unittest.TestCase):
     """Owner (2026-11-12): after the boxes are picked up ("Llevas 1/1 cajas")
     SK must go on to the Armero para Pistolas - it clicked the boxes again."""
