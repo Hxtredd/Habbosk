@@ -1,8 +1,8 @@
 {
- "commit": "ba75065579018ca26627759ee5ec3040ee967ce1",
- "zip": "trial_dist/SK_Assistant_TRIAL_ba75065.zip",
- "size": 17182039,
- "sha256": "ab12e239dc6f2d268fb247cf836bde3f2cc76007d6501440ff14e0ebf24df82d",
- "built": "2026-11-12T01:11:12",
- "changes": "Invisible bullets: picked from the Objetos list (first Bala under the search box)"
+ "commit": "c8a888bd20b0504998162faf029b030acd165d73",
+ "zip": "trial_dist/SK_Assistant_TRIAL_c8a888b.zip",
+ "size": 17673291,
+ "sha256": "e683572f385cb7a1b58b53caa1d9ec7188fa1bfab455419f60dec124536ac26a",
+ "built": "2026-11-12T01:24:12",
+ "changes": "Barrer: all Basura before the bin. Ammunition dropped on the three guns."
 }
