@@ -1,8 +1,8 @@
 {
- "commit": "deff474b2102a72dc5d9d31d005cf67b83da43e9",
- "zip": "trial_dist/SK_Assistant_TRIAL_deff474.zip",
- "size": 18239799,
- "sha256": "e2d35e1eb969fe5311e7175b298a9235c739431b7d013a4e50dfd7bd71ea1376",
- "built": "2026-11-12T02:37:05",
- "changes": "Reads half-hidden Basura labels (on the arrow, behind the ring)"
+ "commit": "5b32c2c4b007dce7916f986d150e9179d59ed784",
+ "zip": "trial_dist/SK_Assistant_TRIAL_5b32c2c.zip",
+ "size": 18241036,
+ "sha256": "2cedfe6d89b083502d7a7bdbb858afa9ce4066656e50a07605bcfb7ae163c13e",
+ "built": "2026-11-12T02:41:51",
+ "changes": "Barrer: to the bin when the Contenedor is signalled; never re-clicks where trash was just picked up"
 }
