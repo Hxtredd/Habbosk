@@ -1,8 +1,8 @@
 {
- "commit": "49bbc581a526932539bf7bf08d1365c6c4f5cf99",
- "zip": "trial_dist/SK_Assistant_TRIAL_49bbc58.zip",
- "size": 18195212,
- "sha256": "c8d23121659ad4f2393209055e8a69f69aa2a90006afe09c1509d072ce728cdc",
- "built": "2026-11-12T02:14:01",
- "changes": "Works at night in the game (markers, labels, energy, task panel)"
+ "commit": "e8b488ce2088ba08498675378cff5ca9a9f07097",
+ "zip": "trial_dist/SK_Assistant_TRIAL_e8b488c.zip",
+ "size": 18196167,
+ "sha256": "ae15c75da811ee0645fa661733645d3e3c08fd39f950f1d30ae5d87d9fd84ffe",
+ "built": "2026-11-12T02:28:55",
+ "changes": "After picking up the boxes SK goes on to the Armero para Pistolas (never back to the boxes)"
 }
