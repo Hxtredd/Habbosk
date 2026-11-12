@@ -1,8 +1,8 @@
 {
- "commit": "0298bd03e562bfe9ee81189693a453e40e75cef5",
- "zip": "trial_dist/SK_Assistant_TRIAL_0298bd0.zip",
- "size": 17143470,
- "sha256": "b1f36545de5e7b9ade36eabc0ef04c43a2d7ed0b3174720510adc7a175618089",
- "built": "2026-11-12T00:52:48",
- "changes": "Work helper, money count numbered by the game, and TRIAL_UPDATE.bat (update the trial in place)"
+ "commit": "ba75065579018ca26627759ee5ec3040ee967ce1",
+ "zip": "trial_dist/SK_Assistant_TRIAL_ba75065.zip",
+ "size": 17182039,
+ "sha256": "ab12e239dc6f2d268fb247cf836bde3f2cc76007d6501440ff14e0ebf24df82d",
+ "built": "2026-11-12T01:11:12",
+ "changes": "Invisible bullets: picked from the Objetos list (first Bala under the search box)"
 }
