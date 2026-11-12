@@ -343,19 +343,24 @@ def ir_buttons(panel_img: np.ndarray) -> List[Point]:
     h, w = panel_img.shape[:2]
     x0, x1 = int(w * 0.78), int(w * 0.99)
     c = panel_img[:, x0:x1].astype(np.int16)
-    white = ((c.max(axis=2) > 150) & (c.min(axis=2) > 90)).astype(np.uint8)   # light text (white or pale teal)
+    # light text: white, pale teal or teal (the owner's screen: "I" ~ (90, 185, 160))
+    white = (c.max(axis=2) > 140).astype(np.uint8)
     n, _, st, _ = cv2.connectedComponentsWithStats(white, 8)
     blobs = [tuple(int(v) for v in st[i]) for i in range(1, n)]
     out: List[Point] = []
-    # The "I" is a lone thin upright stroke (the "r" beside it is fainter and
-    # breaks into specks); letters of words nearby would be bigger blobs.
-    for bx, by, bw, bh, ba in blobs:
+    # The "I" is a thin upright stroke; right of it only the small "r" (whole or
+    # broken into specks). A letter of a word ("l" in "salida") has letters on
+    # its left too, or more than one letter-sized neighbour on its right.
+    for cand in blobs:
+        bx, by, bw, bh, ba = cand
         if bw > 2 or not 7 <= bh <= 12:
             continue
-        crowded = any(o != (bx, by, bw, bh, ba) and o[4] >= 6
-                      and o[1] < by + bh and o[1] + o[3] > by and abs(o[0] - bx) <= 14
-                      for o in blobs)
-        if not crowded:
+        near = [o for o in blobs if o != cand and o[4] >= 6
+                and o[1] < by + bh and o[1] + o[3] > by and abs(o[0] - bx) <= 14]
+        left = [o for o in near if o[0] < bx]
+        right = [o for o in near if o[0] > bx]
+        r_like = all(o[0] - (bx + bw) <= 4 and o[2] <= 6 and o[3] <= bh for o in right)
+        if not left and len(right) <= 1 and r_like:
             out.append((x0 + bx + 3, by + bh // 2))
     return out
 

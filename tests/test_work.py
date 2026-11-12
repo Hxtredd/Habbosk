@@ -147,6 +147,11 @@ class ReadingWithOcr(unittest.TestCase):
         p = self.panel("panel_highlighted_ir")
         self.assertEqual(len(p.offers), 2)
         self.assertTrue(all(o.ir is not None for o in p.offers))
+        # the owner's live screen (2026-11-12): teal "Ir" with a whole "r"
+        p = self.panel("panel_live_teal_ir")
+        self.assertEqual(len(p.offers), 2)
+        self.assertTrue(all(o.ir is not None for o in p.offers), p.offers)
+        self.assertEqual(p.remaining, 55)
 
     def test_panel_steps(self):
         p = self.panel("panel_going")
