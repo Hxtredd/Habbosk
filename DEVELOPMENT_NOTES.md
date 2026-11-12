@@ -83,6 +83,14 @@ tasks; the owner added: type `:beber` when energy gets low.
   (max ~150); below the setting (default 40) it types `:beber` in the chat
   (same chat-box steps as Go to Room; also finds the box when SK's own window
   hides the room-name bar) and stops if energy did not go up.
+- Invisible bullets (owner, 2026-11-12: a game glitch hides some trash): the
+  owner keeps the game's "Objetos" window open with "bala" typed in its search
+  box. When Barrer casquillos has no visible "Basura" marker (or the marked
+  object gives no yellow button), SK clicks the first "Bala" of the LIST under
+  the box (never the typed "bala"; the title above must read "Objetos"), then
+  the new yellow button wherever it appears. Empty list = as before (stop
+  after 3 looks). Not yet seen on a recording: what clicking a listed "Bala"
+  opens is assumed to be a yellow "Recoger" button.
 - Learned from the owner's 4 recordings (Armería · Prescott, 1920x1080); test
   pictures in tests/fixtures/work (crops without chat or names);
   tests/test_work.py.

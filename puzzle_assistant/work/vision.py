@@ -427,3 +427,57 @@ def find_panel(words, origin: Point = (0, 0), scale: float = 1.0) -> Optional[Bo
     top = b.y / scale + origin[1] - 25
     x0 = int(max(origin[0], right - 290))
     return (x0, int(max(origin[1], top)), int(right - x0), 420)
+
+
+# ---------------------------------------------------------------------------
+# The "Objetos" window: invisible bullets (owner, 2026-11-12)
+# ---------------------------------------------------------------------------
+# The game has a glitch: some trash (bullets) can't be seen in the room, so it
+# has no marker. The owner keeps the game's "Objetos" window open with "bala"
+# typed in its search box; the list under the box shows every bullet in the
+# room. The first "bala" (in the box) is only the search text - the helper
+# clicks the first "Bala" of the LIST below it.
+def dark_text_for_ocr(img: np.ndarray, scale: float = 4.0) -> np.ndarray:
+    """Light text on the game's dark windows -> black on white, enlarged."""
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    g = cv2.resize(g, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    _, b = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    b = cv2.copyMakeBorder(b, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
+    return cv2.cvtColor(b, cv2.COLOR_GRAY2BGR)
+
+
+def _words_in(img, box, ocr_words, psm: int, scale: float = 4.0):
+    """OCR words of img[box] with screen-picture coordinates (x, y = centre)."""
+    x, y, w, h = box
+    x, y = max(0, x), max(0, y)
+    crop = img[y:y + h, x:x + w]
+    if crop.size == 0:
+        return []
+    out = []
+    for wd in ocr_words(dark_text_for_ocr(crop, scale), psm):
+        cx = x + (wd.x + wd.w / 2 - 20) / scale
+        cy = y + (wd.y + wd.h / 2 - 20) / scale
+        out.append((wd.text, int(cx), int(cy), wd))
+    return out
+
+
+def find_objetos_search(img: np.ndarray, words, ocr_words) -> Optional[Point]:
+    """Centre of the "bala" typed in the Objetos window's search box.
+    words: OCR words of the whole picture (.x/.y/.w/.h in picture px). Only a
+    "bala" with the window title "Objetos" just above it counts."""
+    for wd in words:
+        if norm(wd.text).strip(".,:;") != "bala":
+            continue
+        cx, cy = int(wd.x + wd.w / 2), int(wd.y + wd.h / 2)
+        title = _words_in(img, (int(wd.x) - 30, cy - 60, 190, 42), ocr_words, 6)
+        if any(norm(t).startswith("objeto") for t, _, _, _ in title):
+            return cx, cy
+    return None
+
+
+def objetos_entries(img: np.ndarray, search: Point, ocr_words) -> List[Point]:
+    """The "Bala" lines of the list under the search box, top first."""
+    sx, sy = search
+    found = _words_in(img, (sx - 25, sy + 22, 140, 260), ocr_words, 6)   # inside the window only
+    return sorted(((x, y) for t, x, y, _ in found if norm(t).strip(".,:;") == "bala"),
+                  key=lambda p: p[1])

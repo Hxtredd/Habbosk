@@ -111,6 +111,7 @@ class WorkRunner(threading.Thread):
         self.tasks_done = 0
         self.started = 0.0
         self._doubt: dict = {}
+        self._objetos: Optional[V.Point] = None      # the Objetos window's search box (cached)
         # SK's own windows on screen (left, top, width, height), kept up to date by
         # the UI. SK can't see them in its screen pictures (they are hidden from
         # capture), so a spot under one of them must never be clicked.
@@ -436,6 +437,8 @@ class WorkRunner(threading.Thread):
             return
         elif cands:
             target = cands[0]
+        elif want == "Basura" and self.objetos_bullet(img, b, p):
+            return                                   # an invisible bullet, from the Objetos list
         else:
             self._unsure("target", f"Stopped: can't find the “{want or 'target'}” marker.")
             return
@@ -454,18 +457,55 @@ class WorkRunner(threading.Thread):
             btn = self._wait_button(before, pt)
         if self.stopping:
             return
+        if btn is None and want == "Basura":
+            # the marked bullet may be one of the invisible ones (game glitch)
+            img3, _ = self.desk.grab()
+            if self.objetos_bullet(img3, b, p):
+                return
+        if self.stopping:
+            return
         if btn is None:
             self.stop("Stopped: the object's yellow button didn't appear.")
             return
         self._click(V.button_click_point(btn), b)
         self._wait_change(p, "the pick-up")
 
-    def _wait_button(self, before, pt) -> Optional[V.Box]:
+    def objetos_bullet(self, img, b, p: V.PanelState) -> bool:
+        """Owner, 2026-11-12: some bullets can't be seen (a game glitch). The
+        owner keeps the game's "Objetos" window open with "bala" typed in its
+        search box; SK clicks the first "Bala" of the LIST under the box (never
+        the typed one), then the yellow button that appears. False = no
+        Objetos window / no bullet in its list (nothing clicked)."""
+        words = lambda im, psm: self.ocr.words(im, psm)
+        if self._objetos is None:
+            self._objetos = V.find_objetos_search(img, self.ocr.words(img, 11), words)
+            if self._objetos is None:
+                return False
+        entries = V.objetos_entries(img, self._objetos, words)
+        if not entries:
+            self._objetos = None                     # moved or closed? look again next time
+            return False
+        self._acted()
+        pt = entries[0]
+        before = V.yellow_buttons(img)
+        self.status("Invisible bullet: clicking the first “Bala” in the Objetos list.")
+        self._click(pt, b)
+        btn = self._wait_button(before, pt, within=4000)     # its button can be anywhere
+        if self.stopping:
+            return True
+        if btn is None:
+            self.stop("Stopped: clicked “Bala” in the Objetos list but no yellow button appeared.")
+            return True
+        self._click(V.button_click_point(btn), b)
+        self._wait_change(p, "the pick-up from the Objetos list")
+        return True
+
+    def _wait_button(self, before, pt, within: int = 320) -> Optional[V.Box]:
         end = self.clock() + BUTTON_WAIT
         while not self.stopping and self.clock() < end:
             self.wait(0.25)
             img, _ = self.desk.grab()
-            btn = V.new_button_near(before, V.yellow_buttons(img), pt)
+            btn = V.new_button_near(before, V.yellow_buttons(img), pt, within)
             if btn is not None:
                 return btn
         return None

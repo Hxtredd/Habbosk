@@ -165,6 +165,22 @@ class ReadingWithOcr(unittest.TestCase):
         self.assertEqual(p.active, "Limpiar el banco")
         self.assertTrue(p.working)
 
+    def test_objetos_list_first_bala_below_the_search_box(self):
+        img = pic("objetos_bala")
+        words = lambda im, psm: self.ocr.words(im, psm)
+        search = V.find_objetos_search(img, self.ocr.words(img, 11), words)
+        self.assertIsNotNone(search)
+        self.assertLess(abs(search[0] - 125) + abs(search[1] - 109), 12)   # the typed "bala"
+        entries = V.objetos_entries(img, search, words)
+        self.assertEqual(len(entries), 2)
+        (x, y), (x2, y2) = entries
+        self.assertGreater(y, search[1] + 20)                                # below the box
+        self.assertLess(abs(y - 142), 5)
+        self.assertLess(abs(y2 - 164), 5)
+        # a picture without the Objetos window: nothing
+        room = pic("room_pickup_basura")
+        self.assertIsNone(V.find_objetos_search(room, self.ocr.words(room, 11), words))
+
     def test_energy(self):
         for name, value in (("energy_119", 119), ("energy_83", 83), ("energy_74", 74)):
             e = V.read_energy(pic(name), self.digits, top_part=1.0)
@@ -495,6 +511,59 @@ class Helper(unittest.TestCase):
         r, g, d, c = make(work_energy_min=40)
         run_for(r, g, 30)
         self.assertEqual(d.typed, [])
+
+
+class InvisibleBullets(unittest.TestCase):
+    """Owner, 2026-11-12: some bullets can't be seen (game glitch); the Objetos
+    window (with "bala" typed in) lists them: SK clicks the first "Bala" of
+    the list, then the yellow button."""
+
+    ENTRY, BUTTON = (1650, 142), (1600, 900, 180, 36)
+
+    def setup(self, entries=True, button=True):
+        g = Game(task="Barrer casquillos")
+        g.markers = lambda: ([V.Marker("bubble", (500, 500, 22, 20), (490, 530, 40, 13), "Tarea")]
+                             if g.phase == "going" else
+                             [V.Marker("arrow", (700, 300, 16, 22), (690, 330, 44, 13), None)]
+                             if g.phase == "carrying" else [])
+        real_click = g.click
+
+        def click(x, y):
+            if g.phase == "going" and (x, y) == self.ENTRY and button:
+                g.clicks.append((x, y))
+                g.popup = True
+                return
+            real_click(x, y)
+        g.click = click
+        g.button = lambda: self.BUTTON
+        r, g, d, c = make(game=g)
+        search = mock.patch.object(V, "find_objetos_search", return_value=(1660, 109))
+        listed = mock.patch.object(V, "objetos_entries",
+                                   side_effect=lambda img, s, w: ([self.ENTRY, (1650, 164)]
+                                                                  if entries and g.phase == "going" else []))
+        for p in (search, listed):
+            p.start()
+            self.addCleanup(p.stop)
+        r.ocr = SimpleNamespace(words=lambda img, psm=6: [])
+        return r, g
+
+    def test_picks_the_first_listed_bala_then_the_yellow_button(self):
+        r, g = self.setup()
+        run_for(r, g, 40)
+        self.assertGreaterEqual(r.tasks_done, 1, r.stopped_reason)
+        i = g.clicks.index(self.ENTRY)
+        self.assertEqual(g.clicks[i + 1], V.button_click_point(self.BUTTON))
+        self.assertNotIn((1660, 109), g.clicks)                 # never the typed "bala"
+
+    def test_no_bullet_listed_stops_as_before(self):
+        r, g = self.setup(entries=False)
+        run_for(r, g, 40)
+        self.assertIn("can't find", r.stopped_reason)
+
+    def test_no_button_after_clicking_bala_stops(self):
+        r, g = self.setup(button=False)
+        run_for(r, g, 40)
+        self.assertIn("Objetos list but no yellow button", r.stopped_reason)
 
 
 class Money(unittest.TestCase):
