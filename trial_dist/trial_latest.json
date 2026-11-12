@@ -1,8 +1,8 @@
 {
- "commit": "879e98f042f5791d318197a00c40d2c5a062a899",
- "zip": "trial_dist/SK_Assistant_TRIAL_879e98f.zip",
- "size": 17674382,
- "sha256": "2d2bc501f3d374f78f50480820f6e5a63a0695e39c4f5414738ca059ac7cc9ad",
- "built": "2026-11-12T01:38:17",
- "changes": "Stop with Esc or Stop working only; SK waits while you use the mouse"
+ "commit": "e3ffe1a872d3415464b077494ffe179c074ff250",
+ "zip": "trial_dist/SK_Assistant_TRIAL_e3ffe1a.zip",
+ "size": 17741180,
+ "sha256": "a20788496a4ebd95cc6959b232062238fe18c235b3950533e7c014ea5ff76121",
+ "built": "2026-11-12T01:51:19",
+ "changes": "Esc / Stop working to stop; ammunition only on the Armero para Pistolas (checked by name)"
 }
