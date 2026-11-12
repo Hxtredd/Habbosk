@@ -530,7 +530,10 @@ class TrialUpdateTests(unittest.TestCase):
     def test_update_bat_is_one_block(self):
         """cmd reads a ( ... ) block completely before running it, so the update
         can replace TRIAL_UPDATE.bat while it runs."""
-        with open(os.path.join(ROOT, "trial", "TRIAL_UPDATE.bat"), encoding="utf-8") as fh:
+        bat = os.path.join(ROOT, "trial", "TRIAL_UPDATE.bat")     # source repository
+        if not os.path.exists(bat):
+            bat = os.path.join(ROOT, "TRIAL_UPDATE.bat")           # inside the trial package
+        with open(bat, encoding="utf-8") as fh:
             lines = [l.strip() for l in fh if l.strip() and not l.strip().lower().startswith(("rem", "@echo"))]
         self.assertEqual(lines[0], "(")
         self.assertEqual(lines[-1], ")")
