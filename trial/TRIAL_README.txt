@@ -41,6 +41,13 @@ USE THE TRIAL
        yourself, then press "Continue".
      - When it stops, the reason is shown under the buttons.
 
+UPDATE THE TRIAL (when Claude says there is a new trial build)
+  Close SK (trial and normal), then double-click TRIAL_UPDATE.bat. It
+  downloads the newest trial build, checks its checksum, replaces the
+  program files in THIS folder and runs the quick self-test. Your trial
+  settings (trial_data), results and .venv stay. If it says "up to date",
+  there is nothing new. Replaced files are kept in _previous\.
+
 AFTER PLAYING
   Tell Claude what happened: tasks done, every stop / pause and its reason
   (the text under the buttons), and anything it did that you didn't expect.

@@ -302,6 +302,19 @@ class SummaryTests(unittest.TestCase):
                      "builds the package from git: only in the source repository, not inside the package")
 class PackageTests(unittest.TestCase):
     def test_package_leaves_out_everything_that_touches_the_normal_install(self):
+        # building also writes trial_dist/trial_latest.json (what TRIAL_UPDATE.bat
+        # reads): the published one is put back afterwards
+        manifest = os.path.join(ROOT, "trial_dist", "trial_latest.json")
+        saved = open(manifest, "rb").read() if os.path.exists(manifest) else None
+
+        def restore():
+            if saved is None:
+                if os.path.exists(manifest):
+                    os.remove(manifest)
+            else:
+                with open(manifest, "wb") as fh:
+                    fh.write(saved)
+        self.addCleanup(restore)
         out = subprocess.run([PY, os.path.join(ROOT, "tools", "build_trial.py"), "HEAD"], capture_output=True,
                              text=True, cwd=ROOT, timeout=300)
         self.assertEqual(out.returncode, 0, out.stderr)
@@ -322,6 +335,7 @@ class PackageTests(unittest.TestCase):
             self.assertNotIn(bad, short)
         self.assertFalse(any(s.startswith("dist/") for s in short))
         for good in ("TRIAL_SETUP.bat", "TRIAL_START.bat", "TRIAL_SUMMARY.bat", "TRIAL_README.txt",
+                     "TRIAL_UPDATE.bat", "trial/update.py",
                      "trial/launcher.py", "trial/guard.py", "puzzle_assistant/qa/ai_jobs.py",
                      "puzzle_assistant/diagnostics.py", "requirements.txt", "tessdata/spa.traineddata"):
             self.assertIn(good, short)
@@ -393,6 +407,134 @@ class FullAppEndToEnd(TrialBase):
         self.assertEqual(s.returncode, 0, s.stderr)
         self.assertIn("blocked accesses to the normal SK data: 1", s.stdout)
         self.assertNormalUntouched()
+
+
+class TrialUpdateTests(unittest.TestCase):
+    """TRIAL_UPDATE.bat / trial/update.py (owner, 2026-11-12: "make it so I can
+    just update the trial"): only this trial folder's program files change."""
+
+    def setUp(self):
+        trial_dir = os.path.join(ROOT, "trial")
+        if trial_dir not in sys.path:
+            sys.path.insert(0, trial_dir)
+        import update
+        self.up = update
+        self.tmp = tempfile.mkdtemp(prefix="sk_trial_update_test_")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.target = os.path.join(self.tmp, "SK Assistant TRIAL")
+        self.files = {"trial/guard.py": b"guard v1", "trial/BUILD.json": json.dumps({"commit": "a" * 40}).encode(),
+                      "puzzle_assistant/__init__.py": b"v1", "puzzle_assistant/work/runner.py": b"old runner",
+                      "TRIAL_UPDATE.bat": b"bat v1", "requirements.txt": b"numpy"}
+        for rel, data in self.files.items():
+            self.write(self.target, rel, data)
+        # the trial's own things that an update must never touch
+        self.write(self.target, "trial_data/config.json", b"MY SETTINGS")
+        self.write(self.target, "trial_results/SELFTEST.txt", b"results")
+        self.write(self.target, ".venv/Scripts/python.exe", b"venv")
+
+    def write(self, root, rel, data):
+        path = os.path.join(root, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(data)
+
+    def read(self, rel):
+        with open(os.path.join(self.target, *rel.split("/")), "rb") as fh:
+            return fh.read()
+
+    def make_zip(self, commit, extra=None, names=None):
+        buf = __import__("io").BytesIO()
+        files = dict(self.files)
+        files["trial/BUILD.json"] = json.dumps({"commit": commit}).encode()
+        files["puzzle_assistant/work/runner.py"] = b"NEW runner"
+        files["puzzle_assistant/work/new_file.py"] = b"new"
+        files["trial_data/config.json"] = b"SHOULD NEVER ARRIVE"
+        files.update(extra or {})
+        with zipfile.ZipFile(buf, "w") as z:
+            for rel, data in files.items():
+                z.writestr(names(rel) if names else "SK Assistant TRIAL/" + rel, data)
+        return buf.getvalue()
+
+    def server(self, blob, commit, **over):
+        info = {"commit": commit, "zip": f"trial_dist/SK_Assistant_TRIAL_{commit[:7]}.zip",
+                "size": len(blob), "sha256": hashlib.sha256(blob).hexdigest(), "changes": "test"}
+        info.update(over)
+        files = {self.up.MANIFEST: json.dumps(info).encode(), self.up.BASE + info["zip"]: blob}
+        return lambda url: files[url]
+
+    def run_update(self, fetch):
+        out = []
+        rc = self.up.run(fetch=fetch, target=self.target, say=out.append)
+        return rc, " ".join(out)
+
+    def test_up_to_date_changes_nothing(self):
+        blob = self.make_zip("a" * 40)
+        rc, out = self.run_update(self.server(blob, "a" * 40))
+        self.assertEqual(rc, 0)
+        self.assertIn("up to date", out)
+        self.assertEqual(self.read("puzzle_assistant/work/runner.py"), b"old runner")
+
+    def test_newer_build_replaces_program_files_only(self):
+        rc, out = self.run_update(self.server(self.make_zip("b" * 40), "b" * 40))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.read("puzzle_assistant/work/runner.py"), b"NEW runner")
+        self.assertEqual(self.read("puzzle_assistant/work/new_file.py"), b"new")
+        self.assertEqual(json.loads(self.read("trial/BUILD.json"))["commit"], "b" * 40)
+        self.assertEqual(self.read("trial_data/config.json"), b"MY SETTINGS")
+        self.assertEqual(self.read("trial_results/SELFTEST.txt"), b"results")
+        self.assertEqual(self.read(".venv/Scripts/python.exe"), b"venv")
+        self.assertEqual(self.read("_previous/puzzle_assistant/work/runner.py"), b"old runner")
+        self.assertEqual(self.up.current_commit(self.target), "b" * 40)
+
+    def test_damaged_download_changes_nothing(self):
+        blob = self.make_zip("b" * 40)
+        bad = self.server(blob, "b" * 40, sha256="0" * 64)
+        rc, out = self.run_update(bad)
+        self.assertEqual(rc, 1)
+        self.assertIn("checksum", out)
+        self.assertEqual(self.read("puzzle_assistant/work/runner.py"), b"old runner")
+
+    def test_unexpected_download_place_is_refused(self):
+        blob = self.make_zip("b" * 40)
+        rc, out = self.run_update(self.server(blob, "b" * 40, zip="dist/SK_Assistant_v9.9.zip"))
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.read("puzzle_assistant/work/runner.py"), b"old runner")
+
+    def test_unsafe_names_are_refused(self):
+        blob = self.make_zip("b" * 40, extra={"../evil.txt": b"x"})
+        rc, out = self.run_update(self.server(blob, "b" * 40))
+        self.assertEqual(rc, 1)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "evil.txt")))
+        self.assertEqual(self.read("puzzle_assistant/work/runner.py"), b"old runner")
+
+    def test_not_a_trial_folder_is_refused(self):
+        os.remove(os.path.join(self.target, "trial", "guard.py"))
+        rc, out = self.run_update(self.server(self.make_zip("b" * 40), "b" * 40))
+        self.assertEqual(rc, 1)
+        self.assertIn("not an SK Assistant TRIAL folder", out)
+        self.assertEqual(self.read("puzzle_assistant/work/runner.py"), b"old runner")
+
+    def test_a_normal_sk_zip_is_refused(self):
+        blob = self.make_zip("b" * 40, names=lambda rel: "SK Assistant/" + rel)
+        rc, out = self.run_update(self.server(blob, "b" * 40))
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.read("puzzle_assistant/work/runner.py"), b"old runner")
+
+    def test_no_internet_is_reported(self):
+        def offline(url):
+            raise OSError("no network")
+        rc, out = self.run_update(offline)
+        self.assertEqual(rc, 1)
+        self.assertIn("internet", out)
+
+    def test_update_bat_is_one_block(self):
+        """cmd reads a ( ... ) block completely before running it, so the update
+        can replace TRIAL_UPDATE.bat while it runs."""
+        with open(os.path.join(ROOT, "trial", "TRIAL_UPDATE.bat"), encoding="utf-8") as fh:
+            lines = [l.strip() for l in fh if l.strip() and not l.strip().lower().startswith(("rem", "@echo"))]
+        self.assertEqual(lines[0], "(")
+        self.assertEqual(lines[-1], ")")
+        self.assertIn("trial\\update.py", "\n".join(lines))
 
 
 if __name__ == "__main__":
