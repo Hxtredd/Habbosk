@@ -1,0 +1,8 @@
+{
+ "commit": "a426d2d2c2d6bf6ab5dbace5a57a273b41626b10",
+ "zip": "trial_dist/SK_Assistant_TRIAL_a426d2d.zip",
+ "size": 17143433,
+ "sha256": "0dc0c9e05ca7046d3bb7e6cb526938186b10b850c32939edb9053d3acf4a357b",
+ "built": "2026-11-12T00:51:07",
+ "changes": "Work helper, money count numbered by the game, and TRIAL_UPDATE.bat (update the trial in place)"
+}
