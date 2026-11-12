@@ -174,6 +174,18 @@ class ReadingWithOcr(unittest.TestCase):
         self.assertEqual(p.active, "Limpiar el banco")
         self.assertTrue(p.working)
 
+    def test_basura_label_on_the_arrow_half_hidden(self):
+        """Owner's picture (2026-11-12): bubble, arrow and "Basura" stacked; the
+        bubble's own label is hidden and the arrow's is half behind the ring.
+        (Top padded so the picture isn't taken for the browser's top bar.)"""
+        ms = self.labels("basura_under_arrow")
+        arrows = [m for m in ms if m.kind == "arrow"]
+        self.assertEqual(len(arrows), 1)
+        self.assertEqual(arrows[0].label, "Basura")
+        x, y = arrows[0].click_point
+        self.assertLess(abs(x - 86), 8)
+        self.assertLess(abs(y - 371), 8)                   # on the "Basura" label
+
     def test_night(self):
         """Owner's screenshot at night in the game (2026-11-12): darker room,
         dimmer markers and labels - SK had seen no marker at all."""
@@ -717,6 +729,19 @@ class WhereToDrop(unittest.TestCase):
         run_for(r, g, 3)
         self.assertEqual(g.clicks[0], bubble.click_point)
         self.assertLess(g.clicks[0][1], arrow.box[1])        # above the arrow and its ring
+
+
+class LabelOnTheArrow(unittest.TestCase):
+    def test_arrow_labelled_basura_is_picked_up_even_while_collecting(self):
+        r, g, d, c = make(game=Game(task="Barrer casquillos"))
+        g.phase = "going"
+        arrow = V.Marker("arrow", (300, 300, 16, 22), (290, 330, 44, 13), "Basura")
+        g.markers = lambda: [V.Marker("bubble", (300, 270, 22, 20), None, None), arrow]
+        g.panel = lambda: V.PanelState(True, active="Barrer casquillos", carrying=True, load=(1, 3),
+                                       load_kind="Basura", remaining=50)
+        r._pause = lambda reason: r.stop("test: paused")
+        run_for(r, g, 3)
+        self.assertEqual(g.clicks[0], arrow.click_point)
 
 
 class AfterPickingUpTheBoxes(unittest.TestCase):

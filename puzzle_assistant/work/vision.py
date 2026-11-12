@@ -173,6 +173,45 @@ def ocr_ready(txt_mask: np.ndarray) -> np.ndarray:
     return cv2.copyMakeBorder(t, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
 
 
+def label_patch(img: np.ndarray, m: Marker) -> Tuple[Optional[Box], Optional[np.ndarray]]:
+    """Second try (owner, 2026-11-12: a label half hidden behind the floor
+    ring, trash and other markers): the light grey text in a fixed patch
+    right under the marker, judged against the patch's own darkness."""
+    x, y, w, h = m.box
+    cx = x + w // 2
+    x0, y0 = max(0, cx - 38), max(0, y + h)
+    c = img[y0:y0 + 26, x0:cx + 38].astype(np.int16)
+    if c.size == 0:
+        return None, None
+    lum = c.min(axis=2)
+    p50, p97 = np.percentile(lum, [50, 97])
+    if p97 - p50 < 60:
+        return None, None
+    thr = max(110.0, p97 - 0.15 * (p97 - p50))
+    txt = ((lum > thr) & ((c.max(axis=2) - c.min(axis=2)) < 40)).astype(np.uint8)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(txt, 8)
+    keep = [i for i in range(1, n) if st[i][3] >= 5 and st[i][4] >= 4]
+    if not keep:
+        return None, None
+    txt = np.isin(lab, keep).astype(np.uint8) * 255
+    # the word: the widest row of letters (a stray blob on the side is left out)
+    xs = sorted((int(st[i][0]), int(st[i][0] + st[i][2])) for i in keep)
+    runs, cur = [], [xs[0][0], xs[0][1]]
+    for a, b in xs[1:]:
+        if a - cur[1] <= 6:
+            cur[1] = max(cur[1], b)
+        else:
+            runs.append(cur)
+            cur = [a, b]
+    runs.append(cur)
+    a, b = max(runs, key=lambda r: r[1] - r[0])
+    txt[:, :max(0, a - 1)] = 0
+    txt[:, b + 1:] = 0
+    ys = np.nonzero(txt.any(axis=1))[0]
+    box = (x0 + a - 3, y0 + int(ys[0]) - 3, b - a + 6, int(ys[-1] - ys[0]) + 7)
+    return box, txt
+
+
 def read_labels(img: np.ndarray, markers: List[Marker], ocr_line: Callable[[np.ndarray], str]) -> None:
     for m in markers:
         box, txt = label_pixels(img, m)
@@ -180,6 +219,13 @@ def read_labels(img: np.ndarray, markers: List[Marker], ocr_line: Callable[[np.n
         if txt is not None:
             m.raw = ocr_line(ocr_ready(txt)).strip()
             m.label = match_label(m.raw)
+        if m.label is None:
+            box2, txt2 = label_patch(img, m)
+            if txt2 is not None:
+                raw = ocr_line(ocr_ready(txt2)).strip()
+                lab = match_label(raw)
+                if lab is not None:
+                    m.label, m.raw, m.label_box = lab, raw, box2
 
 
 # ---------------------------------------------------------------------------

@@ -493,12 +493,14 @@ class WorkRunner(threading.Thread):
         want = self._target_label(p)
         ms = self.markers(img)
         arrows = [m for m in ms if m.kind == "arrow"]
-        cands = sorted((m for m in ms if m.kind == "bubble" and want and m.label == want),
-                       key=lambda m: (m.box[1], m.box[0]))
+        # owner (2026-11-12): the thing's "!" bubble can sit right on top of an
+        # arrow, hiding its own label - then the arrow carries the name
+        cands = sorted((m for m in ms if want and m.label == want),
+                       key=lambda m: (m.kind != "bubble", m.box[1], m.box[0]))
         if len(arrows) > 1 and not cands:
             self._unsure("target", f"Stopped: {len(arrows)} arrows on screen - not sure which one.")
             return
-        targets = cands + (arrows if len(arrows) == 1 and not p.carrying else [])
+        targets = cands + [a for a in arrows if len(arrows) == 1 and not p.carrying and a not in cands]
         if not targets:
             if want == "Basura" and self.objetos_bullet(img, b, p):
                 return                               # an invisible bullet, from the Objetos list

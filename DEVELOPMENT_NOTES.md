@@ -90,6 +90,11 @@ tasks; the owner added: type `:beber` when energy gets low.
   SK waits with its next click until the pointer has rested 2 s. (This
   replaces safeguard 4's "any key / mouse movement stops it"; the founder's
   condition - present, not AFK - is still covered by "¿Sigues ahí?".)
+- Hidden labels (owner 2026-11-12: Basura with "!", arrow and label stacked,
+  "almost hidden by the markers"): a label the pill rule can't read gets a
+  second try - the light grey text in a fixed patch under the marker; an
+  arrow labelled with the wanted thing counts as something to pick up (the
+  bubble's own label is hidden behind it).
 - After the pick-up (owner 2026-11-12: "Llevas 1/1 cajas" shown, SK clicked
   the boxes again): when a panel line isn't read SK no longer falls back to
   "pick up". Step 2 or later, "Lleva la carga", "Llevas", or SK's own memory
