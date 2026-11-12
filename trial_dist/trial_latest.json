@@ -1,8 +1,8 @@
 {
- "commit": "5b32c2c4b007dce7916f986d150e9179d59ed784",
- "zip": "trial_dist/SK_Assistant_TRIAL_5b32c2c.zip",
- "size": 18241036,
- "sha256": "2cedfe6d89b083502d7a7bdbb858afa9ce4066656e50a07605bcfb7ae163c13e",
- "built": "2026-11-12T02:41:51",
- "changes": "Barrer: to the bin when the Contenedor is signalled; never re-clicks where trash was just picked up"
+ "commit": "ca7adbb99173911ef011691aa4ca771f42fb8029",
+ "zip": "trial_dist/SK_Assistant_TRIAL_ca7adbb.zip",
+ "size": 18446951,
+ "sha256": "950a3218b663624335c6d06a6cc5b3c0a16eb8369717b00ab9f8ed148d31fec2",
+ "built": "2026-11-12T02:49:58",
+ "changes": "Limpiar el banco (cleaning game) and faster work"
 }
