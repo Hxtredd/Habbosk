@@ -61,9 +61,8 @@ that forgets every item between pictures still gives the right total).
 **Plan approved 2026-11-11** ("yes thats good"), built 2026-11-12 on the dev
 branch (`puzzle_assistant/work/`, not released yet). Phase 1 = the walking
 tasks; the owner added: type `:beber` when energy gets low.
-- Start/stop: "▶ Start working" in SK (Windows only). Any key press, click or
-  pointer movement by the owner stops it (Windows' last-input time and the
-  pointer position are compared with what SK itself did). Never clicks a spot
+- Start/stop: "▶ Start working" in SK (Windows only); stop with Esc or "Stop
+  working" (see below). Never clicks a spot
   under one of SK's own windows (they are hidden from SK's screen pictures).
 - Tasks: Colocar la munición, Barrer casquillos (Recomendado first). It presses
   "Ir", clicks the task's teal arrow (or the object under its "!" bubble with
@@ -83,6 +82,14 @@ tasks; the owner added: type `:beber` when energy gets low.
   (max ~150); below the setting (default 40) it types `:beber` in the chat
   (same chat-box steps as Go to Room; also finds the box when SK's own window
   hides the room-name bar) and stops if energy did not go up.
+- Stopping, changed by the owner 2026-11-12 ("sometimes it says I'm using my
+  keyboard or mouse when I don't ... make it so I have to press something on
+  my keyboard, or the Stop working button"): Esc or "Stop working" stops it.
+  Windows' last-input time is no longer used (SK's own clicks registered late
+  and looked like the owner's). The owner moving the pointer doesn't stop it:
+  SK waits with its next click until the pointer has rested 2 s. (This
+  replaces safeguard 4's "any key / mouse movement stops it"; the founder's
+  condition - present, not AFK - is still covered by "¿Sigues ahí?".)
 - Owner's corrections 2026-11-12: (1) Barrer casquillos can show several
   "Basura" - ALL are picked up (panel "Llevas N/M de basura"; SK keeps
   collecting while N < M, even if the panel already says to take the load),

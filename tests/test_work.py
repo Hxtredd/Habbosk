@@ -276,6 +276,8 @@ class FakeDesk(R.Desk):
         self.inputs = []                 # times the owner touched the mouse / keyboard
         self.pos = (5, 5)                # mouse pointer
         self.moves = []                  # (time, position): the owner moves the pointer
+        self.esc = []                    # times the owner presses Esc
+        self.esc_pending = False         # an Esc pressed before SK started
         self.typed = []
         self.beeps = 0
 
@@ -298,6 +300,14 @@ class FakeDesk(R.Desk):
         if text == ":beber":
             self.game.energy += 50
         return True
+
+    def stop_key(self):
+        if self.esc_pending:
+            self.esc_pending = False
+            return True
+        hit = [t for t in self.esc if t <= self.clock()]
+        self.esc = [t for t in self.esc if t > self.clock()]
+        return bool(hit)
 
     def last_input(self):
         past = [t for t in self.inputs if t <= self.clock()]
@@ -376,33 +386,50 @@ class Helper(unittest.TestCase):
         self.assertNotIn((230, 240), g.clicks)              # never the mini-game task
         self.assertEqual(r.stopped_reason, "test time over")
 
-    def test_any_mouse_or_key_input_stops_it(self):
+    def test_esc_stops_at_once(self):
         r, g, d, c = make()
-        d.inputs.append(c() + 5.0)                           # the owner moves the mouse at +5 s
+        d.esc.append(c() + 5.0)                              # the owner presses Esc at +5 s
         run_for(r, g, 60)
-        self.assertIn("mouse or keyboard", r.stopped_reason)
-        n = len(g.clicks)
-        self.assertLess(c() - 1005.0, 1.0)                    # stopped right away
-        self.assertEqual(len(g.clicks), n)
+        self.assertIn("pressed Esc", r.stopped_reason)
+        self.assertLess(c() - 1005.0, 0.5)                    # stopped right away
 
-    def test_input_right_after_an_own_click_is_still_seen(self):
+    def test_other_input_no_longer_stops_it(self):
+        """Owner, 2026-11-12: it stopped with "you used the mouse or keyboard"
+        when they hadn't - Windows' last-input time is not used any more."""
         r, g, d, c = make()
         real = d.click
 
-        def click(x, y):                                       # the owner presses a key
-            real(x, y)                                         # 0.1 s after SK's click
+        def click(x, y):                                      # input registered right after SK's click
+            real(x, y)
             d.inputs.append(c() + 0.1)
         d.click = click
         run_for(r, g, 60)
-        self.assertIn("mouse or keyboard", r.stopped_reason)
-        self.assertEqual(len(g.clicks), 1)
+        self.assertEqual(r.stopped_reason, "test time over")
+        self.assertGreaterEqual(r.tasks_done, 2)
 
-    def test_moving_the_mouse_stops(self):
+    def test_an_esc_pressed_before_starting_is_ignored(self):
         r, g, d, c = make()
-        d.moves.append((c() + 7.0, (900, 400)))
-        run_for(r, g, 60)
-        self.assertIn("moved the mouse", r.stopped_reason)
-        self.assertLess(c() - 1007.0, 0.5)
+        d.esc_pending = True                                  # Windows still remembers an old Esc
+        run_for(r, g, 30)
+        self.assertEqual(r.stopped_reason, "test time over")
+
+    def test_no_clicks_while_the_owner_moves_the_mouse(self):
+        r, g, d, c = make()
+        start = c()
+        # the owner moves the pointer from +4 s to +10 s, then lets go
+        d.moves += [(start + 4.0 + 0.5 * k, (900 + 10 * k, 400)) for k in range(13)]
+        times = []
+        real = d.click
+
+        def click(x, y):
+            times.append(c())
+            real(x, y)
+        d.click = click
+        run_for(r, g, 40)
+        self.assertEqual(r.stopped_reason, "test time over")  # moving the mouse doesn't stop it
+        self.assertFalse([t for t in times if start + 4.1 <= t < start + 12.0], times)   # rested 2 s first
+        self.assertTrue([t for t in times if t >= start + 12.0])                        # then carries on
+        self.assertTrue(any("using the mouse" in s.text for s in r.statuses))
 
     def test_moving_away_after_answering_is_allowed(self):
         r, g, d, c = make(work_presence_min=1, work_presence_max=1)

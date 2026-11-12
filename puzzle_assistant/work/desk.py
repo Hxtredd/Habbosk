@@ -56,6 +56,13 @@ class WindowsDesk(Desk):
         except Exception:
             return None
 
+    def stop_key(self) -> bool:
+        """Esc held now, or pressed since the last check (0x8001)."""
+        try:
+            return bool(self._user32.GetAsyncKeyState(0x1B) & 0x8001)
+        except Exception:
+            return False
+
     def last_input(self) -> float:
         lii = self._LII()
         lii.cbSize = self._ct.sizeof(self._LII)

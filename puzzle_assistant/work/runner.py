@@ -6,10 +6,11 @@ anything is unclear. Safeguards (all required by the owner's decision):
 
   * PRESENCE: at random times (every 8-15 min) SK asks "¿Sigues ahí?"; no
     answer within 45 s = stop.
-  * HANDS OFF = STOP: any key press, click or mouse movement by the owner
-    stops it at once: right after each of SK's own clicks SK notes Windows'
-    "last input" time and where the pointer is; any newer input, or the
-    pointer moving, is the owner's.
+  * STOP: Esc (anywhere) or "Stop working" stops it at once. Changed by the
+    owner on 2026-11-12: "any input stops it" also stopped it when they had
+    not touched anything (Windows registers SK's own clicks late). Moving
+    the mouse no longer stops it: SK just doesn't click while the owner uses
+    the mouse, and goes on once the pointer has been still for 2 s.
   * CHAT: when someone mentions the owner's Habbo name in the room chat, SK
     pauses and alerts; the owner continues with "Continue".
   * NOT SURE = STOP: a marker, button or panel step it can't read, or a click
@@ -51,6 +52,8 @@ BUTTON_WAIT = 2.0        # s: the yellow button must appear within this after cl
 PRESENCE_ANSWER = 45.0   # s to answer "¿Sigues ahí?"
 SETTLE = 0.06            # s for Windows to register SK's own click before taking the baseline
 HANDS_AWAY = 1.5         # s for the owner to take the hand off after a click in SK's window
+MOUSE_SLACK = 12         # px: the pointer this far from where SK left it = the owner moved it
+MOUSE_STILL = 2.0        # s the owner's pointer must rest before SK clicks again
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +73,11 @@ class Desk:
 
     def last_input(self) -> float:
         """time.monotonic() of the last keyboard / mouse input (any source)."""
-        raise NotImplementedError
+        return -1e9
+
+    def stop_key(self) -> bool:
+        """Esc is (or was just) pressed."""
+        return False
 
     def cursor(self) -> Optional[Tuple[int, int]]:
         """Mouse pointer position (None = not known)."""
@@ -104,7 +111,10 @@ class WorkRunner(threading.Thread):
         self.money_seen_at = -1e9
         self._own_input_until = 0.0     # until then the owner may still be moving away
         self._input_base = -1e9          # Windows' last-input time right after SK's own input
-        self._cursor_base: Optional[Tuple[int, int]] = None
+        self._cursor_base: Optional[Tuple[int, int]] = None   # where SK left the pointer
+        self._cursor_seen: Optional[Tuple[int, int]] = None
+        self._owner_mouse_at = -1e9                      # when the owner last moved the pointer
+        self._said_mouse = False
         self.energy = V.EnergyJudge(int(getattr(cfg, "work_energy_min", 40)))
         self._panel_box: Optional[V.Box] = None
         self._seen_chat: dict = {}
@@ -163,28 +173,47 @@ class WorkRunner(threading.Thread):
         self._cursor_base = self.desk.cursor()
 
     def _check_hands_off(self) -> None:
+        """Esc stops; the owner moving the pointer is noted (SK then waits
+        before its next click - see _wait_mouse_free)."""
         if self.stopping:
             return
-        if self.clock() < self._own_input_until:       # e.g. just answered "¿Sigues ahí?"
-            self._input_base = self.desk.last_input()
-            self._cursor_base = self.desk.cursor()
-            return
-        if self.desk.last_input() > self._input_base + 0.05:
-            self.stop("Stopped: you used the mouse or keyboard.")
+        if self.desk.stop_key():
+            self.stop("Stopped: you pressed Esc.")
             return
         cur = self.desk.cursor()
-        if cur is not None and self._cursor_base is not None and \
-                max(abs(cur[0] - self._cursor_base[0]), abs(cur[1] - self._cursor_base[1])) > 4:
-            self.stop("Stopped: you moved the mouse.")
+        if cur is None:
+            return
+        if self.clock() < self._own_input_until:       # e.g. just answered "¿Sigues ahí?"
+            self._cursor_base = self._cursor_seen = cur
+            return
+        if self._cursor_base is None:
+            self._cursor_base = cur
+        if max(abs(cur[0] - self._cursor_base[0]), abs(cur[1] - self._cursor_base[1])) > MOUSE_SLACK \
+                and cur != self._cursor_seen:
+            self._owner_mouse_at = self.clock()
+        self._cursor_seen = cur
+
+    def _wait_mouse_free(self) -> None:
+        """Never click while the owner is using the mouse: wait until the
+        pointer has rested MOUSE_STILL seconds."""
+        self._check_hands_off()
+        while not self.stopping and self.clock() - self._owner_mouse_at < MOUSE_STILL:
+            if not self._said_mouse:
+                self.status("You're using the mouse - SK waits until it rests (Esc stops).", "info")
+                self._said_mouse = True
+            self.wait(0.1)
+        if self._said_mouse and not self.stopping:
+            self._said_mouse = False
+            self.status("Working again (Esc or “Stop working” stops it).", "ok")
 
     def _covered(self, sx: int, sy: int) -> bool:
         return any(x - 4 <= sx <= x + w + 4 and y - 4 <= sy <= y + h + 4
                    for x, y, w, h in list(self.sk_windows))
 
     def _screen_click(self, sx: int, sy: int) -> bool:
-        """Click a screen point unless the owner touched something or one of
-        SK's windows is there. False = not clicked (stopped)."""
-        self._check_hands_off()
+        """Click a screen point (after the owner's pointer has rested) unless
+        one of SK's windows is there. False = not clicked (stopped)."""
+        self._wait_mouse_free()
         if self.stopping:
             return False
         if self._covered(sx, sy):
@@ -298,6 +327,9 @@ class WorkRunner(threading.Thread):
         if not low:
             return
         self.status(f"Energy {value}: typing :beber", "info")
+        self._wait_mouse_free()
+        if self.stopping:
+            return
         ok = self.desk.type_in_chat(":beber")
         self._mark_own_input()
         if not ok:
@@ -325,8 +357,9 @@ class WorkRunner(threading.Thread):
         limit = float(getattr(self.cfg, "work_session_minutes", 60)) * 60
         presence_at = self._presence_due()
         self._own_input_until = self.clock() + HANDS_AWAY   # the click on "Start working"
+        self.desk.stop_key()                          # forget an Esc pressed before starting
         next_chat = next_energy = 0.0
-        self.status("Working - hands off the mouse and keyboard (any input stops it).", "ok")
+        self.status("Working - press Esc or “Stop working” to stop.", "ok")
         while not self.stopping:
             now = self.clock()
             if now < self._own_input_until:              # the owner is taking the hand away:

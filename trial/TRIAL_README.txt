@@ -31,9 +31,10 @@ USE THE TRIAL
   4. In the game: clock in at the Armería and leave the job panel open.
      Move SK's window so it doesn't cover the room or the job panel
      (SK never clicks under its own window - it would stop instead).
-  5. Press "Start working" in SK and take your hand off the mouse and
-     keyboard. Stay at the PC and watch.
-     - Any key or mouse movement stops it at once (that is the safety stop).
+  5. Press "Start working" in SK. Stay at the PC and watch.
+     - To stop: press Esc, or "Stop working" in SK.
+     - If you move the mouse, SK doesn't stop - it just doesn't click
+       until you have left the mouse still for 2 seconds.
      - "¿Sigues ahí?" appears now and then: click "Sí, sigo aquí".
      - When someone mentions your name it beeps and pauses: answer them
        yourself, then press "Continue" in SK.

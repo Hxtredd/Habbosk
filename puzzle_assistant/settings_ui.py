@@ -176,7 +176,8 @@ class SettingsWindow:
         f = self._section(
             "Work helper",
             "Does the job's walking tasks (ammunition, sweeping) while you are at the PC. "
-            "Starts only with “Start working”; any mouse or keyboard use stops it, it asks "
+            "Starts only with “Start working”; Esc or “Stop working” stops it (it doesn't "
+            "click while you use the mouse), it asks "
             "“¿Sigues ahí?” now and then, and pauses when someone mentions your name.")
 
         def entry_row(label, attr, width, conv):
