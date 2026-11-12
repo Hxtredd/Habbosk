@@ -133,6 +133,10 @@ tasks; the owner added: type `:beber` when energy gets low.
 
 ## Owner preferences
 
+- Trial updates (owner, 2026-11-12: "skip the full suite whenever we update"):
+  run only the tests of the part changed (e.g. tests/test_work.py) before
+  publishing a trial build; the full suite is for release candidates.
+
 - Name: **SK Assistant**. Folder/package names stay `PuzzleAnswerAssistant` /
   `puzzle_assistant` (renaming files is avoided on purpose).
 - Two monitors. Spanish-language game; mostly Spanish questions.
