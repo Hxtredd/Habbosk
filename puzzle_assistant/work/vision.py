@@ -29,11 +29,12 @@ Box = Tuple[int, int, int, int]          # x, y, w, h (screen-picture pixels)
 Point = Tuple[int, int]
 
 # Labels seen in the job room. Unknown labels are never clicked.
-LABELS = ("Tarea", "Munición", "Basura", "Contenedor", "Armero")
+LABELS = ("Tarea", "Munición", "Basura", "Contenedor", "Armero", "Banco")
 # Tasks the helper does (walk + carry), with the label of the thing to pick up.
-WALKING_TASKS = {"Colocar la munición": "Munición", "Barrer casquillos": "Basura"}
+WALKING_TASKS = {"Colocar la munición": "Munición", "Barrer casquillos": "Basura",
+                 "Limpiar el banco": "Banco"}          # owner's recording 2026-11-12
 # Tasks it leaves to the owner (mini-games not automated yet).
-MANUAL_TASKS = ("Montar un arma", "Limpiar el banco")
+MANUAL_TASKS = ("Montar un arma",)
 
 
 def norm(s: str) -> str:
@@ -213,6 +214,13 @@ def label_patch(img: np.ndarray, m: Marker) -> Tuple[Optional[Box], Optional[np.
 
 
 def read_labels(img: np.ndarray, markers: List[Marker], ocr_line: Callable[[np.ndarray], str]) -> None:
+    """Read every marker's label - in parallel (each is its own OCR run), so a
+    room full of markers doesn't slow the helper down."""
+    if len(markers) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(6, len(markers))) as ex:
+            list(ex.map(lambda m: read_labels(img, [m], ocr_line), markers))
+        return
     for m in markers:
         box, txt = label_pixels(img, m)
         m.label_box = box
@@ -595,3 +603,51 @@ def is_gun_rack(name: str) -> bool:
     SK sometimes selected the desk under it instead."""
     n = norm(name)
     return "armero" in n and "pistol" in n
+
+
+# ---------------------------------------------------------------------------
+# "Limpia la superficie" (Limpiar el banco) - owner's recording 2026-11-12
+# ---------------------------------------------------------------------------
+# A 4 x 3 grid; spots appear one by one ("Manchas N/5" on the grid at once);
+# clicking a spot rubs it away in about a second; 10 cleaned ("Limpias
+# 10/10") ends it (28 s). Owner: "it's not always brown - whenever they have a
+# spot, no matter the color, click them until they disappear."
+def find_clean_game(words) -> Optional[Box]:
+    """The grid of the cleaning game, from OCR words of the picture: its footer
+    "Limpias N/10 ... Manchas N/5" and (if read) the title above."""
+    limp = [w for w in words if norm(w.text).startswith("limpias")]
+    manch = [w for w in words if norm(w.text).startswith("mancha") and norm(w.text) != "mancha"]
+    for L in limp:
+        same = [m for m in manch if abs((m.y + m.h / 2) - (L.y + L.h / 2)) <= 8 and m.x > L.x + 150]
+        if not same:
+            continue
+        M = min(same, key=lambda m: m.x)
+        title = [w for w in words if norm(w.text).startswith(("superficie", "limpia"))
+                 and not norm(w.text).startswith("limpias") and 150 < L.y - w.y < 400
+                 and abs(w.x - L.x) < 120]
+        bottom = int(L.y) - 8
+        top = int(min(w.y for w in title)) + 42 if title else bottom - 235
+        left, right = int(L.x) - 6, int(M.x + M.w + 18)
+        return (left, top, right - left, bottom - top)
+    return None
+
+
+def grid_spots(img: np.ndarray, grid: Box) -> List[Tuple[int, int, int]]:
+    """Spots in the cleaning grid, any colour: blobs that stand out from the
+    grid's own (striped, dark) look. (x, y, size) in picture px, biggest first."""
+    x, y, w, h = grid
+    c = img[max(0, y):y + h, max(0, x):x + w].astype(np.int16)
+    if c.size == 0:
+        return []
+    bg = np.median(c.reshape(-1, 3), axis=0)
+    diff = np.abs(c - bg).max(axis=2)
+    m = (diff > 45).astype(np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    n, _, st, cen = cv2.connectedComponentsWithStats(m, 8)
+    out = []
+    for i in range(1, n):
+        bx, by, bw, bh, a = (int(v) for v in st[i])
+        # a spot is a filled, roundish blob - not the thin highlight frame of a cell
+        if a >= 60 and 7 <= bw <= 90 and 7 <= bh <= 90 and a >= 0.4 * bw * bh:
+            out.append((x + int(cen[i][0]), y + int(cen[i][1]), a))
+    return sorted(out, key=lambda s: -s[2])

@@ -201,6 +201,24 @@ class ReadingWithOcr(unittest.TestCase):
         self.assertEqual(p.active, "Colocar la munición")                # "En curso"
         self.assertTrue(p.going)
 
+    def test_cleaning_game_grid_and_spots_any_colour(self):
+        """Owner's recording 2026-11-12 (night): the grid is found from its
+        footer, the spots - big, half rubbed - are found wherever they are."""
+        for name, spot in (("clean_game_5_3", (260, 220)), ("clean_game_7_6", (345, 285)),
+                           ("clean_game_15_2", (87, 218))):
+            img = pic(name)
+            grid = V.find_clean_game(self.ocr.words(img, 11))
+            self.assertIsNotNone(grid, name)
+            spots = V.grid_spots(img, grid)
+            self.assertTrue(spots, name)
+            x, y, _ = spots[0]
+            self.assertLess(abs(x - spot[0]) + abs(y - spot[1]), 12, (name, spots))
+        # a spot of another colour is found the same way
+        img = pic("clean_game_5_3").copy()
+        cv2.circle(img, (130, 160), 16, (230, 120, 40), -1)         # a blue one
+        grid = V.find_clean_game(self.ocr.words(img, 11))
+        self.assertTrue(any(abs(x - 130) < 6 and abs(y - 160) < 6 for x, y, _ in V.grid_spots(img, grid)))
+
     def test_name_of_the_selected_object(self):
         words = lambda im, psm: self.ocr.words(im, psm)
         img = pic("popup_armero_colocar")
@@ -378,6 +396,8 @@ class FakeDesk(R.Desk):
 class Sim(R.WorkRunner):
     """The helper with the game's screen reading replaced by the simulation."""
 
+    background_chat = False          # chat checked in the loop (fake clock)
+
     def read_panel(self, img):
         return self.desk.game.panel()
 
@@ -489,6 +509,20 @@ class Helper(unittest.TestCase):
         self.assertFalse([t for t in times if start + 4.1 <= t < start + 12.0], times)   # rested 2 s first
         self.assertTrue([t for t in times if t >= start + 12.0])                        # then carries on
         self.assertTrue(any("using the mouse" in s.text for s in r.statuses))
+
+    def test_pointer_reported_a_little_off_does_not_slow_it_down(self):
+        """If Windows reports the pointer a fixed few px from where SK put it
+        (display scaling), SK must not take that as the owner moving it."""
+        r, g, d, c = make()
+        real = d.click
+
+        def click(x, y):
+            real(x, y)
+            d.pos = (x + 15, y + 9)
+        d.click = click
+        run_for(r, g, 60)
+        self.assertEqual(r.stopped_reason, "test time over")
+        self.assertGreaterEqual(r.tasks_done, 2)
 
     def test_moving_away_after_answering_is_allowed(self):
         r, g, d, c = make(work_presence_min=1, work_presence_max=1)
@@ -788,6 +822,57 @@ class BinSignalled(unittest.TestCase):
         self.assertFalse(r._fresh(near))
         c.t += 25                                            # later it may be trash again
         self.assertTrue(r._fresh(near))
+
+
+class CleaningGame(unittest.TestCase):
+    """Limpiar el banco: spots appear one by one; each needs a few clicks;
+    10 cleaned closes the game."""
+
+    GRID = (800, 650, 360, 240)
+
+    def setup(self, clicks_per_spot=4):
+        r, g, d, c = make(game=Game(task="Limpiar el banco"))
+        g.phase = "game"
+        st = {"cleaned": 0, "left": clicks_per_spot, "spot": (880, 700), "clicks": []}
+        spots_at = [(880, 700), (1100, 840), (970, 770), (880, 840), (1100, 700)]
+
+        def click(x, y):
+            g.clicks.append((x, y))
+            if g.phase == "game" and abs(x - st["spot"][0]) <= 8 and abs(y - st["spot"][1]) <= 8:
+                st["left"] -= 1
+                if st["left"] == 0:
+                    st["cleaned"] += 1
+                    st["left"] = clicks_per_spot
+                    st["spot"] = spots_at[st["cleaned"] % len(spots_at)]
+                    if st["cleaned"] == 10:
+                        g.phase, g.remaining = "offers", g.remaining - 1
+        g.click = click
+        g.panel = lambda: (V.PanelState(True, active="Limpiar el banco", working=True, step=(1, 1), remaining=50)
+                           if g.phase == "game" else
+                           V.PanelState(True, offers=[V.Offer("Montar un arma", "Montar un arma", True, (230, 240))],
+                                        remaining=g.remaining))
+        r.ocr = SimpleNamespace(words=lambda img, psm=6: [])
+        for patch in (mock.patch.object(V, "find_clean_game", side_effect=lambda w: self.GRID if g.phase == "game" else None),
+                      mock.patch.object(V, "grid_spots", side_effect=lambda img, grid: [(*st["spot"], 900)]
+                                        if g.phase == "game" else []),
+                      mock.patch.object(R.WorkRunner, "_grid_look", side_effect=lambda img, grid: 40.0
+                                        if g.phase == "game" else 120.0)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        r._pause = lambda reason: (setattr(r, "paused_with", reason), r.stop("test: paused"))
+        return r, g, st
+
+    def test_cleans_ten_spots_until_the_game_closes(self):
+        r, g, st = self.setup()
+        run_for(r, g, 60)
+        self.assertEqual(st["cleaned"], 10)
+        self.assertGreaterEqual(r.tasks_done, 1)
+        self.assertTrue(all(abs(x - sx) <= 8 for (x, y) in g.clicks for sx in [x]))
+
+    def test_banco_is_no_longer_a_mini_game_left_to_the_owner(self):
+        self.assertIn("Limpiar el banco", V.WALKING_TASKS)
+        self.assertNotIn("Limpiar el banco", V.MANUAL_TASKS)
+        self.assertEqual(V.WALKING_TASKS["Limpiar el banco"], "Banco")
 
 
 class AfterPickingUpTheBoxes(unittest.TestCase):

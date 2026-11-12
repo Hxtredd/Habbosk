@@ -71,7 +71,8 @@ tasks; the owner added: type `:beber` when energy gets low.
   Ammunition ends with the money count: SK's money counter must be verified
   (every item sure, "Vistos" matches); SK clicks the digits on the game's
   keypad, checks the box shows them (else clears and pauses), then the tick.
-- Mini-game tasks (Montar un arma, Limpiar el banco) pause it for the owner.
+- Mini-game task Montar un arma pauses it for the owner (Limpiar el banco is
+  done by the helper since 2026-11-12, see below).
 - Safeguards: "¿Sigues ahí?" every 8-15 min (45 s to answer, else stop); a new
   chat line mentioning the owner's Habbo name (Settings > Work helper) pauses +
   beeps until "Continue" (the approved plan: mentions, not every chat line - the
@@ -90,6 +91,18 @@ tasks; the owner added: type `:beber` when energy gets low.
   SK waits with its next click until the pointer has rested 2 s. (This
   replaces safeguard 4's "any key / mouse movement stops it"; the founder's
   condition - present, not AFK - is still covered by "¿Sigues ahí?".)
+- Limpiar el banco (owner's recording 2026-11-12) is now a helper task: click
+  the counter under the "Banco !" marker (several spots if needed) until the
+  "Mostrador Executive" window shows "Limpiar"; then the "Limpia la superficie"
+  game (4 x 3 grid, found from its "Limpias N/10 ... Manchas N/5" footer):
+  every spot - any colour ("it's not always brown") - is clicked, with a
+  small rub, until it's gone, one by one, until the window closes.
+- Faster (owner: "make all the tasks go faster"): the chat check (~1 s of OCR
+  every 3 s) runs beside the work; marker labels are read in parallel; waits
+  0.3 -> 0.1 s between steps, 0.6 -> 0.3 s while waiting for the panel,
+  0.25 -> 0.1 s for a yellow button. The pointer is compared with where SK put
+  it (a fixed offset from display scaling is learned), so a move right after
+  SK's click is still the owner's.
 - Bin signalled (owner 2026-11-12: "the contenedor will be signaled when you're
   done picking up the basura"; SK had clicked the owner's own character where
   the trash had been): during Barrer, the Contenedor arrow means "all

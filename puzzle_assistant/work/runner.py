@@ -114,6 +114,8 @@ class WorkRunner(threading.Thread):
         self._cursor_base: Optional[Tuple[int, int]] = None   # where SK left the pointer
         self._cursor_seen: Optional[Tuple[int, int]] = None
         self._owner_mouse_at = -1e9                      # when the owner last moved the pointer
+        self._offsets: list = []                        # pointer read vs placed, last clicks
+        self._cursor_offset = (0, 0)
         self._said_mouse = False
         self.energy = V.EnergyJudge(int(getattr(cfg, "work_energy_min", 40)))
         self._panel_box: Optional[V.Box] = None
@@ -121,6 +123,7 @@ class WorkRunner(threading.Thread):
         self.tasks_done = 0
         self.started = 0.0
         self._doubt: dict = {}
+        self._mention: Optional[str] = None           # set by the chat watcher
         self._objetos: Optional[V.Point] = None      # the Objetos window's search box (cached)
         self._holding: Optional[str] = None          # what SK picked up for the running task
         self._holding_task: Optional[str] = None
@@ -169,12 +172,28 @@ class WorkRunner(threading.Thread):
             self._check_hands_off()
             self._sleep(min(0.1, max(0.0, end - self.clock())))
 
-    def _mark_own_input(self) -> None:
-        """Right after SK's own click / typing: from now on any NEW input is
-        the owner's (the mouse pointer must also stay where SK left it)."""
+    def _mark_own_input(self, at: Optional[Tuple[int, int]] = None) -> None:
+        """Right after SK's own click / typing: the pointer is where SK put it
+        (`at`); anywhere else from now on means the owner moved it - even right
+        after SK's click."""
         self._sleep(SETTLE)
         self._input_base = self.desk.last_input()
-        self._cursor_base = self.desk.cursor()
+        cur = self.desk.cursor()
+        if at is not None and cur is not None:
+            d = (cur[0] - at[0], cur[1] - at[1])
+            # Windows reporting the pointer a fixed few px off (display scaling)
+            # shows as the same offset click after click: that is not the owner
+            self._offsets = (self._offsets + [d])[-3:]
+            if len(self._offsets) == 3 and all(abs(o[0] - d[0]) <= 2 and abs(o[1] - d[1]) <= 2
+                                               for o in self._offsets):
+                self._cursor_offset = d
+            ox, oy = self._cursor_offset
+            at = (at[0] + ox, at[1] + oy)
+        self._cursor_base = at if at is not None else cur
+        self._cursor_seen = self._cursor_base
+        if at is not None and cur is not None and \
+                max(abs(cur[0] - at[0]), abs(cur[1] - at[1])) > MOUSE_SLACK:
+            self._owner_mouse_at = self.clock()
 
     def _check_hands_off(self) -> None:
         """Esc stops; the owner moving the pointer is noted (SK then waits
@@ -225,7 +244,7 @@ class WorkRunner(threading.Thread):
                       "away from the game and start again.")
             return False
         self.desk.click(int(sx), int(sy))
-        self._mark_own_input()
+        self._mark_own_input((int(sx), int(sy)))
         return True
 
     def _click(self, pt: V.Point, b: dict) -> None:
@@ -326,6 +345,26 @@ class WorkRunner(threading.Thread):
                 found = line
         return found
 
+    # Speed (owner, 2026-11-12: "make all the tasks go faster"): reading the
+    # chat takes about a second of OCR - it runs beside the work instead of
+    # holding it up; a mention is picked up by the main loop before its next step.
+    background_chat = True
+    CHAT_EVERY = 3.0
+
+    def _chat_watch(self) -> None:
+        import time as _t
+        while not self.stopping:
+            try:
+                img, _ = self.desk.grab()
+                hit = self.check_chat(img)
+                if hit and not self._mention:
+                    self._mention = hit
+            except Exception:
+                pass
+            end = _t.monotonic() + self.CHAT_EVERY
+            while not self.stopping and _t.monotonic() < end:
+                _t.sleep(0.1)
+
     def drink_if_low(self, img) -> None:
         low, value = self.energy.judge(V.read_energy(img, self._ocr_digits))
         if not low:
@@ -363,6 +402,8 @@ class WorkRunner(threading.Thread):
         self._own_input_until = self.clock() + HANDS_AWAY   # the click on "Start working"
         self.desk.stop_key()                          # forget an Esc pressed before starting
         next_chat = next_energy = 0.0
+        if self.background_chat:
+            threading.Thread(target=self._chat_watch, daemon=True, name="work-chat").start()
         self.status("Working - press Esc or “Stop working” to stop.", "ok")
         while not self.stopping:
             now = self.clock()
@@ -382,19 +423,22 @@ class WorkRunner(threading.Thread):
                 presence_at = self._presence_due()
                 continue
             img, b = self.desk.grab()
-            if now >= next_chat:
+            hit = None
+            if self.background_chat:
+                hit, self._mention = self._mention, None
+            elif now >= next_chat:
                 next_chat = now + 3.0
                 hit = self.check_chat(img)
-                if hit:
-                    self._pause(f"Someone mentioned you in the chat: “{hit[:60]}”.")
-                    continue
+            if hit:
+                self._pause(f"Someone mentioned you in the chat: “{hit[:60]}”.")
+                continue
             if now >= next_energy:
                 next_energy = now + 10.0
                 self.drink_if_low(img)
                 if self.stopping:
                     break
             self.step(img, b)
-            self.wait(0.3)
+            self.wait(0.1)
 
     # -- one decision ---------------------------------------------------------
     CONFIRM = 3              # the same "can't tell" on this many fresh looks before stopping
@@ -423,6 +467,9 @@ class WorkRunner(threading.Thread):
         p = self.read_panel(img)
         if not p.found:
             self._unsure("panel", "Stopped: the job panel isn't on screen.")
+            return
+        if (p.active == "Limpiar el banco" or self._holding == "Banco") \
+                and not (p.going or p.carrying or p.deliver) and self.clean_game(p):
             return
         if p.working and not (p.going or p.carrying or p.deliver):
             # picking up / dropping takes a moment; a mini-game would stay
@@ -563,14 +610,74 @@ class WorkRunner(threading.Thread):
         self.status(f"Picking up: {target.label or 'marked object'}.")
         self._click(pt, b)
         btn = self._wait_button(before, pt)
-        if btn is None and target.label_box is not None and not self.stopping:
+        more = []
+        if target.label_box is not None:
             x, y, w, h = target.label_box
-            pt = (x + w // 2, y + h // 2)
+            more.append((x + w // 2, y + h // 2))
+        if target.label == "Banco":
+            # owner: "click the mostrador around where it says Banco until the
+            # Limpiar button pops up" - a few spots on the counter under the label
+            cx, cy = target.click_point
+            more += [(cx - 14, cy + 4), (cx + 14, cy + 4), (cx, cy + 12), (cx - 24, cy + 10), (cx + 24, cy + 10)]
+        for pt in more:
+            if btn is not None or self.stopping:
+                break
             img2, _ = self.desk.grab()
             before = V.yellow_buttons(img2)
             self._click(pt, b)
             btn = self._wait_button(before, pt)
         return btn
+
+    # -- the cleaning game (Limpiar el banco) -----------------------------------
+    CLEAN_LIMIT = 40.0       # s: the game itself lasts 28 s
+
+    def clean_game(self, p: V.PanelState) -> bool:
+        """Owner's recording 2026-11-12: "Limpia la superficie" - spots appear in
+        a 4 x 3 grid; click each until it disappears, one by one (any colour).
+        False = the game isn't on screen."""
+        img, b = self.desk.grab()
+        grid = V.find_clean_game(self.ocr.words(img, 11))
+        if grid is None:
+            return False
+        self._acted()
+        gx, gy, gw, gh = grid
+        ref = self._grid_look(img, grid)
+        self.status("Cleaning the spots.")
+        end = self.clock() + self.CLEAN_LIMIT
+        target, k = None, 0
+        while not self.stopping and self.clock() < end:
+            img, _ = self.desk.grab()
+            if self._grid_look(img, grid) is None or abs(self._grid_look(img, grid) - ref) > 25:
+                break                                   # the game's window has closed
+            spots = V.grid_spots(img, grid)
+            if not spots:
+                target = None
+                self.wait(0.05)
+                continue
+            if target is not None:                       # stay on the spot being rubbed
+                near = [s for s in spots if abs(s[0] - target[0]) <= 25 and abs(s[1] - target[1]) <= 25]
+                target = near[0][:2] if near else None
+            if target is None:
+                target = spots[0][:2]
+            k += 1
+            jig = ((0, 0), (4, 2), (-4, -2))[k % 3]      # a little rub, as by hand
+            self._screen_click(b["left"] + target[0] + jig[0], b["top"] + target[1] + jig[1])
+            self.wait(0.03)
+        if not self.stopping:
+            self.status("Spots cleaned.", "ok")
+            self._wait_change(p, "the cleaning")
+        return True
+
+    @staticmethod
+    def _grid_look(img, grid) -> Optional[float]:
+        """The grid's typical brightness (its empty cells): changes when the
+        game's window closes."""
+        import numpy as np
+        x, y, w, h = grid
+        c = img[max(0, y):y + h, max(0, x):x + w]
+        if getattr(c, "size", 0) == 0:
+            return None
+        return float(np.median(c))
 
     def objetos_bullet(self, img, b, p: V.PanelState) -> bool:
         """Owner, 2026-11-12: some bullets can't be seen (a game glitch). The
@@ -606,7 +713,7 @@ class WorkRunner(threading.Thread):
     def _wait_button(self, before, pt, within: int = 320) -> Optional[V.Box]:
         end = self.clock() + BUTTON_WAIT
         while not self.stopping and self.clock() < end:
-            self.wait(0.25)
+            self.wait(0.1)
             img, _ = self.desk.grab()
             btn = V.new_button_near(before, V.yellow_buttons(img), pt, within)
             if btn is not None:
@@ -699,7 +806,7 @@ class WorkRunner(threading.Thread):
                tuple(o.title for o in p.offers))
         end = self.clock() + STEP_TIMEOUT
         while not self.stopping and self.clock() < end:
-            self.wait(0.6)
+            self.wait(0.3)
             if allow_money and self._money_ready():
                 return
             if self.clock() - self.money_seen_at < 2.0:     # the money window is running
