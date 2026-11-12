@@ -176,6 +176,18 @@ tasks; the owner added: type `:beber` when energy gets low.
   pictures in tests/fixtures/work (crops without chat or names);
   tests/test_work.py.
 
+## Combat automation - founder's answer 2026-11-12
+
+The owner asked the HabboSK founder directly (Discord DM, screenshot shown
+to the dev session, question and answer in order): may an automatic bot do
+shootouts and fight for the player? Answer: yes, as long as the player stays
+active and does not leave the monitor ("there are people who do it"). The
+owner confirmed the account is the founder's. Same condition as job work, so
+the same kind of safeguards apply (start with a button, Esc / button stops,
+"¿Sigues ahí?", pause on a chat mention, nothing done when unsure). Nothing
+built yet: first the owner's clips of real fights, then a written plan for
+approval.
+
 ## Owner preferences
 
 - Trial updates (owner, 2026-11-12: "skip the full suite whenever we update"):
