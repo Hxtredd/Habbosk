@@ -91,6 +91,9 @@ tasks; the owner added: type `:beber` when energy gets low.
   SK waits with its next click until the pointer has rested 2 s. (This
   replaces safeguard 4's "any key / mouse movement stops it"; the founder's
   condition - present, not AFK - is still covered by "¿Sigues ahí?".)
+- Cleaning game clicks (owner 2026-11-12: brown spots take 5 clicks, blue 4,
+  white 2; a fading brown spot looked clean to SK too early): every spot gets
+  5 clicks before SK looks again; still clearly there -> 5 more (3 rounds max).
 - Searching instead of quitting (owner 2026-11-12: "whenever you can't find a
   task, search for what it's doing instead of just quitting"): a marker,
   button, panel, rack or step that can't be found/done makes SK look again

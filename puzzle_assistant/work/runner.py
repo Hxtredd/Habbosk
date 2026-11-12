@@ -669,6 +669,9 @@ class WorkRunner(threading.Thread):
 
     # -- the cleaning game (Limpiar el banco) -----------------------------------
     CLEAN_LIMIT = 40.0       # s: the game itself lasts 28 s
+    CLEAN_CLICKS = 5         # clicks per spot (owner: brown 5, blue 4, white 2 - 5 for all)
+    CLEAN_GAP = 0.08         # s between those clicks
+    CLEAN_ROUNDS = 3         # a spot still clearly there after 5 clicks gets up to 2 more rounds
 
     def clean_game(self, p: V.PanelState) -> bool:
         """Owner's recording 2026-11-12: "Limpia la superficie" - spots appear in
@@ -683,25 +686,33 @@ class WorkRunner(threading.Thread):
         ref = self._grid_look(img, grid)
         self.status("Cleaning the spots.")
         end = self.clock() + self.CLEAN_LIMIT
-        target, k = None, 0
+        target, rounds = None, 0
         while not self.stopping and self.clock() < end:
             img, _ = self.desk.grab()
             if self._grid_look(img, grid) is None or abs(self._grid_look(img, grid) - ref) > 25:
                 break                                   # the game's window has closed
             spots = V.grid_spots(img, grid)
-            if not spots:
-                target = None
+            if target is not None:
+                near = [s for s in spots if abs(s[0] - target[0]) <= 25 and abs(s[1] - target[1]) <= 25]
+                if near and rounds < self.CLEAN_ROUNDS:
+                    target = near[0][:2]                 # still clearly there: 5 more
+                else:
+                    target, rounds = None, 0             # done - next spot
+                    continue
+            elif spots:
+                target, rounds = spots[0][:2], 0
+            else:
                 self.wait(0.05)
                 continue
-            if target is not None:                       # stay on the spot being rubbed
-                near = [s for s in spots if abs(s[0] - target[0]) <= 25 and abs(s[1] - target[1]) <= 25]
-                target = near[0][:2] if near else None
-            if target is None:
-                target = spots[0][:2]
-            k += 1
-            jig = ((0, 0), (4, 2), (-4, -2))[k % 3]      # a little rub, as by hand
-            self._screen_click(b["left"] + target[0] + jig[0], b["top"] + target[1] + jig[1])
-            self.wait(0.03)
+            # owner (2026-11-12): brown spots take 5 clicks, blue 4, white 2 - and
+            # a fading brown one looked clean to SK too early: every spot gets
+            # CLEAN_CLICKS clicks before SK looks at it again
+            rounds += 1
+            for k in range(self.CLEAN_CLICKS):
+                jig = ((0, 0), (4, 2), (-4, -2))[k % 3]      # a little rub, as by hand
+                if not self._screen_click(b["left"] + target[0] + jig[0], b["top"] + target[1] + jig[1]):
+                    break
+                self.wait(self.CLEAN_GAP)
         if not self.stopping:
             self.status("Spots cleaned.", "ok")
             self._wait_change(p, "the cleaning")

@@ -891,6 +891,22 @@ class CleaningGame(unittest.TestCase):
         self.assertGreaterEqual(r.tasks_done, 1)
         self.assertTrue(all(abs(x - sx) <= 8 for (x, y) in g.clicks for sx in [x]))
 
+    def test_five_clicks_on_every_spot_even_when_it_looks_clean_early(self):
+        """Owner (2026-11-12): a brown spot needs 5 clicks but fades so SK saw it
+        as clean after fewer. Here a spot stops showing after 2 clicks yet
+        needs 5: every one still gets its 5."""
+        r, g, st = self.setup(clicks_per_spot=5)
+        shown = {"n": 0}
+        real_spots = V.grid_spots
+
+        def faint_after_two(img, grid):
+            # what SK sees: nothing once 2 clicks were made on the current spot
+            return [] if st["left"] <= 3 else [(*st["spot"], 900)]
+        V.grid_spots.side_effect = lambda img, grid: faint_after_two(img, grid) if g.phase == "game" else []
+        run_for(r, g, 80)
+        self.assertEqual(st["cleaned"], 10)
+        self.assertGreaterEqual(r.tasks_done, 1)
+
     def test_banco_is_no_longer_a_mini_game_left_to_the_owner(self):
         self.assertIn("Limpiar el banco", V.WALKING_TASKS)
         self.assertNotIn("Limpiar el banco", V.MANUAL_TASKS)
