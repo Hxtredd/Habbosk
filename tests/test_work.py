@@ -247,6 +247,17 @@ class ReadingWithOcr(unittest.TestCase):
         room = pic("room_pickup_basura")
         self.assertIsNone(V.find_objetos_search(room, self.ocr.words(room, 11), words))
 
+    def test_objetos_window_short(self):
+        """Owner's screen 2026-11-12: a short Objetos window (one "Bala") with
+        the bright room right under it - the list was not read at all."""
+        img = pic("objetos_short")
+        words = lambda im, psm: self.ocr.words(im, psm)
+        search = V.find_objetos_search(img, self.ocr.words(img, 11), words)
+        self.assertIsNotNone(search)
+        entries = V.objetos_entries(img, search, words)
+        self.assertEqual(len(entries), 1)
+        self.assertLess(abs(entries[0][1] - 142), 5)
+
     def test_energy(self):
         for name, value in (("energy_119", 119), ("energy_83", 83), ("energy_74", 74)):
             e = V.read_energy(pic(name), self.digits, top_part=1.0)
@@ -586,27 +597,36 @@ class Helper(unittest.TestCase):
         self.assertFalse(hasattr(r, "paused_with"))
         self.assertTrue(g.clicks)
 
-    def test_click_that_does_nothing_stops(self):
+    def test_click_that_does_nothing_keeps_searching(self):
         r, g, d, c = make()
         g.dead_clicks = True
         run_for(r, g, 120)
-        self.assertIn("nothing happened", r.stopped_reason)
+        self.assertEqual(r.stopped_reason, "test time over")          # keeps searching, doesn't quit
+        self.assertTrue(any("Searching" in s.text and 'Nothing happened' in s.text for s in r.statuses), [s.text for s in r.statuses][-5:])
+        self.assertGreaterEqual(d.beeps, 1)                  # after a minute it lets the owner know
 
-    def test_unsure_target_stops(self):
+    def test_unsure_target_is_never_clicked_and_search_goes_on(self):
         r, g, d, c = make()
         g.phase = "going"
         g.markers = lambda: [V.Marker("arrow", (300, 300, 16, 22)), V.Marker("arrow", (600, 300, 16, 22))]
         run_for(r, g, 30)
-        self.assertIn("not sure", r.stopped_reason)
+        self.assertEqual(r.stopped_reason, "test time over")          # keeps searching, doesn't quit
+        self.assertTrue(any("Searching" in s.text and 'not sure which one' in s.text for s in r.statuses), [s.text for s in r.statuses][-5:])
         self.assertEqual(g.clicks, [])
 
-    def test_no_marker_stops(self):
+    def test_no_marker_searches_until_it_appears(self):
         r, g, d, c = make()
         g.phase = "going"
-        g.markers = lambda: [V.Marker("bubble", (500, 500, 22, 20), None, "Tarea")]
-        run_for(r, g, 30)
-        self.assertIn("can't find", r.stopped_reason)
-        self.assertEqual(g.clicks, [])                       # never clicks a "Tarea" desk
+        real = g.markers
+        start = c()
+        # the marker shows up only after 40 s (e.g. the room was busy)
+        g.markers = lambda: (real() if c() - start > 40 else
+                             [V.Marker("bubble", (500, 500, 22, 20), None, "Tarea")])
+        run_for(r, g, 90)
+        self.assertEqual(r.stopped_reason, "test time over")
+        self.assertTrue(any("Searching" in s.text for s in r.statuses))
+        self.assertGreaterEqual(r.tasks_done, 1)                # found it and went on
+        self.assertNotIn((500 + 11, 500 + 20 + 20), g.clicks)   # never clicked the "Tarea" desk
 
     def test_only_minigames_offered_pauses(self):
         r, g, d, c = make()
@@ -616,11 +636,12 @@ class Helper(unittest.TestCase):
         self.assertIn("mini-game", r.paused_with)
         self.assertEqual(g.clicks, [])
 
-    def test_no_job_panel_stops(self):
+    def test_no_job_panel_keeps_searching(self):
         r, g, d, c = make()
         g.panel = lambda: V.PanelState(False)
         run_for(r, g, 30)
-        self.assertIn("job panel", r.stopped_reason)
+        self.assertEqual(r.stopped_reason, "test time over")          # keeps searching, doesn't quit
+        self.assertTrue(any("Searching" in s.text and 'job panel' in s.text for s in r.statuses), [s.text for s in r.statuses][-5:])
 
     def test_low_energy_types_beber_and_checks_it_rose(self):
         r, g, d, c = make(work_energy_min=40)
@@ -731,7 +752,8 @@ class SeveralBasura(unittest.TestCase):
                    if any(p == V.button_click_point((x - 60, y - 40, 160, 36)) for x, y in self.SPOTS)]
         self.assertEqual(len(buttons), 2)
         self.assertFalse(any(abs(x - 712) < 30 and abs(y - 343) < 30 for x, y in g.clicks))
-        self.assertIn("no yellow button", r.stopped_reason)
+        self.assertEqual(r.stopped_reason, "test time over")          # keeps searching, doesn't quit
+        self.assertTrue(any("Searching" in s.text and 'No yellow button' in s.text for s in r.statuses), [s.text for s in r.statuses][-5:])
 
 
 class WhereToDrop(unittest.TestCase):
@@ -925,14 +947,15 @@ class GunRack(unittest.TestCase):
         self.assertGreaterEqual(r.tasks_done, 1, r.stopped_reason)
         self.assertFalse(g.wrong_placed)
 
-    def test_never_the_rack_stops_without_pressing_colocar(self):
+    def test_desk_selected_again_and_again_never_colocar_keeps_trying(self):
         r, g, d, c = make()
         g.rack_after = ["Mostrador de armas"] * 10
         run_for(r, g, 60)
-        self.assertIn("couldn't select the Armero para Pistolas", r.stopped_reason)
-        self.assertIn("Mostrador de armas", r.stopped_reason)
-        self.assertFalse(g.wrong_placed)
-        self.assertEqual(r.tasks_done, 0)
+        self.assertEqual(r.stopped_reason, "test time over")          # keeps searching, doesn't quit
+        self.assertTrue(any("Searching" in s.text and "Couldn't select the Armero para Pistolas" in s.text for s in r.statuses), [s.text for s in r.statuses][-5:])
+        self.assertTrue(any("Mostrador de armas" in s.text for s in r.statuses))
+        self.assertFalse(g.wrong_placed)                       # never "Colocar" on the desk
+        self.assertGreaterEqual(r.tasks_done, 1)               # kept trying until it got the rack
 
     def test_trash_still_goes_to_the_bin_label(self):
         p = V.PanelState(True, active="Barrer casquillos", carrying=True, load=(1, 1), load_kind="Basura")
@@ -982,15 +1005,30 @@ class InvisibleBullets(unittest.TestCase):
         self.assertEqual(g.clicks[i + 1], V.button_click_point(self.BUTTON))
         self.assertNotIn((1660, 109), g.clicks)                 # never the typed "bala"
 
+    def test_basura_without_button_goes_straight_to_the_list(self):
+        """Owner: "when SK keeps clicking trying to find something on barrer
+        casquillos and it can't find it, click where it says Bala"."""
+        r, g = self.setup()
+        ghost = V.Marker("bubble", (700, 500, 22, 20), (695, 530, 33, 13), "Basura")   # its bullet is invisible
+        real = g.markers
+        g.markers = lambda: [ghost] + real() if g.phase == "going" else real()
+        run_for(r, g, 40)
+        self.assertGreaterEqual(r.tasks_done, 1, r.stopped_reason)
+        i = g.clicks.index(ghost.click_point)
+        after = g.clicks[i + 1:i + 3]
+        self.assertIn(self.ENTRY, after)                     # the list right after the ghost marker
+
     def test_no_bullet_listed_stops_as_before(self):
         r, g = self.setup(entries=False)
         run_for(r, g, 40)
-        self.assertIn("can't find", r.stopped_reason)
+        self.assertEqual(r.stopped_reason, "test time over")          # keeps searching, doesn't quit
+        self.assertTrue(any("Searching" in s.text and "can't find" in s.text for s in r.statuses), [s.text for s in r.statuses][-5:])
 
     def test_no_button_after_clicking_bala_stops(self):
         r, g = self.setup(button=False)
         run_for(r, g, 40)
-        self.assertIn("Objetos list but no yellow button", r.stopped_reason)
+        self.assertEqual(r.stopped_reason, "test time over")          # keeps searching, doesn't quit
+        self.assertTrue(any("Searching" in s.text and 'Objetos list but no yellow button' in s.text for s in r.statuses), [s.text for s in r.statuses][-5:])
 
 
 class Money(unittest.TestCase):
@@ -1009,31 +1047,55 @@ class Money(unittest.TestCase):
         self.assertEqual(k["ok"], (1100.0, 840.0))
         self.assertIsNone(R.keypad_points((800, 700, 360, 110)))     # only 3 rows seen: not sure
 
-    def run_money(self, st, shown="49"):
+    def run_money(self, st, box=("", "49")):
+        """box: what the answer box shows each time SK reads it (before / after typing ...)."""
         r, g, d, c = make()
         r.on_money(st, self.place())
         r._pause = lambda reason: (setattr(r, "paused_with", reason), r.stop("test: paused"))
-        with mock.patch.object(R, "read_input_digits", return_value=shown):
+        seq = list(box)
+        with mock.patch.object(R, "read_input_digits", side_effect=lambda *a: seq.pop(0) if len(seq) > 1 else seq[0]):
             r.step(None, {"left": 0, "top": 0})
         return r, g
 
+    def keys(self):
+        return {k: (int(x), int(y)) for k, (x, y) in R.keypad_points(self.place()["keypad"]).items()}
+
     def test_types_a_sure_total_and_presses_ok(self):
         r, g = self.run_money(self.state())
-        k = R.keypad_points(self.place()["keypad"])
+        k = self.keys()
         self.assertEqual(g.clicks, [k["4"], k["9"], k["ok"]])
         self.assertFalse(hasattr(r, "paused_with"))
 
-    def test_unsure_count_is_left_to_the_owner(self):
+    def test_an_unsure_count_is_still_typed(self):
+        """Owner (2026-11-12): "instead of telling me to put it in, try again"."""
         r, g = self.run_money(self.state(verified=False, problems=["item 3 unclear (read 5)"]))
-        self.assertEqual(g.clicks, [])
-        self.assertIn("not sure", r.paused_with)
+        k = self.keys()
+        self.assertEqual(g.clicks, [k["4"], k["9"], k["ok"]])
+        self.assertFalse(hasattr(r, "paused_with"))
 
-    def test_wrong_digits_in_the_box_are_cleared_not_sent(self):
-        r, g = self.run_money(self.state(), shown="4")
-        k = R.keypad_points(self.place()["keypad"])
+    def test_wrong_digits_in_the_box_are_cleared_and_typed_again(self):
+        # 1st try the box shows "4" (a digit got lost), cleared, 2nd try right
+        r, g = self.run_money(self.state(), box=("", "4", "4", "49"))
+        k = self.keys()
+        self.assertEqual(g.clicks, [k["4"], k["9"], k["del"], k["del"], k["4"], k["9"], k["ok"]])
+        self.assertFalse(hasattr(r, "paused_with"))
+
+    def test_old_digits_are_cleared_before_typing(self):
+        r, g = self.run_money(self.state(), box=("128", "49"))
+        k = self.keys()
+        self.assertEqual(g.clicks, [k["del"]] * 3 + [k["4"], k["9"], k["ok"]])
+
+    def test_box_never_right_never_presses_ok(self):
+        r, g = self.run_money(self.state(), box=("", "4"))
+        k = self.keys()
         self.assertNotIn(k["ok"], g.clicks)
-        self.assertEqual(g.clicks[-2:], [k["del"], k["del"]])
-        self.assertIn("box shows", r.paused_with)
+        self.assertFalse(hasattr(r, "paused_with"))
+        self.assertTrue(any("Searching" in s.text for s in r.statuses))
+
+    def test_unreadable_coin_types_nothing_and_waits(self):
+        r, g = self.run_money(self.state(verified=False, items=[(1, True), (None, False)]))
+        self.assertEqual(g.clicks, [])
+        self.assertFalse(hasattr(r, "paused_with"))
 
     def test_unfinished_count_is_ignored(self):
         r, g, d, c = make()

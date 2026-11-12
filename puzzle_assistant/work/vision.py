@@ -583,7 +583,16 @@ def find_objetos_search(img: np.ndarray, words, ocr_words) -> Optional[Point]:
 def objetos_entries(img: np.ndarray, search: Point, ocr_words) -> List[Point]:
     """The "Bala" lines of the list under the search box, top first."""
     sx, sy = search
-    found = _words_in(img, (sx - 25, sy + 22, 140, 260), ocr_words, 6)   # inside the window only
+    # owner's screen 2026-11-12: the window can be short - read only down to
+    # its bottom edge (below it the room's bright wall spoils the reading)
+    col = img[:, max(0, sx - 20)].astype(np.int16)
+    bottom = sy + 22
+    while bottom < min(img.shape[0], sy + 282) and int(col[bottom].max()) < 80:
+        bottom += 1
+    height = max(0, bottom - (sy + 22) - 2)
+    if height < 12:
+        return []
+    found = _words_in(img, (sx - 25, sy + 22, 140, height), ocr_words, 6)   # inside the window only
     return sorted(((x, y) for t, x, y, _ in found if norm(t).strip(".,:;") == "bala"),
                   key=lambda p: p[1])
 

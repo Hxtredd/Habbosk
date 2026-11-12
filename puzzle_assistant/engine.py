@@ -610,7 +610,13 @@ class Engine(threading.Thread):
             if ocr_job is not None and ocr_job.done():
                 try:
                     # v3.5: with the items seen in the picture the counter was read from
-                    tracker.set_vistos(parse_vistos(ocr_job.result()), ocr_visible)
+                    v = parse_vistos(ocr_job.result())
+                    if tracker.frozen and v is not None and v[0] < v[1]:
+                        # the game shows the coins again (e.g. after a rejected
+                        # total): a new count - the work helper types it again
+                        tracker = MoneyTracker()
+                        last_sig = None
+                    tracker.set_vistos(v, ocr_visible)
                 except Exception:
                     pass
                 ocr_job = None

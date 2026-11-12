@@ -91,6 +91,23 @@ tasks; the owner added: type `:beber` when energy gets low.
   SK waits with its next click until the pointer has rested 2 s. (This
   replaces safeguard 4's "any key / mouse movement stops it"; the founder's
   condition - present, not AFK - is still covered by "¿Sigues ahí?".)
+- Searching instead of quitting (owner 2026-11-12: "whenever you can't find a
+  task, search for what it's doing instead of just quitting"): a marker,
+  button, panel, rack or step that can't be found/done makes SK look again
+  (panel and Objetos window found afresh, growing pauses up to 3 s, one beep
+  after a minute) - never a stop, and still nothing unsure is clicked. Stops
+  remain: Esc, "Stop working", time limit, "¿Sigues ahí?", SK's window over
+  the spot, :beber problems.
+- Money count retried (owner: "if the count is wrong, instead of telling me
+  to put it in, try again"): a not-fully-sure count is still typed (best
+  reading); the box is cleared first and retyped up to 3 times when it shows
+  something else; when the game shows the coins again (Vistos back below M
+  after a finished count) the engine starts a new count and SK types again.
+  Nothing is typed only when a coin couldn't be read at all.
+- Invisible bullets, owner 2026-11-12 ("SK couldn't find the bala"): a short
+  Objetos window is read only down to its bottom edge (the bright room under
+  it hid the list); in Barrer, a Basura that gives no button sends SK straight
+  to the first "Bala" of the Objetos list.
 - Limpiar el banco (owner's recording 2026-11-12) is now a helper task: click
   the counter under the "Banco !" marker (several spots if needed) until the
   "Mostrador Executive" window shows "Limpiar"; then the "Limpia la superficie"

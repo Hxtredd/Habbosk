@@ -123,6 +123,10 @@ class WorkRunner(threading.Thread):
         self.tasks_done = 0
         self.started = 0.0
         self._doubt: dict = {}
+        self._search_since: Optional[float] = None   # when SK started searching
+        self._search_beeped = False
+        self._searches = 0
+        self._money_tries = 0
         self._mention: Optional[str] = None           # set by the chat watcher
         self._objetos: Optional[V.Point] = None      # the Objetos window's search box (cached)
         self._holding: Optional[str] = None          # what SK picked up for the running task
@@ -445,8 +449,10 @@ class WorkRunner(threading.Thread):
 
     def _unsure(self, key: str, message: str, pause: bool = False) -> None:
         """Something is unclear. One picture can be caught mid-change (a window
-        opening, the character walking in front of a label): look again, and
-        only stop / pause when it stays unclear CONFIRM times in a row."""
+        opening, the character walking in front of a label): look again. If
+        it stays unclear CONFIRM times in a row: pause (mini-game for the
+        owner) or keep SEARCHING - owner, 2026-11-12: "whenever you can't find
+        a task, search for what it's doing instead of just quitting"."""
         n = self._doubt.get(key, 0) + 1
         self._doubt = {key: n}
         if n < self.CONFIRM:
@@ -455,7 +461,34 @@ class WorkRunner(threading.Thread):
         if pause:
             self._pause(message)
         else:
-            self.stop(message)
+            self._search(message)
+
+    SEARCH_BEEP = 60.0       # s of searching before SK beeps once to let the owner know
+
+    def _search(self, message: str) -> None:
+        """Couldn't find / do something: look again instead of stopping. The
+        panel and the Objetos window are looked for afresh, the next look
+        comes a moment later (longer the longer it lasts), and after a minute
+        SK beeps once. It never clicks anything it isn't sure of meanwhile;
+        Esc, "Stop working", the time limit and "¿Sigues ahí?" still apply."""
+        what = message.replace("Stopped: ", "", 1)
+        now = self.clock()
+        if self._search_since is None:
+            self._search_since, self._search_beeped = now, False
+        self._searches += 1
+        self._panel_box = None                       # moved? find it again
+        self._objetos = None
+        long = now - self._search_since
+        self.status(f"Searching ({long:.0f} s): {what} Looking again…", "warn")
+        if long >= self.SEARCH_BEEP and not self._search_beeped:
+            self._search_beeped = True
+            self.desk.beep()
+            self.status(f"Still searching after a minute: {what} (Esc or “Stop working” stops it).", "warn")
+        self.wait(min(3.0, 0.5 * self._searches))
+
+    def _progress(self) -> None:
+        """Something moved on (the panel changed): searching is over."""
+        self._search_since, self._searches = None, 0
 
     def _acted(self) -> None:
         self._doubt = {}
@@ -587,6 +620,12 @@ class WorkRunner(threading.Thread):
             btn = self._try_target(target, b)
             if self.stopping:
                 return
+            if btn is None and want == "Basura":
+                # owner (2026-11-12): a Basura that gives no button is most likely
+                # an invisible bullet - straight to "Bala" in the Objetos window
+                img3, _ = self.desk.grab()
+                if self.objetos_bullet(img3, b, p):
+                    return
             if btn is not None:
                 self._click(V.button_click_point(btn), b)
                 self._picked(want, p)
@@ -598,7 +637,7 @@ class WorkRunner(threading.Thread):
             if self.objetos_bullet(img3, b, p):
                 return
         if not self.stopping:
-            self.stop("Stopped: no yellow button appeared for any marked object.")
+            self._search("No yellow button appeared for the marked object(s).")
 
     def _try_target(self, target: V.Marker, b) -> Optional[V.Box]:
         """Click the object under a marker (then its label once); the yellow
@@ -703,7 +742,7 @@ class WorkRunner(threading.Thread):
         if self.stopping:
             return True
         if btn is None:
-            self.stop("Stopped: clicked “Bala” in the Objetos list but no yellow button appeared.")
+            self._search("Clicked “Bala” in the Objetos list but no yellow button appeared.")
             return True
         self._click(V.button_click_point(btn), b)
         self._picked("Basura", p)
@@ -785,8 +824,8 @@ class WorkRunner(threading.Thread):
                 self._click(V.button_click_point(found), b)          # "Colocar"
                 self._wait_change(p, "placing the ammunition", allow_money=True)
                 return
-        self.stop("Stopped: couldn't select the Armero para Pistolas"
-                  + (f" (selected: {', '.join(seen)})" if seen else "") + ".")
+        self._search("Couldn't select the Armero para Pistolas"
+                     + (f" (selected: {', '.join(seen)})" if seen else "") + ".")
 
     @staticmethod
     def deliver_point(a: V.Marker, p: V.PanelState) -> V.Point:
@@ -822,9 +861,10 @@ class WorkRunner(threading.Thread):
                     self._holding = None
                     self.tasks_done += 1
                     self.status(f"Task done ({self.tasks_done} this session).", "ok")
+                self._progress()
                 return
         if not self.stopping:
-            self.stop(f"Stopped: nothing happened after {what} (waited {STEP_TIMEOUT:.0f} s).")
+            self._search(f"Nothing happened after {what} (waited {STEP_TIMEOUT:.0f} s).")
 
     # -- the money count --------------------------------------------------------
     def _money_ready(self) -> bool:
@@ -834,42 +874,59 @@ class WorkRunner(threading.Thread):
         return st is not None and bool(st.done) and self.clock() - self.money_at < 30.0 \
             and "keypad" in place
 
+    MONEY_TRIES = 3          # times the total is typed again when the box shows something else
+
     def type_money(self, b) -> None:
+        """Type the counted total on the game's keypad. Owner (2026-11-12): "if
+        the count is wrong, instead of telling me to put it in, I want SK to
+        try again" - so a count SK isn't fully sure of is still typed (its
+        best reading), the box is cleared and retyped when it shows something
+        else, and when the game rejects a total and shows the coins again SK
+        counts again (the engine starts a new count) and retypes. Only when a
+        coin couldn't be read at all is nothing typed - SK waits for the game
+        to show the round again."""
         st, place = self.money
         self.money = None
-        if not st.verified or not all(s for _, s in st.items) or st.problems:
-            self._pause("Money count not sure (" + ("; ".join(st.problems) or "unclear item")
-                        + ") - please type the total yourself.")
-            return
         keys = keypad_points(place["keypad"])
         if keys is None:
-            self.stop("Stopped: couldn't work out the game's keypad.")
+            self._search("Couldn't work out the game's keypad.")
+            return
+        if not st.items or any(v is None for v, _ in st.items):
+            self.status("A coin or bill couldn't be read - nothing typed; SK counts again "
+                        "if the game shows the coins again.", "warn")
             return
         total = str(int(st.total))
-        self.status(f"Typing the total: {total}.")
-        for d in total:
-            sx, sy = keys[d]
-            if not self._screen_click(sx, sy):                # screen coordinates already
-                return
-            self.wait(0.25)
-            if self.stopping:
-                return
-        img, bb = self.desk.grab()
-        shown = read_input_digits(img, bb, place["input"], self._ocr_digits)
-        if shown != total:
-            sx, sy = keys["del"]
-            for _ in total:
-                if not self._screen_click(sx, sy):
+        sure = st.verified and all(s for _, s in st.items) and not st.problems
+        if sure:
+            self.status(f"Typing the total: {total}.")
+        else:
+            self.status(f"Count not fully sure ({'; '.join(st.problems) or 'unclear item'}) - "
+                        f"trying {total}.", "warn")
+        for attempt in range(self.MONEY_TRIES):
+            img, bb = self.desk.grab()
+            old = read_input_digits(img, bb, place["input"], self._ocr_digits)
+            for _ in range(len(old) + (1 if attempt else 0)):        # clear the box first
+                if not self._screen_click(*keys["del"]):
+                    return
+                self.wait(0.1)
+            for d in total:
+                if not self._screen_click(*keys[d]):                 # screen coordinates already
                     return
                 self.wait(0.15)
-            self._pause(f"Typed {total} but the box shows “{shown or '?'}” - "
-                        "cleared it; please type the total yourself.")
-            return
-        sx, sy = keys["ok"]
-        if not self._screen_click(sx, sy):
-            return
-        self.status(f"Total {total} sent.", "ok")
-        self.wait(1.5)
+            if self.stopping:
+                return
+            img, bb = self.desk.grab()
+            shown = read_input_digits(img, bb, place["input"], self._ocr_digits)
+            if shown == total:
+                if not self._screen_click(*keys["ok"]):
+                    return
+                self._money_tries += 1
+                self.status(f"Total {total} sent.", "ok")
+                self.wait(1.5)
+                return
+            self.status(f"The box shows “{shown or '?'}” instead of {total} - clearing and typing again.",
+                        "warn")
+        self._search(f"The box kept showing something else than {total}.")
 
 
 def keypad_points(k) -> Optional[dict]:
