@@ -122,6 +122,8 @@ class WorkRunner(threading.Thread):
         self.started = 0.0
         self._doubt: dict = {}
         self._objetos: Optional[V.Point] = None      # the Objetos window's search box (cached)
+        self._holding: Optional[str] = None          # what SK picked up for the running task
+        self._holding_task: Optional[str] = None
         # SK's own windows on screen (left, top, width, height), kept up to date by
         # the UI. SK can't see them in its screen pictures (they are hidden from
         # capture), so a spot under one of them must never be clicked.
@@ -427,14 +429,36 @@ class WorkRunner(threading.Thread):
         if p.active in V.MANUAL_TASKS:
             self._unsure("manual", f"“{p.active}” is a mini-game task - please do it yourself.", pause=True)
             return
+        if not p.busy:
+            self._holding = None                     # no task running: nothing in hand
+        # Owner (2026-11-12): once the boxes are picked up ("Llevas 1/1 cajas")
+        # SK must go on to the rack, never back to the boxes - even when that
+        # line isn't read: step 2 or later, "Lleva la carga", or SK's own memory
+        # of the pick-up all mean "take it there".
+        holding = self._holding is not None and (p.active is None or self._holding_task is None
+                                                 or p.active == self._holding_task)
+        later_step = p.step is not None and p.step[0] >= 2
         if p.load is not None and p.load[0] < p.load[1]:
             self.pick_up(img, b, p)                  # "Llevas 1/3": collect the rest first
-        elif p.carrying or p.deliver:
+        elif p.carrying or p.deliver or later_step:
             self.deliver(img, b, p)
+        elif holding and not p.going:
+            if self._holding == "Basura" and self._basura_visible(img):
+                self.pick_up(img, b, p)              # more trash on the floor: collect it first
+            else:
+                self.deliver(img, b, p)
         elif p.going or p.active:
             self.pick_up(img, b, p)
         else:
             self.choose_task(b, p)
+
+    def _picked(self, what: Optional[str], p: V.PanelState) -> None:
+        """Remember that something was picked up for the running task."""
+        self._holding = what or "?"
+        self._holding_task = p.active
+
+    def _basura_visible(self, img) -> bool:
+        return any(m.kind == "bubble" and m.label == "Basura" for m in self.markers(img))
 
     def choose_task(self, b, p: V.PanelState) -> None:
         walking = [o for o in p.offers if o.task in V.WALKING_TASKS]
@@ -449,6 +473,7 @@ class WorkRunner(threading.Thread):
             self._unsure("ir", f"Stopped: can't find the “Ir” button of “{o.task}”.")
             return
         self._acted()
+        self._holding = None
         self.status(f"Starting “{o.task}”.")
         self._click(o.ir, b)
         self._wait_change(p, f"“{o.task}” to start")
@@ -486,6 +511,7 @@ class WorkRunner(threading.Thread):
                 return
             if btn is not None:
                 self._click(V.button_click_point(btn), b)
+                self._picked(want, p)
                 self._wait_change(p, "the pick-up")
                 return
         if want == "Basura":
@@ -541,6 +567,7 @@ class WorkRunner(threading.Thread):
             self.stop("Stopped: clicked “Bala” in the Objetos list but no yellow button appeared.")
             return True
         self._click(V.button_click_point(btn), b)
+        self._picked("Basura", p)
         self._wait_change(p, "the pick-up from the Objetos list")
         return True
 
@@ -648,6 +675,7 @@ class WorkRunner(threading.Thread):
                   tuple(o.title for o in q.offers))
             if qs != sig:
                 if p.active and not q.active and (q.remaining or 0) < (p.remaining or 10 ** 6):
+                    self._holding = None
                     self.tasks_done += 1
                     self.status(f"Task done ({self.tasks_done} this session).", "ok")
                 return

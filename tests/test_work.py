@@ -719,6 +719,45 @@ class WhereToDrop(unittest.TestCase):
         self.assertLess(g.clicks[0][1], arrow.box[1])        # above the arrow and its ring
 
 
+class AfterPickingUpTheBoxes(unittest.TestCase):
+    """Owner (2026-11-12): after the boxes are picked up ("Llevas 1/1 cajas")
+    SK must go on to the Armero para Pistolas - it clicked the boxes again."""
+
+    def run_round(self, panel_after):
+        r, g, d, c = make()
+        real_panel = g.panel
+
+        def panel():
+            q = real_panel()
+            return panel_after(q) if g.phase == "carrying" else q
+        g.panel = panel
+        run_for(r, g, 40)
+        return r, g
+
+    def box_clicks_after_pickup(self, g):
+        """Clicks on the boxes' marker between picking them up and the rack."""
+        first_button = g.clicks.index(V.button_click_point(g.button()))
+        rest = g.clicks[first_button + 1:]
+        rack = [i for i, (x, y) in enumerate(rest) if abs(x - 708) < 30]
+        upto = rest[:rack[0]] if rack else rest
+        return [(x, y) for x, y in upto if abs(x - 312) < 30 and y < 360]
+
+    def test_panel_lines_unread_still_goes_to_the_rack(self):
+        # neither "Llevas 1/1 cajas" nor "Lleva la carga" read: only the task name
+        r, g = self.run_round(lambda q: V.PanelState(True, active=q.active, remaining=q.remaining))
+        self.assertGreaterEqual(r.tasks_done, 1, r.stopped_reason)
+        self.assertEqual(self.box_clicks_after_pickup(g), [])
+
+    def test_step_two_means_take_it_there(self):
+        r, g = self.run_round(lambda q: V.PanelState(True, active=q.active, step=(2, 3), remaining=q.remaining))
+        self.assertGreaterEqual(r.tasks_done, 1, r.stopped_reason)
+        self.assertEqual(self.box_clicks_after_pickup(g), [])
+
+    def test_nothing_read_but_the_panel(self):
+        r, g = self.run_round(lambda q: V.PanelState(True, remaining=q.remaining))
+        self.assertEqual(self.box_clicks_after_pickup(g), [])
+
+
 class GunRack(unittest.TestCase):
     """Owner (2026-11-12): for Colocar la munición the click must select the
     "Armero para Pistolas" (check the window's name) - SK had clicked the desk."""

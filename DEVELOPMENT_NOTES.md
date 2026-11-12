@@ -90,6 +90,12 @@ tasks; the owner added: type `:beber` when energy gets low.
   SK waits with its next click until the pointer has rested 2 s. (This
   replaces safeguard 4's "any key / mouse movement stops it"; the founder's
   condition - present, not AFK - is still covered by "¿Sigues ahí?".)
+- After the pick-up (owner 2026-11-12: "Llevas 1/1 cajas" shown, SK clicked
+  the boxes again): when a panel line isn't read SK no longer falls back to
+  "pick up". Step 2 or later, "Lleva la carga", "Llevas", or SK's own memory
+  of the pick-up for this task mean "take it there"; back to picking up only
+  when the panel clearly says "Ve al objetivo" (or "Llevas N/M" with N < M,
+  or more Basura visible for Barrer).
 - Night in the game (owner's screenshot 2026-11-12): the room is darker, the
   markers' teal ~RGB 32,128,112 (day 40,184,176) and labels dimmer - SK saw no
   marker. Teal is now matched by colour tone; labels are read with the day
