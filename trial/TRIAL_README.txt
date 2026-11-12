@@ -38,7 +38,7 @@ USE THE TRIAL
      - "¿Sigues ahí?" appears now and then: click "Sí, sigo aquí".
      - When someone mentions your name it beeps and pauses: answer them
        yourself, then press "Continue" in SK.
-     - Mini-game tasks (Montar un arma, Limpiar el banco) pause it: do them
+     - Montar un arma (a mini-game) pauses it: do it
        yourself, then press "Continue".
      - When it stops, the reason is shown under the buttons.
 
