@@ -1,8 +1,8 @@
 {
- "commit": "e8b488ce2088ba08498675378cff5ca9a9f07097",
- "zip": "trial_dist/SK_Assistant_TRIAL_e8b488c.zip",
- "size": 18196167,
- "sha256": "ae15c75da811ee0645fa661733645d3e3c08fd39f950f1d30ae5d87d9fd84ffe",
- "built": "2026-11-12T02:28:55",
- "changes": "After picking up the boxes SK goes on to the Armero para Pistolas (never back to the boxes)"
+ "commit": "deff474b2102a72dc5d9d31d005cf67b83da43e9",
+ "zip": "trial_dist/SK_Assistant_TRIAL_deff474.zip",
+ "size": 18239799,
+ "sha256": "e2d35e1eb969fe5311e7175b298a9235c739431b7d013a4e50dfd7bd71ea1376",
+ "built": "2026-11-12T02:37:05",
+ "changes": "Reads half-hidden Basura labels (on the arrow, behind the ring)"
 }
