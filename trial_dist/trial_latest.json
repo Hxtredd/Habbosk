@@ -1,8 +1,8 @@
 {
- "commit": "d8b9d59f0d04f00b082ea311d5781bf3ed38a08e",
- "zip": "trial_dist/SK_Assistant_TRIAL_d8b9d59.zip",
- "size": 18465725,
- "sha256": "52c26a992d1ac75112db634913eaa68796dc01fc96757c8bb7e5918cdc2d654d",
- "built": "2026-11-12T03:08:31",
- "changes": "Keeps searching instead of stopping; money count retried; invisible bullets found with a short Objetos window"
+ "commit": "9a939b02ed420697d734b651668f7e3acca50a34",
+ "zip": "trial_dist/SK_Assistant_TRIAL_9a939b0.zip",
+ "size": 18466225,
+ "sha256": "ef536dfc72cf8d373608f8ef1c7beda32c3d6f3d0d7003e8b15a8ac3592583ab",
+ "built": "2026-11-12T03:15:44",
+ "changes": "Cleaning game: 5 clicks on every spot"
 }
