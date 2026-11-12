@@ -1,8 +1,8 @@
 {
- "commit": "e3ffe1a872d3415464b077494ffe179c074ff250",
- "zip": "trial_dist/SK_Assistant_TRIAL_e3ffe1a.zip",
- "size": 17741180,
- "sha256": "a20788496a4ebd95cc6959b232062238fe18c235b3950533e7c014ea5ff76121",
- "built": "2026-11-12T01:51:19",
- "changes": "Esc / Stop working to stop; ammunition only on the Armero para Pistolas (checked by name)"
+ "commit": "49bbc581a526932539bf7bf08d1365c6c4f5cf99",
+ "zip": "trial_dist/SK_Assistant_TRIAL_49bbc58.zip",
+ "size": 18195212,
+ "sha256": "c8d23121659ad4f2393209055e8a69f69aa2a90006afe09c1509d072ce728cdc",
+ "built": "2026-11-12T02:14:01",
+ "changes": "Works at night in the game (markers, labels, energy, task panel)"
 }
