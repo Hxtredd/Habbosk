@@ -174,6 +174,21 @@ class ReadingWithOcr(unittest.TestCase):
         self.assertEqual(p.active, "Limpiar el banco")
         self.assertTrue(p.working)
 
+    def test_night(self):
+        """Owner's screenshot at night in the game (2026-11-12): darker room,
+        dimmer markers and labels - SK had seen no marker at all."""
+        ms = self.labels("night_room")
+        self.assertEqual([m.kind for m in ms].count("bubble"), 5)       # 4 desks + the ammunition
+        self.assertEqual([m.kind for m in ms].count("arrow"), 1)
+        self.assertGreaterEqual([m.label for m in ms].count("Tarea"), 3)
+        self.assertIn("Munición", [m.label for m in ms if m.kind == "bubble"])
+        e = V.read_energy(pic("night_energy_109"), self.digits, top_part=1.0)
+        self.assertEqual(e.value, 109)
+        self.assertAlmostEqual(e.fraction * 150, 109, delta=8)            # the bar agrees
+        p = self.panel("night_panel")
+        self.assertEqual(p.active, "Colocar la munición")                # "En curso"
+        self.assertTrue(p.going)
+
     def test_name_of_the_selected_object(self):
         words = lambda im, psm: self.ocr.words(im, psm)
         img = pic("popup_armero_colocar")

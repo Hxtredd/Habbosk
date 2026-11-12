@@ -45,8 +45,12 @@ def norm(s: str) -> str:
 # Teal markers
 # ---------------------------------------------------------------------------
 def teal_mask(img: np.ndarray) -> np.ndarray:
+    """The markers' teal, by colour tone rather than brightness: in the game's
+    night the room is darker (owner's screenshot 2026-11-12: ~RGB 32,128,112
+    instead of 40,184,176 by day)."""
     b, g, r = (img[..., i].astype(np.int16) for i in range(3))
-    return ((b > 140) & (g > 150) & (r < 90) & (np.abs(b - g) < 40) & (g - r > 90)).astype(np.uint8)
+    return ((g > 95) & (b > 0.72 * g) & (b < 1.12 * g) & (r < 0.45 * g)
+            & (g - r > 70)).astype(np.uint8)
 
 
 @dataclass
@@ -122,19 +126,32 @@ def label_pixels(img: np.ndarray, m: Marker) -> Tuple[Optional[Box], Optional[np
             if ru and ru[1] - ru[0] >= 24 and (best is None or ru[1] - ru[0] > best[1] - best[0]):
                 best = ru
         rows.append(best)
-    for top in range(len(rows)):
-        if rows[top] is None:
-            continue
-        for bot in range(min(top + 20, len(rows) - 1), top + 8, -1):
-            if rows[bot] is None:
+    # first the daytime look (white text) over every possible pill; only if
+    # none has it, the night look (dimmer text, judged against the pill)
+    for night in (False, True):
+        for top in range(len(rows)):
+            if rows[top] is None:
                 continue
-            a, b = max(rows[top][0], rows[bot][0]), min(rows[top][1], rows[bot][1])
-            if b - a < 24:
-                continue
-            t = c[top + 1:bot, a + 1:b]
-            txt = ((t.min(axis=2) > 185) & (t.max(axis=2) - t.min(axis=2) < 50)).astype(np.uint8) * 255
-            if int(txt.sum()) // 255 >= 15:
-                return (x0 + a, y0 + top, b - a, bot - top), txt
+            for bot in range(min(top + 20, len(rows) - 1), top + 8, -1):
+                if rows[bot] is None:
+                    continue
+                a, b = max(rows[top][0], rows[bot][0]), min(rows[top][1], rows[bot][1])
+                if b - a < 24:
+                    continue
+                t = c[top + 1:bot, a + 1:b]
+                grey = (t.max(axis=2) - t.min(axis=2)) < 50
+                if not night:
+                    txt = ((t.min(axis=2) > 185) & grey).astype(np.uint8) * 255
+                else:
+                    lum = t.min(axis=2)
+                    pill = float(np.median(c[top, a:b].max(axis=1)))
+                    hi = float(np.percentile(lum, 97))
+                    if hi - pill < 70:
+                        continue
+                    thr = max(110.0, hi - 0.3 * (hi - pill))
+                    txt = ((lum > thr) & grey).astype(np.uint8) * 255
+                if int(txt.sum()) // 255 >= 15:
+                    return (x0 + a, y0 + top, b - a, bot - top), txt
     return None, None
 
 
@@ -222,10 +239,19 @@ def find_energy_bar(img: np.ndarray, top_part: float = 1 / 3) -> Optional[Tuple[
         return None
     x, y, w, h, _ = max(bars, key=lambda s: s[2])
     row = top[y + h // 2]
-    e = x + w + 3
-    while e < row.shape[0] and int(np.abs(row[e] - TRACK_BGR).max()) < 14:   # bar's dark track, not the bar background
-        e += 1
-    track = max(e - x, w)
+    # where the number starts (first bright pixel after the fill)
+    num = x + w + 2
+    while num < row.shape[0] and int(row[num].max()) < 150:
+        num += 1
+    if num >= row.shape[0]:
+        return None
+    # the bar's dark track is clearly lighter than the background just before
+    # the number (day: 58,50,44 on 35,24,19; night: 40,35,36 on 19,12,13)
+    bg = int(row[max(x + w, num - 2)].sum())
+    end = x + w + 3                                   # past the fill's soft edge
+    while end < num and int(row[end].sum()) > bg + 30:
+        end += 1
+    track = max(end - x, w)
     return (x, y, track, h), w
 
 
@@ -398,6 +424,16 @@ def parse_panel(words, width: float, panel_img: Optional[np.ndarray] = None) -> 
             break
     p.deliver = "a su sitio" in alltext or "lleva la carga" in alltext
     p.working = "trabajando" in alltext
+    for i, (y, t, row) in enumerate(texts):
+        if re.search(r"en\s*curso", norm(t)):
+            for j in (i, i - 1):
+                if j >= 0:
+                    name = task_name(" ".join(w.text for w in texts[j][2] if w.cx < width * 0.75))
+                    if name:
+                        p.active = name
+                        break
+            if p.active:
+                break
     irs = [(w.cx, w.cy) for _, _, row in texts for w in row
            if _IR.match(w.text) and w.cx > width * 0.7]
     if panel_img is not None:
@@ -413,6 +449,8 @@ def parse_panel(words, width: float, panel_img: Optional[np.ndarray] = None) -> 
         left_title = " ".join(w.text for w in trow if w.cx < width * 0.75)
         name = task_name(left_title)
         in_progress = bool(re.search(r"en\s*curso", norm(title) + " " + nt))
+        if in_progress and p.active:
+            continue
         if in_progress:
             p.active = name or left_title
             continue

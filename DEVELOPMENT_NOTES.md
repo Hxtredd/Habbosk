@@ -90,6 +90,13 @@ tasks; the owner added: type `:beber` when energy gets low.
   SK waits with its next click until the pointer has rested 2 s. (This
   replaces safeguard 4's "any key / mouse movement stops it"; the founder's
   condition - present, not AFK - is still covered by "¿Sigues ahí?".)
+- Night in the game (owner's screenshot 2026-11-12): the room is darker, the
+  markers' teal ~RGB 32,128,112 (day 40,184,176) and labels dimmer - SK saw no
+  marker. Teal is now matched by colour tone; labels are read with the day
+  rule first and, only if no pill has white text, against the pill's own
+  darkness; the energy bar's track is measured against the background before
+  the number (max ~150 day and night). "En curso" next to a task name marks
+  the running task even when its "a N casillas" line is unreadable.
 - Ammunition drop, owner 2026-11-12 ("make sure that in the corner you can
   see the armero para pistolas selected, SK has a problem of clicking on the
   desk itself"): SK clicks where the arrow is, reads the name above the
