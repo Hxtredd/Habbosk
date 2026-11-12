@@ -1,8 +1,8 @@
 {
- "commit": "c8a888bd20b0504998162faf029b030acd165d73",
- "zip": "trial_dist/SK_Assistant_TRIAL_c8a888b.zip",
- "size": 17673291,
- "sha256": "e683572f385cb7a1b58b53caa1d9ec7188fa1bfab455419f60dec124536ac26a",
- "built": "2026-11-12T01:24:12",
- "changes": "Barrer: all Basura before the bin. Ammunition dropped on the three guns."
+ "commit": "879e98f042f5791d318197a00c40d2c5a062a899",
+ "zip": "trial_dist/SK_Assistant_TRIAL_879e98f.zip",
+ "size": 17674382,
+ "sha256": "2d2bc501f3d374f78f50480820f6e5a63a0695e39c4f5414738ca059ac7cc9ad",
+ "built": "2026-11-12T01:38:17",
+ "changes": "Stop with Esc or Stop working only; SK waits while you use the mouse"
 }
