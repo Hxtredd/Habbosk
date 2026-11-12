@@ -1,8 +1,8 @@
 {
- "commit": "ca7adbb99173911ef011691aa4ca771f42fb8029",
- "zip": "trial_dist/SK_Assistant_TRIAL_ca7adbb.zip",
- "size": 18446951,
- "sha256": "950a3218b663624335c6d06a6cc5b3c0a16eb8369717b00ab9f8ed148d31fec2",
- "built": "2026-11-12T02:49:58",
- "changes": "Limpiar el banco (cleaning game) and faster work"
+ "commit": "d8b9d59f0d04f00b082ea311d5781bf3ed38a08e",
+ "zip": "trial_dist/SK_Assistant_TRIAL_d8b9d59.zip",
+ "size": 18465725,
+ "sha256": "52c26a992d1ac75112db634913eaa68796dc01fc96757c8bb7e5918cdc2d654d",
+ "built": "2026-11-12T03:08:31",
+ "changes": "Keeps searching instead of stopping; money count retried; invisible bullets found with a short Objetos window"
 }
